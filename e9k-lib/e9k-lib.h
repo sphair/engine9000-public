@@ -3,6 +3,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef E9K_HACK_AMI_SPRITE_VIS
+#define E9K_HACK_AMI_SPRITE_VIS 0
+#endif
+
 typedef enum e9k_debug_option
 {
     e9k_debug_option_none = 0,
@@ -79,6 +83,14 @@ typedef struct e9k_debug_ami_blitter_vis_stats {
     uint32_t drawMarkCallsFrame;
     uint32_t drawMarkCallsSnapshot;
 } e9k_debug_ami_blitter_vis_stats_t;
+
+#if E9K_HACK_AMI_SPRITE_VIS
+typedef struct e9k_debug_ami_sprite_vis_point {
+    uint16_t x;
+    uint16_t y;
+    uint32_t spriteIndex;
+} e9k_debug_ami_sprite_vis_point_t;
+#endif
 
 #define E9K_DEBUG_AMI_DMA_DEBUG_FRAME_LATEST_COMPLETE 0u
 #define E9K_DEBUG_AMI_DMA_DEBUG_FRAME_ACTIVE 1u

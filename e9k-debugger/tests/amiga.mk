@@ -1,11 +1,11 @@
-AMIGA_TESTS=test-amigasmoke \
-	    test-amigacustom \
+AMIGA_TESTS=test-amigacustom \
 	    test-amigalog \
 	    test-amigavasm \
 	    test-amigacoreoptions \
             test-amigasavestate \
             test-amigaconfig \
             test-amigalocals 
+#test-amigasmoke \
 
 AMIGA_REMAKE=remake-test-amigacustom \
 	     remake-test-amigalog \

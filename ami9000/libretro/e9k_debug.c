@@ -41,6 +41,10 @@ extern bool libretro_frame_end;
 #define E9K_HACK_COPPER_DEBUG_EXPORT 0
 #endif
 
+#ifndef E9K_HACK_AMI_SPRITE_VIS
+#define E9K_HACK_AMI_SPRITE_VIS 0
+#endif
+
 #if E9K_DEBUGGER_CUSTOM_LOGGER
 #define E9K_DEBUG_AMI_CUSTOM_LOG_ENTRY_CAP 262144u
 #endif
@@ -1304,6 +1308,20 @@ e9k_debug_ami_get_blitter_debug(void)
 #endif
 }
 
+#if E9K_HACK_AMI_SPRITE_VIS
+E9K_DEBUG_EXPORT void
+e9k_debug_ami_set_sprite_vis(int enabled)
+{
+	drawing_setSpriteVisEnabled(enabled ? 1 : 0);
+}
+
+E9K_DEBUG_EXPORT int
+e9k_debug_ami_get_sprite_vis(void)
+{
+	return drawing_getSpriteVisEnabled();
+}
+#endif
+
 E9K_DEBUG_EXPORT size_t
 e9k_debug_ami_blitter_vis_read_points(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight)
 {
@@ -1428,6 +1446,41 @@ e9k_debug_ami_blitter_vis_read_points(e9k_debug_ami_blitter_vis_point_t *out, si
 	return 0;
 #endif
 }
+
+#if E9K_HACK_AMI_SPRITE_VIS
+E9K_DEBUG_EXPORT size_t
+e9k_debug_ami_sprite_vis_read_points(e9k_debug_ami_sprite_vis_point_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight)
+{
+	uint32_t width = (uint32_t)retrow_crop;
+	uint32_t height = (uint32_t)retroh_crop;
+	size_t written = 0;
+
+	if (outWidth) {
+		*outWidth = width;
+	}
+	if (outHeight) {
+		*outHeight = height;
+	}
+	if (width == 0 || height == 0) {
+		return 0;
+	}
+	for (uint32_t y = 0; y < height; ++y) {
+		for (uint32_t x = 0; x < width; ++x) {
+			uae_u32 spriteIndex = 0;
+			if (!drawing_spriteVisGetNativePixelSpriteId((int)y, (int)x, &spriteIndex)) {
+				continue;
+			}
+			if (out && written < cap) {
+				out[written].x = (uint16_t)x;
+				out[written].y = (uint16_t)y;
+				out[written].spriteIndex = spriteIndex;
+			}
+			written++;
+		}
+	}
+	return written;
+}
+#endif
 
 E9K_DEBUG_EXPORT size_t
 e9k_debug_ami_blitter_vis_read_stats(e9k_debug_ami_blitter_vis_stats_t *out, size_t cap)
@@ -1657,6 +1710,12 @@ e9k_debug_ami_on_video_presented(void)
 	}
 	if (!collectMode) {
 		blitter_debugRestoreWritesOlderThan(decayFrames);
+	}
+#endif
+#if E9K_HACK_AMI_SPRITE_VIS
+	if (drawing_getSpriteVisEnabled()) {
+		drawing_spriteVisSnapshotFrame();
+		drawing_spriteVisClearFrame();
 	}
 #endif
 }

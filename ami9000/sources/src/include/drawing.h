@@ -9,6 +9,10 @@
 
 #include "uae/types.h"
 
+#ifndef E9K_HACK_AMI_SPRITE_VIS
+#define E9K_HACK_AMI_SPRITE_VIS 0
+#endif
+
 #define SMART_UPDATE 1
 
 #ifdef SUPPORT_PENGUINS
@@ -348,6 +352,18 @@ extern int drawing_blitterVisTakeNativePixelBlitId(int pixelY, int pixelX, uae_u
 extern uint32_t drawing_blitterVisGetSourceMarkCallsFrame(void);
 extern uint32_t drawing_blitterVisGetNativeMarkCallsFrame(void);
 extern uint32_t drawing_blitterVisGetNativeMarkCallsSnapshot(void);
+#endif
+
+#if E9K_HACK_AMI_SPRITE_VIS
+extern void drawing_setSpriteVisEnabled(int enabled);
+extern int drawing_getSpriteVisEnabled(void);
+extern void drawing_spriteVisClearFrame(void);
+extern void drawing_spriteVisClearAll(void);
+extern void drawing_spriteVisSnapshotFrame(void);
+extern void drawing_spriteVisSetNativeLineContext(int nativeLine);
+extern void drawing_spriteVisMarkNativePixel(int pixelX, int spriteIndex);
+extern void drawing_spriteVisClearNativeRange(int pixelStart, int pixelCount);
+extern int drawing_spriteVisGetNativePixelSpriteId(int pixelY, int pixelX, uae_u32 *spriteIndex);
 #endif
 
 /* Functions in drawing.c.  */

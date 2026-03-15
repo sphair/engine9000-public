@@ -12,6 +12,10 @@
 #include "e9ui.h"
 #include "debugger.h"
 
+#ifndef E9K_HACK_AMI_SPRITE_VIS
+#define E9K_HACK_AMI_SPRITE_VIS 0
+#endif
+
 extern const emu_system_iface_t emu_ami_iface;
 
 int

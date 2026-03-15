@@ -26,6 +26,10 @@
 #include "e9ui_text.h"
 #include "libretro_host.h"
 
+#ifndef E9K_HACK_AMI_SPRITE_VIS
+#define E9K_HACK_AMI_SPRITE_VIS 0
+#endif
+
 #define CUSTOM_UI_TITLE "ENGINE9000 DEBUGGER - CUSTOM"
 #define CUSTOM_UI_AMIGA_SPRITE_COUNT 8
 #define CUSTOM_UI_AMIGA_BITPLANE_COUNT 8
@@ -53,6 +57,10 @@ typedef struct custom_ui_state {
     int copperVisualiserEnabled;
     int blitterDebugEnabled;
     int suppressBlitterDebugCallbacks;
+#if E9K_HACK_AMI_SPRITE_VIS
+    int spriteVisEnabled;
+    int suppressSpriteVisCallbacks;
+#endif
     int blitterVisMode;
     int suppressBlitterVisModeCallbacks;
     int blitterVisBlink;
@@ -95,6 +103,9 @@ typedef struct custom_ui_state {
     e9ui_component_t *audiosCheckbox;
     e9ui_component_t *copperVisualiserCheckbox;
     e9ui_component_t *blitterDebugCheckbox;
+#if E9K_HACK_AMI_SPRITE_VIS
+    e9ui_component_t *spriteVisCheckbox;
+#endif
     e9ui_component_t *blitterVisPatternCheckbox;
     e9ui_component_t *blitterVisModeCheckbox;
     e9ui_component_t *blitterVisCollectCheckbox;
@@ -376,6 +387,9 @@ static custom_ui_state_t custom_ui_state = {
     .blitterEnabled = 1,
     .copperVisualiserEnabled = 0,
     .blitterDebugEnabled = 0,
+#if E9K_HACK_AMI_SPRITE_VIS
+    .spriteVisEnabled = 0,
+#endif
     .blitterVisMode = CUSTOM_UI_BLITTER_VIS_MODE_COLLECT,
     .blitterVisBlink = 1,
     .blitterVisDecay = 5,
@@ -435,6 +449,14 @@ custom_ui_syncEstimateFpsDisplay(custom_ui_state_t *ui);
 
 static void
 custom_ui_syncCopperVisualiserCheckbox(custom_ui_state_t *ui);
+
+#if E9K_HACK_AMI_SPRITE_VIS
+static void
+custom_ui_applySpriteVisOption(void);
+
+static void
+custom_ui_syncSpriteVisCheckbox(custom_ui_state_t *ui);
+#endif
 
 static e9ui_window_backend_t
 custom_ui_windowBackend(void)
@@ -3508,6 +3530,15 @@ custom_ui_applyBlitterDebugOption(void)
     (void)libretro_host_debugAmiSetBlitterDebug(ui->blitterDebugEnabled ? 1 : 0);
 }
 
+#if E9K_HACK_AMI_SPRITE_VIS
+static void
+custom_ui_applySpriteVisOption(void)
+{
+    custom_ui_state_t *ui = &custom_ui_state;
+    (void)libretro_host_debugAmiSetSpriteVis(ui->spriteVisEnabled ? 1 : 0);
+}
+#endif
+
 static void
 custom_ui_applyBplcon1DelayScrollOption(void)
 {
@@ -3624,6 +3655,9 @@ custom_ui_applyAllOptions(void)
     custom_ui_applyBlitterVisDecayOption();
     custom_ui_applyBlitterVisModeOption();
     custom_ui_applyBlitterVisBlinkOption();
+#if E9K_HACK_AMI_SPRITE_VIS
+    custom_ui_applySpriteVisOption();
+#endif
     custom_ui_applyBplcon1DelayScrollOption();
     custom_ui_applyCopperLimitEnabledOption();
     custom_ui_applyCopperLimitStartOption();
@@ -3766,6 +3800,26 @@ custom_ui_syncCopperVisualiserCheckbox(custom_ui_state_t *ui)
         e9ui_checkbox_setSelected(ui->copperVisualiserCheckbox, ui->copperVisualiserEnabled, &ui->ctx);
     }
 }
+
+#if E9K_HACK_AMI_SPRITE_VIS
+static void
+custom_ui_syncSpriteVisCheckbox(custom_ui_state_t *ui)
+{
+    if (!ui) {
+        return;
+    }
+    int enabled = 0;
+    if (!libretro_host_debugAmiGetSpriteVis(&enabled)) {
+        return;
+    }
+    ui->spriteVisEnabled = enabled ? 1 : 0;
+    if (ui->spriteVisCheckbox) {
+        ui->suppressSpriteVisCallbacks = 1;
+        e9ui_checkbox_setSelected(ui->spriteVisCheckbox, ui->spriteVisEnabled, &ui->ctx);
+        ui->suppressSpriteVisCallbacks = 0;
+    }
+}
+#endif
 
 static int
 custom_ui_areAllSpritesEnabled(const custom_ui_state_t *ui)
@@ -4009,6 +4063,24 @@ custom_ui_blitterDebugChanged(e9ui_component_t *self, e9ui_context_t *ctx, int s
     custom_ui_applyBlitterDebugOption();
     custom_ui_syncBlitterDebugSuboptions(ui);
 }
+
+#if E9K_HACK_AMI_SPRITE_VIS
+static void
+custom_ui_spriteVisChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
+{
+    (void)self;
+    (void)ctx;
+    custom_ui_state_t *ui = (custom_ui_state_t *)user;
+    if (!ui) {
+        return;
+    }
+    if (ui->suppressSpriteVisCallbacks) {
+        return;
+    }
+    ui->spriteVisEnabled = selected ? 1 : 0;
+    custom_ui_applySpriteVisOption();
+}
+#endif
 
 static void
 custom_ui_copperVisualiserChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
@@ -4650,9 +4722,31 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
     e9ui_stack_addFixed(leftColumn, cbSprites);
     e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(6));
 
+    e9ui_component_t *spriteColumns = e9ui_hstack_make();
+    if (!spriteColumns) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_component_t *spriteColumnLeft = e9ui_stack_makeVertical();
+    e9ui_component_t *spriteColumnRight = e9ui_stack_makeVertical();
+    if (!spriteColumnLeft || !spriteColumnRight) {
+        if (spriteColumnLeft) {
+            e9ui_childDestroy(spriteColumnLeft, &ui->ctx);
+        }
+        if (spriteColumnRight) {
+            e9ui_childDestroy(spriteColumnRight, &ui->ctx);
+        }
+        e9ui_childDestroy(spriteColumns, &ui->ctx);
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_hstack_addFlex(spriteColumns, spriteColumnLeft);
+    e9ui_hstack_addFixed(spriteColumns, e9ui_spacer_make(6), 6);
+    e9ui_hstack_addFlex(spriteColumns, spriteColumnRight);
+
     for (int spriteIndex = 0; spriteIndex < CUSTOM_UI_AMIGA_SPRITE_COUNT; ++spriteIndex) {
         char label[32];
-        snprintf(label, sizeof(label), "Sprite %d", spriteIndex);
+        snprintf(label, sizeof(label), "Spr %d", spriteIndex);
         ui->spriteCb[spriteIndex].ui = ui;
         ui->spriteCb[spriteIndex].spriteIndex = spriteIndex;
         e9ui_component_t *cbSprite = e9ui_checkbox_make(label,
@@ -4664,9 +4758,18 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
             return NULL;
         }
         ui->spriteCheckboxes[spriteIndex] = cbSprite;
-        e9ui_checkbox_setLeftMargin(cbSprite, 28);
-        e9ui_stack_addFixed(leftColumn, cbSprite);
+        if ((spriteIndex & 1) == 0) {
+            e9ui_stack_addFixed(spriteColumnLeft, cbSprite);
+        } else {
+            e9ui_stack_addFixed(spriteColumnRight, cbSprite);
+        }
     }
+    e9ui_component_t *spriteColumnsInsetRow = custom_ui_insetRowMake(spriteColumns, 24, 0);
+    if (!spriteColumnsInsetRow) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_stack_addFixed(leftColumn, spriteColumnsInsetRow);
     e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(8));
 
     e9ui_component_t *cbBitplanes = e9ui_checkbox_make("Bitplanes",
@@ -4682,9 +4785,31 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
     e9ui_stack_addFixed(leftColumn, cbBitplanes);
     e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(6));
 
+    e9ui_component_t *bitplaneColumns = e9ui_hstack_make();
+    if (!bitplaneColumns) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_component_t *bitplaneColumnLeft = e9ui_stack_makeVertical();
+    e9ui_component_t *bitplaneColumnRight = e9ui_stack_makeVertical();
+    if (!bitplaneColumnLeft || !bitplaneColumnRight) {
+        if (bitplaneColumnLeft) {
+            e9ui_childDestroy(bitplaneColumnLeft, &ui->ctx);
+        }
+        if (bitplaneColumnRight) {
+            e9ui_childDestroy(bitplaneColumnRight, &ui->ctx);
+        }
+        e9ui_childDestroy(bitplaneColumns, &ui->ctx);
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_hstack_addFlex(bitplaneColumns, bitplaneColumnLeft);
+    e9ui_hstack_addFixed(bitplaneColumns, e9ui_spacer_make(6), 6);
+    e9ui_hstack_addFlex(bitplaneColumns, bitplaneColumnRight);
+
     for (int bitplaneIndex = 0; bitplaneIndex < CUSTOM_UI_AMIGA_BITPLANE_COUNT; ++bitplaneIndex) {
         char label[32];
-        snprintf(label, sizeof(label), "Bitplane %d", bitplaneIndex);
+        snprintf(label, sizeof(label), "Bpl %d", bitplaneIndex);
         ui->bitplaneCb[bitplaneIndex].ui = ui;
         ui->bitplaneCb[bitplaneIndex].bitplaneIndex = bitplaneIndex;
         e9ui_component_t *cbBitplane = e9ui_checkbox_make(label,
@@ -4696,9 +4821,18 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
             return NULL;
         }
         ui->bitplaneCheckboxes[bitplaneIndex] = cbBitplane;
-        e9ui_checkbox_setLeftMargin(cbBitplane, 28);
-        e9ui_stack_addFixed(leftColumn, cbBitplane);
+        if ((bitplaneIndex & 1) == 0) {
+            e9ui_stack_addFixed(bitplaneColumnLeft, cbBitplane);
+        } else {
+            e9ui_stack_addFixed(bitplaneColumnRight, cbBitplane);
+        }
     }
+    e9ui_component_t *bitplaneColumnsInsetRow = custom_ui_insetRowMake(bitplaneColumns, 24, 0);
+    if (!bitplaneColumnsInsetRow) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_stack_addFixed(leftColumn, bitplaneColumnsInsetRow);
     e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(8));
 
     e9ui_component_t *cbBplptrBlockAll = e9ui_checkbox_make("Bitplane Ptr Block",
@@ -4787,6 +4921,75 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
     }
     e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(8));
 
+    e9ui_component_t *cbCopperLimit = e9ui_checkbox_make("Copper Block",
+                                                         ui->copperLimitEnabled,
+                                                         custom_ui_copperLimitChanged,
+                                                         ui);
+    if (!cbCopperLimit) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    ui->copperLimitCheckbox = cbCopperLimit;
+    e9ui_checkbox_setLeftMargin(cbCopperLimit, 12);
+    e9ui_stack_addFixed(leftColumn, cbCopperLimit);
+    e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(6));
+
+    char copperLimitStartText[16];
+    snprintf(copperLimitStartText, sizeof(copperLimitStartText), "%d", custom_ui_clampCopperLine(ui->copperLimitStart));
+    e9ui_component_t *copperLimitStartRow = e9ui_labeled_textbox_make("Start",
+                                                                       78,
+                                                                       0,
+                                                                       custom_ui_copperLimitStartChanged,
+                                                                       ui);
+    if (!copperLimitStartRow) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_labeled_textbox_setText(copperLimitStartRow, copperLimitStartText);
+    e9ui_component_t *copperLimitStartTextbox = e9ui_labeled_textbox_getTextbox(copperLimitStartRow);
+    if (copperLimitStartTextbox) {
+        e9ui_textbox_setNumericOnly(copperLimitStartTextbox, 1);
+        e9ui_textbox_setKeyHandler(copperLimitStartTextbox, custom_ui_copperLimitStartTextboxKey, ui);
+    }
+    ui->copperLimitStartRow = copperLimitStartRow;
+    ui->copperLimitStartTextbox = copperLimitStartTextbox;
+    e9ui_component_t *copperLimitStartInsetRow = custom_ui_insetRowMake(copperLimitStartRow, 0, 14);
+    if (!copperLimitStartInsetRow) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_stack_addFixed(leftColumn, copperLimitStartInsetRow);
+    e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(6));
+
+    char copperLimitEndText[16];
+    snprintf(copperLimitEndText, sizeof(copperLimitEndText), "%d", custom_ui_clampCopperLine(ui->copperLimitEnd));
+    e9ui_component_t *copperLimitEndRow = e9ui_labeled_textbox_make("End",
+                                                                     78,
+                                                                     0,
+                                                                     custom_ui_copperLimitEndChanged,
+                                                                     ui);
+    if (!copperLimitEndRow) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_labeled_textbox_setText(copperLimitEndRow, copperLimitEndText);
+    e9ui_component_t *copperLimitEndTextbox = e9ui_labeled_textbox_getTextbox(copperLimitEndRow);
+    if (copperLimitEndTextbox) {
+        e9ui_textbox_setNumericOnly(copperLimitEndTextbox, 1);
+        e9ui_textbox_setKeyHandler(copperLimitEndTextbox, custom_ui_copperLimitEndTextboxKey, ui);
+    }
+    ui->copperLimitEndRow = copperLimitEndRow;
+    ui->copperLimitEndTextbox = copperLimitEndTextbox;
+    e9ui_component_t *copperLimitEndInsetRow = custom_ui_insetRowMake(copperLimitEndRow, 0, 14);
+    if (!copperLimitEndInsetRow) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    e9ui_stack_addFixed(leftColumn, copperLimitEndInsetRow);
+    e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(8));
+
+    custom_ui_syncCopperLimitSuboptions(ui);
+
     e9ui_component_t *cbBlitter = e9ui_checkbox_make("Blitter",
                                                      ui->blitterEnabled,
                                                      custom_ui_blitterChanged,
@@ -4849,6 +5052,21 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
     e9ui_checkbox_setLeftMargin(cbCopperVisualiser, 12);
     e9ui_stack_addFixed(rightColumn, cbCopperVisualiser);
     e9ui_stack_addFixed(rightColumn, e9ui_vspacer_make(8));
+
+#if E9K_HACK_AMI_SPRITE_VIS
+    e9ui_component_t *cbSpriteVis = e9ui_checkbox_make("Sprite Visualiser",
+                                                       ui->spriteVisEnabled,
+                                                       custom_ui_spriteVisChanged,
+                                                       ui);
+    if (!cbSpriteVis) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    ui->spriteVisCheckbox = cbSpriteVis;
+    e9ui_checkbox_setLeftMargin(cbSpriteVis, 12);
+    e9ui_stack_addFixed(rightColumn, cbSpriteVis);
+    e9ui_stack_addFixed(rightColumn, e9ui_vspacer_make(8));
+#endif
 
     e9ui_component_t *cbBlitterDebug = e9ui_checkbox_make("Blitter Visualiser",
                                                            ui->blitterDebugEnabled,
@@ -4980,75 +5198,6 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
     }
     e9ui_stack_addFixed(rightColumn, blitterVisStatsChartInsetRow);
     e9ui_stack_addFixed(rightColumn, e9ui_vspacer_make(8));
-
-    e9ui_component_t *cbCopperLimit = e9ui_checkbox_make("Copper Block",
-                                                         ui->copperLimitEnabled,
-                                                         custom_ui_copperLimitChanged,
-                                                         ui);
-    if (!cbCopperLimit) {
-        e9ui_childDestroy(rootStack, &ui->ctx);
-        return NULL;
-    }
-    ui->copperLimitCheckbox = cbCopperLimit;
-    e9ui_checkbox_setLeftMargin(cbCopperLimit, 12);
-    e9ui_stack_addFixed(rightColumn, cbCopperLimit);
-    e9ui_stack_addFixed(rightColumn, e9ui_vspacer_make(6));
-
-    char copperLimitStartText[16];
-    snprintf(copperLimitStartText, sizeof(copperLimitStartText), "%d", custom_ui_clampCopperLine(ui->copperLimitStart));
-    e9ui_component_t *copperLimitStartRow = e9ui_labeled_textbox_make("Start",
-                                                                       78,
-                                                                       0,
-                                                                       custom_ui_copperLimitStartChanged,
-                                                                       ui);
-    if (!copperLimitStartRow) {
-        e9ui_childDestroy(rootStack, &ui->ctx);
-        return NULL;
-    }
-    e9ui_labeled_textbox_setText(copperLimitStartRow, copperLimitStartText);
-    e9ui_component_t *copperLimitStartTextbox = e9ui_labeled_textbox_getTextbox(copperLimitStartRow);
-    if (copperLimitStartTextbox) {
-        e9ui_textbox_setNumericOnly(copperLimitStartTextbox, 1);
-        e9ui_textbox_setKeyHandler(copperLimitStartTextbox, custom_ui_copperLimitStartTextboxKey, ui);
-    }
-    ui->copperLimitStartRow = copperLimitStartRow;
-    ui->copperLimitStartTextbox = copperLimitStartTextbox;
-    e9ui_component_t *copperLimitStartInsetRow = custom_ui_insetRowMake(copperLimitStartRow, 0, 14);
-    if (!copperLimitStartInsetRow) {
-        e9ui_childDestroy(rootStack, &ui->ctx);
-        return NULL;
-    }
-    e9ui_stack_addFixed(rightColumn, copperLimitStartInsetRow);
-    e9ui_stack_addFixed(rightColumn, e9ui_vspacer_make(6));
-
-    char copperLimitEndText[16];
-    snprintf(copperLimitEndText, sizeof(copperLimitEndText), "%d", custom_ui_clampCopperLine(ui->copperLimitEnd));
-    e9ui_component_t *copperLimitEndRow = e9ui_labeled_textbox_make("End",
-                                                                     78,
-                                                                     0,
-                                                                     custom_ui_copperLimitEndChanged,
-                                                                     ui);
-    if (!copperLimitEndRow) {
-        e9ui_childDestroy(rootStack, &ui->ctx);
-        return NULL;
-    }
-    e9ui_labeled_textbox_setText(copperLimitEndRow, copperLimitEndText);
-    e9ui_component_t *copperLimitEndTextbox = e9ui_labeled_textbox_getTextbox(copperLimitEndRow);
-    if (copperLimitEndTextbox) {
-        e9ui_textbox_setNumericOnly(copperLimitEndTextbox, 1);
-        e9ui_textbox_setKeyHandler(copperLimitEndTextbox, custom_ui_copperLimitEndTextboxKey, ui);
-    }
-    ui->copperLimitEndRow = copperLimitEndRow;
-    ui->copperLimitEndTextbox = copperLimitEndTextbox;
-    e9ui_component_t *copperLimitEndInsetRow = custom_ui_insetRowMake(copperLimitEndRow, 0, 14);
-    if (!copperLimitEndInsetRow) {
-        e9ui_childDestroy(rootStack, &ui->ctx);
-        return NULL;
-    }
-    e9ui_stack_addFixed(rightColumn, copperLimitEndInsetRow);
-    e9ui_stack_addFixed(rightColumn, e9ui_vspacer_make(8));
-
-    custom_ui_syncCopperLimitSuboptions(ui);
 
     e9ui_component_t *cbAudios = e9ui_checkbox_make("Audio",
                                                     ui->audiosEnabled,
@@ -5320,6 +5469,9 @@ custom_ui_prepareFrame(custom_ui_state_t *ui, const e9ui_context_t *frameCtx)
         ui->pendingRemove = NULL;
     }
     custom_ui_syncBlitterDebugCheckbox(ui);
+#if E9K_HACK_AMI_SPRITE_VIS
+    custom_ui_syncSpriteVisCheckbox(ui);
+#endif
     custom_ui_syncCopperVisualiserCheckbox(ui);
     custom_ui_tickBlitterVisDecayTextbox(ui);
     custom_ui_tickCopperLimitTextboxes(ui);
@@ -5418,6 +5570,9 @@ custom_ui_init(void)
     }
     ui->warnedMissingOption = 0;
     ui->suppressBlitterDebugCallbacks = 0;
+#if E9K_HACK_AMI_SPRITE_VIS
+    ui->suppressSpriteVisCallbacks = 0;
+#endif
     ui->suppressBlitterVisModeCallbacks = 0;
     ui->suppressSpriteCallbacks = 0;
     ui->suppressBitplaneCallbacks = 0;
@@ -5442,6 +5597,9 @@ custom_ui_init(void)
     ui->bplptrLineLimitEndTextbox = NULL;
     ui->bplptrLineLimitEndTextboxHadFocus = 0;
     ui->blitterDebugCheckbox = NULL;
+#if E9K_HACK_AMI_SPRITE_VIS
+    ui->spriteVisCheckbox = NULL;
+#endif
     ui->blitterVisPatternCheckbox = NULL;
     ui->blitterVisModeCheckbox = NULL;
     ui->blitterVisCollectCheckbox = NULL;
@@ -5497,6 +5655,9 @@ custom_ui_init(void)
     custom_ui_syncBplptrBlockMasterCheckbox(ui);
     custom_ui_syncAudiosMasterCheckbox(ui);
     custom_ui_syncBlitterDebugCheckbox(ui);
+#if E9K_HACK_AMI_SPRITE_VIS
+    custom_ui_syncSpriteVisCheckbox(ui);
+#endif
     libretro_host_setEstimateFpsEnabled(ui->estimateFpsEnabled);
 
     ui->root = custom_ui_buildRoot(ui);

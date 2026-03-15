@@ -25,6 +25,10 @@
 #include "libretro_host.h"
 #include "ui.h"
 
+#ifndef E9K_HACK_AMI_SPRITE_VIS
+#define E9K_HACK_AMI_SPRITE_VIS 0
+#endif
+
 #define EMU_AMI_BLITTER_VIS_POINTS_CAP_DEFAULT (2304u * 1620u)
 #define EMU_AMI_BLITTER_VIS_LINE_TABLE_CAP_MAX (1u << 20)
 #define EMU_AMI_BLITTER_VIS_WORD_SHIFT_PIXELS 16
@@ -110,6 +114,21 @@ typedef struct emu_ami_blitter_vis_cache {
     e9k_debug_ami_blitter_vis_stats_t latestStats;
 } emu_ami_blitter_vis_cache_t;
 
+#if E9K_HACK_AMI_SPRITE_VIS
+typedef struct emu_ami_sprite_vis_cache {
+    SDL_Texture *texture;
+    SDL_Renderer *renderer;
+    uint32_t *pixels;
+    size_t pixelsCap;
+    uint8_t *spriteIds;
+    size_t spriteIdsCap;
+    int texWidth;
+    int texHeight;
+    e9k_debug_ami_sprite_vis_point_t *points;
+    size_t pointsCap;
+} emu_ami_sprite_vis_cache_t;
+#endif
+
 typedef struct emu_ami_dma_debug_cache {
     SDL_Texture *texture;
     SDL_Renderer *renderer;
@@ -136,12 +155,27 @@ typedef struct emu_ami_copper_legend_entry {
 } emu_ami_copper_legend_entry_t;
 
 static emu_ami_blitter_vis_cache_t emu_ami_blitterVisCache = {0};
+#if E9K_HACK_AMI_SPRITE_VIS
+static emu_ami_sprite_vis_cache_t emu_ami_spriteVisCache = {0};
+#endif
 static emu_ami_dma_debug_cache_t emu_ami_dmaDebugCache = {0};
 static emu_ami_copper_debug_cache_t emu_ami_copperDebugCache = {0};
 static int emu_ami_copperDebugForcedDma = 0;
 static int emu_ami_copperDebugPrevDmaMode = 0;
 static int emu_ami_customLogCallbackBound = 0;
 static SDL_Rect emu_ami_copperLegendOuterDst = { 0, 0, 0, 0 };
+static int emu_ami_legendReservedHeight = 0;
+
+static uint32_t
+emu_ami_blitterVisColorFromId(uint32_t blitId);
+
+#if E9K_HACK_AMI_SPRITE_VIS
+static uint32_t
+emu_ami_spriteVisColorFromIndex(uint32_t spriteIndex);
+#endif
+
+static int
+emu_ami_isCopperDebugEnabled(void);
 
 static int
 emu_ami_isPaletteRegOffset(uint16_t regOffset)
@@ -203,6 +237,48 @@ emu_ami_copperLegendReserveHeight(int height)
     if (reserve > 96) {
         reserve = 96;
     }
+    if (reserve >= height / 2) {
+        reserve = height / 2;
+    }
+    return reserve;
+}
+
+#if E9K_HACK_AMI_SPRITE_VIS
+static int
+emu_ami_isSpriteVisEnabled(void)
+{
+    int enabled = 0;
+
+    return libretro_host_debugAmiGetSpriteVis(&enabled) && enabled ? 1 : 0;
+}
+#endif
+
+static int
+emu_ami_getLegendSlotCount(void)
+{
+    int count = 0;
+
+    if (emu_ami_isCopperDebugEnabled()) {
+        count++;
+    }
+#if E9K_HACK_AMI_SPRITE_VIS
+    if (emu_ami_isSpriteVisEnabled()) {
+        count++;
+    }
+#endif
+    return count;
+}
+
+static int
+emu_ami_getLegendReserveHeight(int height)
+{
+    int slotCount = emu_ami_getLegendSlotCount();
+    int reserve = 0;
+
+    if (slotCount <= 0) {
+        return 0;
+    }
+    reserve = emu_ami_copperLegendReserveHeight(height) * slotCount;
     if (reserve >= height / 2) {
         reserve = height / 2;
     }
@@ -282,16 +358,13 @@ emu_ami_isCopperPaletteOffset(uint16_t regOffset)
 }
 
 static void
-emu_ami_renderCopperLegend(e9ui_context_t *ctx, const SDL_Rect *videoDst)
+emu_ami_renderLegend(e9ui_context_t *ctx,
+                     const SDL_Rect *videoDst,
+                     const emu_ami_copper_legend_entry_t *entries,
+                     size_t count,
+                     int slotIndex,
+                     int slotCount)
 {
-    static const emu_ami_copper_legend_entry_t entries[] = {
-        { "WAIT/SKIP", 0x00ff0000u },
-        { "MOVE SPR*", 0x00ffffffu },
-        { "MOVE BLT*", 0x000000ffu },
-        { "MOVE BPL*PT*", 0x00ff00ffu },
-        { "MOVE COLOR*", 0x0000ff00u },
-        { "MOVE OTHER", 0x00ffff00u }
-    };
     TTF_Font *font = NULL;
     int lineHeight = 0;
     int pad = 0;
@@ -308,16 +381,48 @@ emu_ami_renderCopperLegend(e9ui_context_t *ctx, const SDL_Rect *videoDst)
     int rowCount = 1;
     int rowWidths[8] = { 0 };
     int rowItems[8] = { 0 };
-    size_t count = sizeof(entries) / sizeof(entries[0]);
     int itemWidths[8] = { 0 };
     SDL_Color textColor = { 232, 232, 236, 255 };
+    int footerTop = 0;
+    int footerBottom = 0;
+    int footerHeight = 0;
+    int slotTop = 0;
+    int slotBottom = 0;
+    int slotHeight = 0;
 
-    if (!ctx || !ctx->renderer || !videoDst) {
+    if (!ctx || !ctx->renderer || !videoDst || !entries || count == 0u) {
+        return;
+    }
+    if (slotCount <= 0 || slotIndex < 0 || slotIndex >= slotCount) {
         return;
     }
 
-    legendTop = videoDst->y + videoDst->h + e9ui_scale_px(ctx, 6);
-    if (legendTop >= emu_ami_copperLegendOuterDst.y + emu_ami_copperLegendOuterDst.h) {
+    footerTop = videoDst->y + videoDst->h + e9ui_scale_px(ctx, 6);
+    footerBottom = emu_ami_copperLegendOuterDst.y + emu_ami_copperLegendOuterDst.h;
+    if (footerTop >= footerBottom) {
+        int overlayPad = e9ui_scale_px(ctx, 8);
+        int overlayHeight = emu_ami_copperLegendReserveHeight(videoDst->h) * slotCount;
+
+        if (overlayHeight >= videoDst->h / 2) {
+            overlayHeight = videoDst->h / 2;
+        }
+        if (overlayHeight <= 0) {
+            return;
+        }
+        footerBottom = videoDst->y + videoDst->h - overlayPad;
+        footerTop = footerBottom - overlayHeight;
+        if (footerTop < videoDst->y + overlayPad) {
+            footerTop = videoDst->y + overlayPad;
+        }
+        if (footerTop >= footerBottom) {
+            return;
+        }
+    }
+    footerHeight = footerBottom - footerTop;
+    slotTop = footerTop + (footerHeight * slotIndex) / slotCount;
+    slotBottom = footerTop + (footerHeight * (slotIndex + 1)) / slotCount;
+    slotHeight = slotBottom - slotTop;
+    if (slotHeight <= 0) {
         return;
     }
 
@@ -339,7 +444,7 @@ emu_ami_renderCopperLegend(e9ui_context_t *ctx, const SDL_Rect *videoDst)
         return;
     }
 
-    for (size_t i = 0; i < count; ++i) {
+    for (size_t i = 0; i < count && i < (sizeof(itemWidths) / sizeof(itemWidths[0])); ++i) {
         int textWidth = emu_ami_measureTextWidth(font, entries[i].label);
         int itemWidth = swatch + e9ui_scale_px(ctx, 6) + textWidth;
 
@@ -360,8 +465,8 @@ emu_ami_renderCopperLegend(e9ui_context_t *ctx, const SDL_Rect *videoDst)
     }
 
     legendHeight = pad * 2 + rowCount * lineHeight + (rowCount - 1) * rowGap;
-    if (legendTop + legendHeight > emu_ami_copperLegendOuterDst.y + emu_ami_copperLegendOuterDst.h) {
-        legendHeight = emu_ami_copperLegendOuterDst.y + emu_ami_copperLegendOuterDst.h - legendTop;
+    if (legendHeight > slotHeight) {
+        legendHeight = slotHeight;
     }
     if (legendHeight <= lineHeight) {
         return;
@@ -376,6 +481,10 @@ emu_ami_renderCopperLegend(e9ui_context_t *ctx, const SDL_Rect *videoDst)
     legendX = emu_ami_copperLegendOuterDst.x + (emu_ami_copperLegendOuterDst.w - legendWidth) / 2;
     if (legendX < emu_ami_copperLegendOuterDst.x + outerPad) {
         legendX = emu_ami_copperLegendOuterDst.x + outerPad;
+    }
+    legendTop = slotTop + (slotHeight - legendHeight) / 2;
+    if (legendTop < slotTop) {
+        legendTop = slotTop;
     }
 
     SDL_Rect bg = { legendX, legendTop, legendWidth, legendHeight };
@@ -420,6 +529,49 @@ emu_ami_renderCopperLegend(e9ui_context_t *ctx, const SDL_Rect *videoDst)
         y += lineHeight + rowGap;
     }
 }
+
+static void
+emu_ami_renderCopperLegend(e9ui_context_t *ctx, const SDL_Rect *videoDst)
+{
+    static const emu_ami_copper_legend_entry_t entries[] = {
+        { "WAIT/SKIP", 0x00ff0000u },
+        { "MOVE SPR*", 0x00ffffffu },
+        { "MOVE BLT*", 0x000000ffu },
+        { "MOVE BPL*PT*", 0x00ff00ffu },
+        { "MOVE COLOR*", 0x0000ff00u },
+        { "MOVE OTHER", 0x00ffff00u }
+    };
+
+    if (!ctx || !ctx->renderer || !videoDst || !emu_ami_isCopperDebugEnabled()) {
+        return;
+    }
+    emu_ami_renderLegend(ctx,
+                         videoDst,
+                         entries,
+                         sizeof(entries) / sizeof(entries[0]),
+                         0,
+                         emu_ami_getLegendSlotCount());
+}
+
+#if E9K_HACK_AMI_SPRITE_VIS
+static void
+emu_ami_renderSpriteLegend(e9ui_context_t *ctx, const SDL_Rect *videoDst)
+{
+    emu_ami_copper_legend_entry_t entries[8];
+    char labels[8][8];
+    int slotIndex = emu_ami_isCopperDebugEnabled() ? 1 : 0;
+
+    if (!ctx || !ctx->renderer || !videoDst || !emu_ami_isSpriteVisEnabled()) {
+        return;
+    }
+    for (int i = 0; i < 8; ++i) {
+        snprintf(labels[i], sizeof(labels[i]), "SPR%d", i);
+        entries[i].label = labels[i];
+        entries[i].color = emu_ami_spriteVisColorFromIndex((uint32_t)i) & 0x00ffffffu;
+    }
+    emu_ami_renderLegend(ctx, videoDst, entries, 8u, slotIndex, emu_ami_getLegendSlotCount());
+}
+#endif
 
 static const char *
 emu_ami_mouseCaptureOptionKey(void)
@@ -693,6 +845,16 @@ emu_ami_tryBindCustomLogFrameCallback(void)
 static void
 emu_ami_destroy(void)
 {
+#if E9K_HACK_AMI_SPRITE_VIS
+    if (emu_ami_spriteVisCache.texture) {
+        SDL_DestroyTexture(emu_ami_spriteVisCache.texture);
+        emu_ami_spriteVisCache.texture = NULL;
+    }
+    free(emu_ami_spriteVisCache.pixels);
+    free(emu_ami_spriteVisCache.spriteIds);
+    free(emu_ami_spriteVisCache.points);
+    memset(&emu_ami_spriteVisCache, 0, sizeof(emu_ami_spriteVisCache));
+#endif
     if (emu_ami_dmaDebugCache.texture) {
         SDL_DestroyTexture(emu_ami_dmaDebugCache.texture);
         emu_ami_dmaDebugCache.texture = NULL;
@@ -723,6 +885,26 @@ emu_ami_blitterVisColorFromId(uint32_t blitId)
     uint8_t b = (uint8_t)(64u + ((h >> 16) & 0x7fu));
     return (uint32_t)(0xb0u << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
 }
+
+#if E9K_HACK_AMI_SPRITE_VIS
+static uint32_t
+emu_ami_spriteVisColorFromIndex(uint32_t spriteIndex)
+{
+    static const uint32_t palette[] = {
+        0x00ff4d4du,
+        0x004dc3ffu,
+        0x006dff4du,
+        0x00ffe14du,
+        0x00ff4dbeu,
+        0x00ff8a33u,
+        0x008c4dffu,
+        0x004dffd9u
+    };
+    uint32_t rgb = palette[spriteIndex & 7u];
+
+    return (uint32_t)(0xb0u << 24) | rgb;
+}
+#endif
 
 static uint32_t
 emu_ami_dmaDebugArgb(uint8_t r, uint8_t g, uint8_t b)
@@ -1734,6 +1916,126 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
     SDL_RenderCopy(ctx->renderer, emu_ami_blitterVisCache.texture, NULL, dst);
 }
 
+#if E9K_HACK_AMI_SPRITE_VIS
+static void
+emu_ami_renderSpriteVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
+{
+    int enabled = 0;
+    uint32_t srcWidth = 0;
+    uint32_t srcHeight = 0;
+
+    if (!libretro_host_debugAmiGetSpriteVis(&enabled) || !enabled) {
+        return;
+    }
+    if (!emu_ami_spriteVisCache.pointsCap) {
+        emu_ami_spriteVisCache.pointsCap = EMU_AMI_BLITTER_VIS_POINTS_CAP_DEFAULT;
+        emu_ami_spriteVisCache.points =
+            (e9k_debug_ami_sprite_vis_point_t *)realloc(emu_ami_spriteVisCache.points,
+                                                        emu_ami_spriteVisCache.pointsCap * sizeof(*emu_ami_spriteVisCache.points));
+        if (!emu_ami_spriteVisCache.points) {
+            emu_ami_spriteVisCache.pointsCap = 0u;
+            return;
+        }
+    }
+
+    size_t fetchedCount = libretro_host_debugAmiReadSpriteVisPoints(emu_ami_spriteVisCache.points,
+                                                                    emu_ami_spriteVisCache.pointsCap,
+                                                                    &srcWidth,
+                                                                    &srcHeight);
+    if (fetchedCount > emu_ami_spriteVisCache.pointsCap) {
+        e9k_debug_ami_sprite_vis_point_t *nextPoints =
+            (e9k_debug_ami_sprite_vis_point_t *)realloc(emu_ami_spriteVisCache.points,
+                                                        fetchedCount * sizeof(*nextPoints));
+        if (!nextPoints) {
+            return;
+        }
+        emu_ami_spriteVisCache.points = nextPoints;
+        emu_ami_spriteVisCache.pointsCap = fetchedCount;
+        fetchedCount = libretro_host_debugAmiReadSpriteVisPoints(emu_ami_spriteVisCache.points,
+                                                                 emu_ami_spriteVisCache.pointsCap,
+                                                                 &srcWidth,
+                                                                 &srcHeight);
+    }
+    if (!srcWidth || !srcHeight) {
+        return;
+    }
+
+    int textureWidth = (int)srcWidth;
+    int textureHeight = (int)srcHeight;
+    if (textureWidth <= 0 || textureHeight <= 0) {
+        return;
+    }
+    if (emu_ami_spriteVisCache.renderer != ctx->renderer) {
+        if (emu_ami_spriteVisCache.texture) {
+            SDL_DestroyTexture(emu_ami_spriteVisCache.texture);
+            emu_ami_spriteVisCache.texture = NULL;
+        }
+        emu_ami_spriteVisCache.renderer = ctx->renderer;
+        emu_ami_spriteVisCache.texWidth = 0;
+        emu_ami_spriteVisCache.texHeight = 0;
+    }
+    if (!emu_ami_spriteVisCache.texture ||
+        emu_ami_spriteVisCache.texWidth != textureWidth ||
+        emu_ami_spriteVisCache.texHeight != textureHeight) {
+        if (emu_ami_spriteVisCache.texture) {
+            SDL_DestroyTexture(emu_ami_spriteVisCache.texture);
+            emu_ami_spriteVisCache.texture = NULL;
+        }
+        emu_ami_spriteVisCache.texture = SDL_CreateTexture(ctx->renderer,
+                                                           SDL_PIXELFORMAT_ARGB8888,
+                                                           SDL_TEXTUREACCESS_STREAMING,
+                                                           textureWidth,
+                                                           textureHeight);
+        if (!emu_ami_spriteVisCache.texture) {
+            return;
+        }
+        emu_ami_spriteVisCache.texWidth = textureWidth;
+        emu_ami_spriteVisCache.texHeight = textureHeight;
+    }
+
+    size_t pixelCount = (size_t)textureWidth * (size_t)textureHeight;
+    if (pixelCount > emu_ami_spriteVisCache.pixelsCap) {
+        uint32_t *nextPixels =
+            (uint32_t *)realloc(emu_ami_spriteVisCache.pixels, pixelCount * sizeof(*nextPixels));
+        if (!nextPixels) {
+            return;
+        }
+        emu_ami_spriteVisCache.pixels = nextPixels;
+        emu_ami_spriteVisCache.pixelsCap = pixelCount;
+    }
+    if (pixelCount > emu_ami_spriteVisCache.spriteIdsCap) {
+        uint8_t *nextSpriteIds =
+            (uint8_t *)realloc(emu_ami_spriteVisCache.spriteIds, pixelCount * sizeof(*nextSpriteIds));
+        if (!nextSpriteIds) {
+            return;
+        }
+        emu_ami_spriteVisCache.spriteIds = nextSpriteIds;
+        emu_ami_spriteVisCache.spriteIdsCap = pixelCount;
+    }
+
+    memset(emu_ami_spriteVisCache.pixels, 0, pixelCount * sizeof(*emu_ami_spriteVisCache.pixels));
+    memset(emu_ami_spriteVisCache.spriteIds, 0, pixelCount * sizeof(*emu_ami_spriteVisCache.spriteIds));
+    for (size_t i = 0; i < fetchedCount; ++i) {
+        uint32_t x = emu_ami_spriteVisCache.points[i].x;
+        uint32_t y = emu_ami_spriteVisCache.points[i].y;
+        if (x >= srcWidth || y >= srcHeight) {
+            continue;
+        }
+        uint32_t spriteIndex = emu_ami_spriteVisCache.points[i].spriteIndex;
+        size_t pixelIndex = (size_t)y * (size_t)srcWidth + (size_t)x;
+        emu_ami_spriteVisCache.pixels[pixelIndex] = emu_ami_spriteVisColorFromIndex(spriteIndex);
+        emu_ami_spriteVisCache.spriteIds[pixelIndex] = (uint8_t)(spriteIndex + 1u);
+    }
+
+    SDL_UpdateTexture(emu_ami_spriteVisCache.texture,
+                      NULL,
+                      emu_ami_spriteVisCache.pixels,
+                      textureWidth * (int)sizeof(*emu_ami_spriteVisCache.pixels));
+    SDL_SetTextureBlendMode(emu_ami_spriteVisCache.texture, SDL_BLENDMODE_BLEND);
+    SDL_RenderCopy(ctx->renderer, emu_ami_spriteVisCache.texture, NULL, dst);
+}
+#endif
+
 static int
 emu_ami_dmaDebugNormalizeLineDhpos(int dhpos, int lineStartDhpos, int dhposWrap)
 {
@@ -1808,22 +2110,32 @@ emu_ami_getDmaDebugOverlayDst(const e9k_debug_ami_dma_debug_frame_view_t *frame,
 }
 
 static void
+emu_ami_adjustVideoBounds(e9ui_rect_t *bounds)
+{
+    if (!bounds || bounds->w <= 0 || bounds->h <= 0) {
+        emu_ami_legendReservedHeight = 0;
+        return;
+    }
+
+    emu_ami_legendReservedHeight = emu_ami_getLegendReserveHeight(bounds->h);
+    if (emu_ami_legendReservedHeight > 0 && emu_ami_legendReservedHeight < bounds->h) {
+        bounds->h -= emu_ami_legendReservedHeight;
+    } else {
+        emu_ami_legendReservedHeight = 0;
+    }
+}
+
+static void
 emu_ami_adjustVideoDst(SDL_Rect *dst)
 {
     if (!dst || dst->w <= 0 || dst->h <= 0) {
         return;
     }
 
-    emu_ami_copperLegendOuterDst = *dst;
-    if (emu_ami_isCopperDebugEnabled()) {
-        int reserveHeight = emu_ami_copperLegendReserveHeight(dst->h);
-        if (reserveHeight > 0 && reserveHeight < dst->h) {
-            dst->h -= reserveHeight;
-        }
-    }
-
     const e9k_debug_ami_dma_debug_frame_view_t *frame = emu_ami_getScaledDmaDebugFrameView();
     if (!frame) {
+        emu_ami_copperLegendOuterDst = *dst;
+        emu_ami_copperLegendOuterDst.h += emu_ami_legendReservedHeight;
         return;
     }
 
@@ -1840,6 +2152,8 @@ emu_ami_adjustVideoDst(SDL_Rect *dst)
     dst->y += adjustedOffsetY;
     dst->w = adjustedWidth;
     dst->h = adjustedHeight;
+    emu_ami_copperLegendOuterDst = *dst;
+    emu_ami_copperLegendOuterDst.h += emu_ami_legendReservedHeight;
 }
 
 static void
@@ -2762,7 +3076,6 @@ emu_ami_renderCopperDebugOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
     }
 
     SDL_RenderCopy(ctx->renderer, emu_ami_copperDebugCache.texture, NULL, &overlayDst);
-    emu_ami_renderCopperLegend(ctx, dst);
 }
 
 static void
@@ -2793,6 +3106,116 @@ emu_ami_renderCopperTooltipOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
     }
     emu_ami_renderCopperTooltip(ctx, &hoveredRect, tooltip, showSwatch, swatchColor);
 }
+
+#if E9K_HACK_AMI_SPRITE_VIS
+static int
+emu_ami_findSpriteVisPixelAtPoint(const SDL_Rect *dst,
+                                  int mouseX,
+                                  int mouseY,
+                                  SDL_Rect *outRect,
+                                  uint32_t *outSpriteIndex)
+{
+    int localX = 0;
+    int localY = 0;
+    int srcX = 0;
+    int srcY = 0;
+    int x0 = 0;
+    int x1 = 0;
+    int y0 = 0;
+    int y1 = 0;
+    size_t pixelIndex = 0u;
+    uint8_t spriteId = 0u;
+
+    if (outRect) {
+        memset(outRect, 0, sizeof(*outRect));
+    }
+    if (outSpriteIndex) {
+        *outSpriteIndex = 0u;
+    }
+    if (!dst || dst->w <= 0 || dst->h <= 0 || !emu_ami_isSpriteVisEnabled()) {
+        return 0;
+    }
+    if (!emu_ami_spriteVisCache.spriteIds ||
+        emu_ami_spriteVisCache.texWidth <= 0 ||
+        emu_ami_spriteVisCache.texHeight <= 0) {
+        return 0;
+    }
+    if (mouseX < dst->x ||
+        mouseX >= dst->x + dst->w ||
+        mouseY < dst->y ||
+        mouseY >= dst->y + dst->h) {
+        return 0;
+    }
+
+    localX = mouseX - dst->x;
+    localY = mouseY - dst->y;
+    srcX = (int)(((int64_t)localX * (int64_t)emu_ami_spriteVisCache.texWidth) / (int64_t)dst->w);
+    srcY = (int)(((int64_t)localY * (int64_t)emu_ami_spriteVisCache.texHeight) / (int64_t)dst->h);
+    if (srcX < 0 ||
+        srcX >= emu_ami_spriteVisCache.texWidth ||
+        srcY < 0 ||
+        srcY >= emu_ami_spriteVisCache.texHeight) {
+        return 0;
+    }
+
+    pixelIndex = (size_t)srcY * (size_t)emu_ami_spriteVisCache.texWidth + (size_t)srcX;
+    if (pixelIndex >= emu_ami_spriteVisCache.spriteIdsCap) {
+        return 0;
+    }
+    spriteId = emu_ami_spriteVisCache.spriteIds[pixelIndex];
+    if (!spriteId) {
+        return 0;
+    }
+
+    x0 = dst->x + emu_ami_scaleAxis(srcX, emu_ami_spriteVisCache.texWidth, dst->w);
+    x1 = dst->x + emu_ami_scaleAxis(srcX + 1, emu_ami_spriteVisCache.texWidth, dst->w);
+    y0 = dst->y + emu_ami_scaleAxis(srcY, emu_ami_spriteVisCache.texHeight, dst->h);
+    y1 = dst->y + emu_ami_scaleAxis(srcY + 1, emu_ami_spriteVisCache.texHeight, dst->h);
+    if (x1 <= x0) {
+        x1 = x0 + 1;
+    }
+    if (y1 <= y0) {
+        y1 = y0 + 1;
+    }
+
+    if (outRect) {
+        outRect->x = x0;
+        outRect->y = y0;
+        outRect->w = x1 - x0;
+        outRect->h = y1 - y0;
+    }
+    if (outSpriteIndex) {
+        *outSpriteIndex = (uint32_t)(spriteId - 1u);
+    }
+    return 1;
+}
+
+static int
+emu_ami_renderSpriteVisTooltipOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
+{
+    SDL_Rect hoveredRect = { 0, 0, 0, 0 };
+    SDL_Color swatchColor = { 0, 0, 0, 255 };
+    uint32_t spriteColor = 0u;
+    uint32_t spriteIndex = 0u;
+    char tooltip[64];
+
+    if (!ctx || !dst || dst->w <= 0 || dst->h <= 0) {
+        return 0;
+    }
+    if (!emu_ami_findSpriteVisPixelAtPoint(dst, ctx->mouseX, ctx->mouseY, &hoveredRect, &spriteIndex)) {
+        return 0;
+    }
+
+    spriteColor = emu_ami_spriteVisColorFromIndex(spriteIndex);
+    swatchColor.r = (uint8_t)((spriteColor >> 16) & 0xffu);
+    swatchColor.g = (uint8_t)((spriteColor >> 8) & 0xffu);
+    swatchColor.b = (uint8_t)(spriteColor & 0xffu);
+    e9ui_drawFocusRingRect(ctx, hoveredRect, 1);
+    snprintf(tooltip, sizeof(tooltip), "Sprite %u", (unsigned)spriteIndex);
+    emu_ami_renderCopperTooltip(ctx, &hoveredRect, tooltip, 1, swatchColor);
+    return 1;
+}
+#endif
 
 static int
 emu_ami_handleOverlayEvent(e9ui_context_t *ctx, const SDL_Rect *dst, const e9ui_event_t *ev)
@@ -3046,11 +3469,23 @@ emu_ami_render(e9ui_context_t *ctx, SDL_Rect* dst)
     emu_ami_renderDmaDebugOverlay(ctx, dst);
     emu_ami_renderCopperDebugOverlay(ctx, dst);
     emu_ami_renderBlitterVisOverlay(ctx, dst);
+#if E9K_HACK_AMI_SPRITE_VIS
+    emu_ami_renderSpriteVisOverlay(ctx, dst);
+#endif
+    emu_ami_renderCopperLegend(ctx, dst);
+#if E9K_HACK_AMI_SPRITE_VIS
+    emu_ami_renderSpriteLegend(ctx, dst);
+#endif
 }
 
 static void
 emu_ami_renderForeground(e9ui_context_t *ctx, SDL_Rect *dst)
 {
+#if E9K_HACK_AMI_SPRITE_VIS
+    if (emu_ami_renderSpriteVisTooltipOverlay(ctx, dst)) {
+        return;
+    }
+#endif
     emu_ami_renderCopperTooltipOverlay(ctx, dst);
 }
 
@@ -3067,6 +3502,7 @@ const emu_system_iface_t emu_ami_iface = {
     .rangeBarTooltip = emu_ami_rangeBarTooltip,
     .rangeBarSync = emu_ami_rangeBarSync,
     .handleOverlayEvent = emu_ami_handleOverlayEvent,
+    .adjustVideoBounds = emu_ami_adjustVideoBounds,
     .adjustVideoDst = emu_ami_adjustVideoDst,
     .createOverlays = emu_ami_createOverlays,
     .render = emu_ami_render,

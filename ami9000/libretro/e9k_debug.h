@@ -11,6 +11,10 @@
 #define E9K_DEBUGGER_CUSTOM_LOGGER 0
 #endif
 
+#ifndef E9K_HACK_AMI_SPRITE_VIS
+#define E9K_HACK_AMI_SPRITE_VIS 0
+#endif
+
 // Debug base register sections (passed to e9k_debug_set_debug_base_callback()).
 #define E9K_DEBUG_BASE_SECTION_TEXT 0u
 #define E9K_DEBUG_BASE_SECTION_DATA 1u
@@ -96,6 +100,17 @@ e9k_debug_ami_blitter_vis_read_points(e9k_debug_ami_blitter_vis_point_t *out, si
 
 size_t
 e9k_debug_ami_blitter_vis_read_stats(e9k_debug_ami_blitter_vis_stats_t *out, size_t cap);
+
+#if E9K_HACK_AMI_SPRITE_VIS
+void
+e9k_debug_ami_set_sprite_vis(int enabled);
+
+int
+e9k_debug_ami_get_sprite_vis(void);
+
+size_t
+e9k_debug_ami_sprite_vis_read_points(e9k_debug_ami_sprite_vis_point_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight);
+#endif
 
 const e9k_debug_ami_dma_debug_frame_view_t *
 e9k_debug_ami_dma_debug_get_frame_view(uint32_t frameSelect);

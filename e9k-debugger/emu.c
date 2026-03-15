@@ -826,7 +826,11 @@ emu_getVideoDst(e9ui_component_t *self, SDL_Rect *outDst)
     if (!libretro_host_getFrame(&data, &tex_w, &tex_h, &pitch)) {
         return 0;
     }
-    *outDst = emu_fitRect(self->bounds, tex_w, tex_h);
+    e9ui_rect_t fitBounds = self->bounds;
+    if (target->emu->adjustVideoBounds) {
+        target->emu->adjustVideoBounds(&fitBounds);
+    }
+    *outDst = emu_fitRect(fitBounds, tex_w, tex_h);
     if (target->emu->adjustVideoDst) {
         target->emu->adjustVideoDst(outDst);
     }

@@ -69,6 +69,10 @@ happening, all ports should restrict window widths to be multiples of 16 pixels.
 #define E9K_HACK_BLITTER_VIS 0
 #endif
 
+#ifndef E9K_HACK_AMI_SPRITE_VIS
+#define E9K_HACK_AMI_SPRITE_VIS 0
+#endif
+
 //#define XLINECHECK
 
 struct amigadisplay adisplays[MAX_AMIGADISPLAYS];
@@ -347,6 +351,198 @@ typedef struct drawing_blitter_vis_src_min_track_s
 } drawing_blitter_vis_src_min_track_t;
 static drawing_blitter_vis_src_min_track_t drawing_blitterVisSrcMinTrackTable[DRAWING_BLITTER_VIS_SRC_MIN_TRACK_TABLE_CAP];
 static uint32_t drawing_blitterVisSrcMinDropLogsFrame = 0;
+#endif
+
+#if E9K_HACK_AMI_SPRITE_VIS
+#define DRAWING_SPRITE_VIS_NATIVE_LINE_COUNT ((MAXVPOS + MAXVPOS_WRAPLINES) * 2)
+static uae_u8 drawing_spriteVisNativeSpriteIds[DRAWING_SPRITE_VIS_NATIVE_LINE_COUNT][MAX_PIXELS_PER_LINE];
+static uae_u8 drawing_spriteVisNativeSpriteIdsSnapshot[DRAWING_SPRITE_VIS_NATIVE_LINE_COUNT][MAX_PIXELS_PER_LINE];
+static uint32_t drawing_spriteVisMarkCallsFrame = 0;
+static uint32_t drawing_spriteVisMarkCallsSnapshot = 0;
+static int drawing_spriteVisNativeLineContext = -1;
+static int drawing_spriteVisEnabled = 0;
+
+void
+drawing_setSpriteVisEnabled(int enabled)
+{
+	drawing_spriteVisEnabled = enabled ? 1 : 0;
+	drawing_spriteVisClearAll();
+}
+
+int
+drawing_getSpriteVisEnabled(void)
+{
+	return drawing_spriteVisEnabled ? 1 : 0;
+}
+
+static int
+drawing_spriteVisGetNativeWidth(void)
+{
+ #ifdef __LIBRETRO__
+	if (retrow_crop > 0 && retrow_crop <= MAX_PIXELS_PER_LINE) {
+		return retrow_crop;
+	}
+ #endif
+	return MAX_PIXELS_PER_LINE;
+}
+
+static int
+drawing_spriteVisGetNativeHeight(void)
+{
+ #ifdef __LIBRETRO__
+	if (retroh_crop > 0 && retroh_crop <= DRAWING_SPRITE_VIS_NATIVE_LINE_COUNT) {
+		return retroh_crop;
+	}
+ #endif
+	if (max_drawn_amiga_line < 0) {
+		return 0;
+	}
+	if (max_drawn_amiga_line + 1 > DRAWING_SPRITE_VIS_NATIVE_LINE_COUNT) {
+		return DRAWING_SPRITE_VIS_NATIVE_LINE_COUNT;
+	}
+	return max_drawn_amiga_line + 1;
+}
+
+void
+drawing_spriteVisClearFrame(void)
+{
+	memset(drawing_spriteVisNativeSpriteIds, 0, sizeof(drawing_spriteVisNativeSpriteIds));
+	drawing_spriteVisMarkCallsFrame = 0;
+	drawing_spriteVisNativeLineContext = -1;
+}
+
+void
+drawing_spriteVisClearAll(void)
+{
+	memset(drawing_spriteVisNativeSpriteIds, 0, sizeof(drawing_spriteVisNativeSpriteIds));
+	memset(drawing_spriteVisNativeSpriteIdsSnapshot, 0, sizeof(drawing_spriteVisNativeSpriteIdsSnapshot));
+	drawing_spriteVisMarkCallsFrame = 0;
+	drawing_spriteVisMarkCallsSnapshot = 0;
+	drawing_spriteVisNativeLineContext = -1;
+}
+
+void
+drawing_spriteVisSnapshotFrame(void)
+{
+	memcpy(drawing_spriteVisNativeSpriteIdsSnapshot,
+		drawing_spriteVisNativeSpriteIds,
+		sizeof(drawing_spriteVisNativeSpriteIdsSnapshot));
+	drawing_spriteVisMarkCallsSnapshot = drawing_spriteVisMarkCallsFrame;
+}
+
+void
+drawing_spriteVisSetNativeLineContext(int nativeLine)
+{
+	drawing_spriteVisNativeLineContext = -1;
+	if (nativeLine >= 0 && nativeLine < DRAWING_SPRITE_VIS_NATIVE_LINE_COUNT) {
+		drawing_spriteVisNativeLineContext = nativeLine;
+	}
+}
+
+void
+drawing_spriteVisMarkNativePixel(int pixelX, int spriteIndex)
+{
+	if (!drawing_spriteVisEnabled) {
+		return;
+	}
+	if (spriteIndex < 0 || spriteIndex > 7) {
+		return;
+	}
+	if (drawing_spriteVisNativeLineContext < 0 || drawing_spriteVisNativeLineContext >= DRAWING_SPRITE_VIS_NATIVE_LINE_COUNT) {
+		return;
+	}
+	int nativeY = drawing_spriteVisNativeLineContext;
+#ifdef __LIBRETRO__
+	nativeY -= (int)retroy_crop;
+#endif
+	int nativeWidth = drawing_spriteVisGetNativeWidth();
+	int nativeHeight = drawing_spriteVisGetNativeHeight();
+	if (nativeWidth <= 0 || nativeHeight <= 0) {
+		return;
+	}
+	if (nativeY < 0 || nativeY >= nativeHeight) {
+		return;
+	}
+#ifdef __LIBRETRO__
+	pixelX -= (int)retrox_crop;
+#endif
+	if (pixelX < 0 || pixelX >= nativeWidth) {
+		return;
+	}
+	drawing_spriteVisMarkCallsFrame++;
+	drawing_spriteVisNativeSpriteIds[nativeY][pixelX] = (uae_u8)(spriteIndex + 1);
+}
+
+static void
+drawing_spriteVisMarkNativeRange(int pixelStart, int pixelCount, int spriteIndex)
+{
+	if (pixelCount <= 0) {
+		return;
+	}
+	for (int pixelX = pixelStart; pixelX < pixelStart + pixelCount; ++pixelX) {
+		drawing_spriteVisMarkNativePixel(pixelX, spriteIndex);
+	}
+}
+
+void
+drawing_spriteVisClearNativeRange(int pixelStart, int pixelCount)
+{
+	if (!drawing_spriteVisEnabled || pixelCount <= 0) {
+		return;
+	}
+	if (drawing_spriteVisNativeLineContext < 0 || drawing_spriteVisNativeLineContext >= DRAWING_SPRITE_VIS_NATIVE_LINE_COUNT) {
+		return;
+	}
+	int nativeY = drawing_spriteVisNativeLineContext;
+#ifdef __LIBRETRO__
+	nativeY -= (int)retroy_crop;
+#endif
+	int nativeWidth = drawing_spriteVisGetNativeWidth();
+	int nativeHeight = drawing_spriteVisGetNativeHeight();
+	if (nativeWidth <= 0 || nativeHeight <= 0) {
+		return;
+	}
+	if (nativeY < 0 || nativeY >= nativeHeight) {
+		return;
+	}
+	int start = pixelStart;
+	int end = pixelStart + pixelCount;
+#ifdef __LIBRETRO__
+	start -= (int)retrox_crop;
+	end -= (int)retrox_crop;
+#endif
+	if (end <= 0 || start >= nativeWidth) {
+		return;
+	}
+	if (start < 0) {
+		start = 0;
+	}
+	if (end > nativeWidth) {
+		end = nativeWidth;
+	}
+	memset(drawing_spriteVisNativeSpriteIds[nativeY] + start, 0, (size_t)(end - start));
+}
+
+int
+drawing_spriteVisGetNativePixelSpriteId(int pixelY, int pixelX, uae_u32 *spriteIndex)
+{
+	if (spriteIndex) {
+		*spriteIndex = 0;
+	}
+	int nativeWidth = drawing_spriteVisGetNativeWidth();
+	int nativeHeight = drawing_spriteVisGetNativeHeight();
+	if (pixelY < 0 || pixelX < 0 || pixelY >= nativeHeight || pixelX >= nativeWidth) {
+		return 0;
+	}
+	uae_u8 value = drawing_spriteVisNativeSpriteIdsSnapshot[pixelY][pixelX];
+	if (value == 0) {
+		return 0;
+	}
+	if (spriteIndex) {
+		*spriteIndex = (uae_u32)(value - 1u);
+	}
+	return 1;
+}
 #endif
 
 #if E9K_HACK_BLITTER_VIS
@@ -2122,6 +2318,9 @@ static void pfield_do_fill_line (int start, int stop, int blank)
 	struct vidbuf_description *vidinfo = &adisplays[0].gfxvidinfo;
 	if (stop <= start)
 		return;
+#if E9K_HACK_AMI_SPRITE_VIS
+	drawing_spriteVisClearNativeRange(start - linetoscr_x_adjust_pixels, stop - start);
+#endif
 	switch (vidinfo->drawbuffer.pixbytes) {
 	case 2: fill_line_16 (xlinebuffer, start, stop, blank); break;
 	case 4: fill_line_32 (xlinebuffer, start, stop, blank); break;
@@ -2324,12 +2523,54 @@ static void fill_line_border(int lineno, int bordertype)
 
 static int sprite_shdelay;
 #define SPRITE_DEBUG 0
+
+#if E9K_HACK_AMI_SPRITE_VIS
+static int
+drawing_spriteVisResolveSpriteSelection(const struct spritepixelsbuf *spb, unsigned int v, int aga, uae_u32 *outCol, int *outSpriteIndex)
+{
+	if (!spb || !outCol || !outSpriteIndex || v == 0) {
+		return 0;
+	}
+
+	unsigned int v1 = v & 255u;
+	int offs;
+	if (v1 == 0) {
+		offs = 4 + sprite_offs[v >> 8];
+	} else {
+		offs = sprite_offs[v1];
+	}
+
+	v >>= offs * 2;
+	v &= 15u;
+
+	if ((spb->flags & 1u) && (spb->stdata & (3u << offs))) {
+		*outCol = aga ? (uae_u32)(v + sbasecol[1]) : (uae_u32)(v + 16u);
+		*outSpriteIndex = offs;
+		return 1;
+	}
+
+	unsigned int vlo = v & 3u;
+	unsigned int vhi = (v & (vlo - 1u)) >> 2;
+	uae_u32 col = (uae_u32)(vlo | vhi);
+	if (aga) {
+		col += (vhi > 0u) ? sbasecol[1] : sbasecol[0];
+	} else {
+		col += 16u;
+	}
+	col += (uae_u32)(offs * 2);
+	*outCol = col;
+	*outSpriteIndex = offs + (vhi > 0u ? 1 : 0);
+	return 1;
+}
+#endif
+
 static uae_u8 render_sprites(int pos, int dualpf, uae_u8 apixel, int aga)
 {
 	struct spritepixelsbuf *spb = &spritepixels[pos];
 	unsigned int v = spb->data;
 	int *shift_lookup = dualpf ? (bpldualpfpri ? dblpf_ms2 : dblpf_ms1) : dblpf_ms;
 	int maskshift, plfmask;
+	int screenPos = pos;
 
 	if (!sprite_visibility) {
 		return 0;
@@ -2352,6 +2593,22 @@ static uae_u8 render_sprites(int pos, int dualpf, uae_u8 apixel, int aga)
 	v &= ~plfmask;
 	/* Extra 1 sprite pixel at DDFSTRT is only possible if at least 1 plane is active */
 	if (pos >= sprite_playfield_start && pos < sprite_end && (v != 0 || SPRITE_DEBUG)) {
+#if E9K_HACK_AMI_SPRITE_VIS
+		uae_u32 col = 0;
+		int spriteIndex = -1;
+		if (drawing_spriteVisResolveSpriteSelection(spb, v, aga, &col, &spriteIndex)) {
+			int pixelCount = 1;
+			if (res_shift > 0) {
+				pixelCount = 1 << res_shift;
+			}
+			drawing_spriteVisMarkNativeRange(screenPos - linetoscr_x_adjust_pixels, pixelCount, spriteIndex);
+#if SPRITE_DEBUG_HIDE
+			col = 0;
+#endif
+			return (uae_u8)col;
+		}
+		return 0;
+#else
 		unsigned int vlo, vhi, col;
 		unsigned int v1 = v & 255;
 		/* OFFS determines the sprite pair with the highest priority that has
@@ -2407,6 +2664,7 @@ static uae_u8 render_sprites(int pos, int dualpf, uae_u8 apixel, int aga)
 		col = 0;
 #endif
 		return col;
+#endif
 	}
 
 	return 0;
@@ -2467,10 +2725,46 @@ static uae_u8 sh_render_sprites(int pos, int dualpf, uae_u8 apixel, int aga)
 	return 0;
 }
 
+#if E9K_HACK_AMI_SPRITE_VIS
+static int
+drawing_spriteVisResolveRenderedSpriteIndex(int pos, int dualpf, uae_u8 apixel, int aga, int *outSpriteIndex)
+{
+	if (!outSpriteIndex) {
+		return 0;
+	}
+	*outSpriteIndex = -1;
+	if (exthblank || exthblank_force) {
+		return 0;
+	}
+	if (extborder && ce_is_borderblank(colors_for_drawing.extra)) {
+		return 0;
+	}
+	if (pos < 0 || pos >= MAX_PIXELS_PER_LINE) {
+		return 0;
+	}
+	struct spritepixelsbuf *spb = &spritepixels[pos];
+	unsigned int v = spb->data;
+	int *shift_lookup = dualpf ? (bpldualpfpri ? dblpf_ms2 : dblpf_ms1) : dblpf_ms;
+	int maskshift = shift_lookup[apixel];
+	int plfmask = (plf_sprite_mask >> maskshift) >> maskshift;
+	v &= ~plfmask;
+	if (pos < sprite_playfield_start || pos >= sprite_end || v == 0) {
+		return 0;
+	}
+	uae_u32 col = 0;
+	return drawing_spriteVisResolveSpriteSelection(spb, v, aga, &col, outSpriteIndex);
+}
+#endif
+
 static uae_u32 shsprite(int dpix, uae_u32 spix_val, uae_u32 v, int add, int spr)
 {
 	uae_u8 sprcol1, sprcol2, off;
 	uae_u16 scol;
+	int screenPos = dpix;
+#if E9K_HACK_AMI_SPRITE_VIS
+	int spriteIndex1 = -1;
+	int spriteIndex2 = -1;
+#endif
 	if (!spr) {
 		return v;
 	}
@@ -2483,16 +2777,30 @@ static uae_u32 shsprite(int dpix, uae_u32 spix_val, uae_u32 v, int add, int spr)
 	int mask = 3;
 	sprcol1 = sh_render_sprites(sdpix, bpldualpf, spix_val, 0);
 	sprcol2 = sh_render_sprites(sdpix + add, bpldualpf, spix_val, 0);
+#if E9K_HACK_AMI_SPRITE_VIS
+	(void)drawing_spriteVisResolveRenderedSpriteIndex(sdpix, bpldualpf, spix_val, 0, &spriteIndex1);
+	(void)drawing_spriteVisResolveRenderedSpriteIndex(sdpix + add, bpldualpf, spix_val, 0, &spriteIndex2);
+#endif
 	off = (sprcol2 & mask) * 4 + (sprcol1 & mask) + 16;
 	if ((dpix & add)) {
 		if (!(sprcol2 & mask)) {
 			return v;
 		}
+#if E9K_HACK_AMI_SPRITE_VIS
+		if (spriteIndex2 >= 0) {
+			drawing_spriteVisMarkNativePixel(screenPos - linetoscr_x_adjust_pixels, spriteIndex2);
+		}
+#endif
 		scol = (colors_for_drawing.color_regs_ecs[off] & 0x333) << 2;
 	} else {
 		if (!(sprcol1 & mask)) {
 			return v;
 		}
+#if E9K_HACK_AMI_SPRITE_VIS
+		if (spriteIndex1 >= 0) {
+			drawing_spriteVisMarkNativePixel(screenPos - linetoscr_x_adjust_pixels, spriteIndex1);
+		}
+#endif
 		scol = (colors_for_drawing.color_regs_ecs[off] & 0xccc) << 0;
 	}
 	scol |= scol >> 2;
@@ -4627,6 +4935,9 @@ static void pfield_draw_line(struct vidbuffer *vb, int lineno, int gfx_ypos, int
 	}
 	drawing_blitterVisSetLineContext(blitterVisSourceLine, gfx_ypos);
 #endif
+#if E9K_HACK_AMI_SPRITE_VIS
+	drawing_spriteVisSetNativeLineContext(gfx_ypos);
+#endif
 
 	have_color_changes = is_color_changes(dip_for_drawing);
 	if (vb_state != dp_for_drawing->vb) {
@@ -6157,6 +6468,9 @@ void reset_drawing(void)
 	memset(ham_linebuf, 0, sizeof(ham_linebuf));
 #if E9K_HACK_BLITTER_VIS
 	drawing_blitterVisClearAll();
+#endif
+#if E9K_HACK_AMI_SPRITE_VIS
+	drawing_spriteVisClearAll();
 #endif
 
 	init_hardware_for_drawing_frame();
