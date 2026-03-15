@@ -122,6 +122,8 @@ typedef struct libretro_option_display {
     int visible;
 } libretro_option_display_t;
 
+#define LIBRETRO_HOST_SAVE_STATE_MAX_BYTES (512u * 1024u * 1024u)
+
 typedef struct  {
     void *lib;
     SDL_Texture *texture;
@@ -279,6 +281,70 @@ libretro_host_applyOptionOverrides(void);
 
 static bool
 libretro_host_setOptionsV2(const struct retro_core_options_v2 *opts);
+
+static bool
+libretro_host_serializeWithRetry(uint8_t **ioBuffer, size_t *ioSize, size_t payloadOffset, size_t initialPayloadSize, size_t *outPayloadSize)
+{
+    size_t payloadCapacity = 0;
+    size_t payloadSize = 0;
+
+    if (outPayloadSize) {
+        *outPayloadSize = 0;
+    }
+    if (!ioBuffer || !ioSize || !libretro_host.serialize) {
+        return false;
+    }
+
+    payloadCapacity = initialPayloadSize;
+    if (payloadCapacity == 0) {
+        return false;
+    }
+
+    for (;;) {
+        size_t totalSize = payloadOffset + payloadCapacity;
+        uint8_t *buffer = NULL;
+
+        if (totalSize < payloadCapacity || totalSize > LIBRETRO_HOST_SAVE_STATE_MAX_BYTES) {
+            return false;
+        }
+
+        if (!*ioBuffer || *ioSize < totalSize) {
+            buffer = (uint8_t*)alloc_realloc(*ioBuffer, totalSize);
+            if (!buffer) {
+                return false;
+            }
+            *ioBuffer = buffer;
+        }
+
+        if (libretro_host.serialize(*ioBuffer + payloadOffset, payloadCapacity)) {
+            if (!libretro_host.serializeSize) {
+                return false;
+            }
+            payloadSize = libretro_host.serializeSize();
+            if (payloadSize == 0 || payloadSize > payloadCapacity) {
+                return false;
+            }
+            *ioSize = payloadOffset + payloadSize;
+            if (outPayloadSize) {
+                *outPayloadSize = payloadSize;
+            }
+            return true;
+        }
+
+        if (!libretro_host.serializeSize) {
+            return false;
+        }
+        payloadSize = libretro_host.serializeSize();
+        if (payloadSize > payloadCapacity) {
+            payloadCapacity = payloadSize;
+            continue;
+        }
+        if (payloadCapacity > LIBRETRO_HOST_SAVE_STATE_MAX_BYTES / 2u) {
+            return false;
+        }
+        payloadCapacity *= 2u;
+    }
+}
 
 void
 libretro_host_setControllerPortDevice(unsigned port, unsigned device)
@@ -2796,6 +2862,12 @@ libretro_host_setAudioVolume(int volumePercent)
 bool
 libretro_host_saveState(size_t *out_size, size_t *out_diff)
 {
+    size_t headerSize = 0;
+    size_t payloadSize = 0;
+    size_t size = 0;
+    uint8_t *prev = NULL;
+    size_t prevSize = 0;
+
     if (out_size) {
         *out_size = 0;
     }
@@ -2809,38 +2881,46 @@ libretro_host_saveState(size_t *out_size, size_t *out_diff)
     if (rawSize == 0) {
         return false;
     }
-    size_t headerSize = state_wrap_headerSize();
-    size_t size = headerSize + rawSize;
-    uint8_t *prev = NULL;
-    if (libretro_host.stateData && libretro_host.stateSize == size) {
-        prev = (uint8_t*)alloc_alloc(size);
+
+    headerSize = state_wrap_headerSize();
+    if (libretro_host.stateData && libretro_host.stateSize > 0) {
+        prevSize = libretro_host.stateSize;
+        prev = (uint8_t*)alloc_alloc(prevSize);
         if (prev) {
-            memcpy(prev, libretro_host.stateData, size);
+            memcpy(prev, libretro_host.stateData, prevSize);
         }
     }
-    if (!libretro_host.stateData || libretro_host.stateSize != size) {
-        uint8_t *buf = (uint8_t*)alloc_realloc(libretro_host.stateData, size);
-        if (!buf) {
-            alloc_free(prev);
-            return false;
-        }
-        libretro_host.stateData = buf;
-        libretro_host.stateSize = size;
-    }
-    if (!libretro_host.serialize(libretro_host.stateData + headerSize, rawSize)) {
+
+    if (!libretro_host_serializeWithRetry(&libretro_host.stateData,
+                                          &libretro_host.stateSize,
+                                          headerSize,
+                                          rawSize,
+                                          &payloadSize)) {
         alloc_free(prev);
         return false;
     }
-    if (!state_wrap_writeHeader(libretro_host.stateData, libretro_host.stateSize, rawSize, &debugger.machine)) {
+    if (!state_wrap_writeHeader(libretro_host.stateData, libretro_host.stateSize, payloadSize, &debugger.machine)) {
         alloc_free(prev);
         return false;
     }
+    size = libretro_host.stateSize;
     if (out_size) {
-        *out_size = libretro_host.stateSize;
+        *out_size = size;
     }
     if (out_diff && prev) {
+        size_t cmpSize = size;
         size_t diff = 0;
-        for (size_t i = 0; i < size; ++i) {
+        if (prevSize != cmpSize) {
+            if (prevSize > cmpSize) {
+                diff += prevSize - cmpSize;
+            } else {
+                diff += cmpSize - prevSize;
+            }
+            if (prevSize < cmpSize) {
+                cmpSize = prevSize;
+            }
+        }
+        for (size_t i = 0; i < cmpSize; ++i) {
             if (libretro_host.stateData[i] != prev[i]) {
                 diff++;
             }

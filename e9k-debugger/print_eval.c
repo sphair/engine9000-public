@@ -1597,7 +1597,7 @@ print_eval_loadIndex(print_index_t *index)
     if (print_eval_debugEnabled()) {
         debug_printf("print: readelf pass nodes=%d symbols=%d\n", index->nodeCount, index->symbolCount);
     }
-    if (index->nodeCount == 0 && !debugger_toolchainUsesHunkAddr2line()) {
+    if (index->nodeCount == 0) {
         if (print_eval_debugEnabled()) {
             debug_printf("print: falling back to objdump -G (STABS)\n");
         }

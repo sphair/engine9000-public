@@ -199,9 +199,15 @@ print_debuginfo_objdump_stabs_splitNestedAliasDef(print_debuginfo_objdump_stabs_
     }
 
     const char *def = (*defs)[typeId].def;
+    const char *p = def;
+    int hasWrapper = 0;
+    while (*p == '*' || *p == 'B' || *p == 'k' || *p == 'K') {
+        hasWrapper = 1;
+        ++p;
+    }
     uint32_t innerId = 0;
     const char *end = NULL;
-    if (!print_debuginfo_objdump_stabs_parseTypeId(def, &end, &innerId)) {
+    if (!print_debuginfo_objdump_stabs_parseTypeId(p, &end, &innerId)) {
         return;
     }
     if (!end || *end != '=' || !end[1]) {
@@ -216,11 +222,14 @@ print_debuginfo_objdump_stabs_splitNestedAliasDef(print_debuginfo_objdump_stabs_
         return;
     }
 
-    if ((*defs)[typeId].alias == 0) {
+    if (!hasWrapper && (*defs)[typeId].alias == 0) {
         (*defs)[typeId].alias = innerId;
     }
     if (!(*defs)[innerId].def) {
         (*defs)[innerId].def = print_debuginfo_objdump_stabs_strdup(end + 1);
+        if ((*defs)[innerId].def) {
+            print_debuginfo_objdump_stabs_splitNestedAliasDef(defs, cap, innerId);
+        }
     }
 }
 
@@ -324,6 +333,59 @@ print_debuginfo_objdump_stabs_typeEnsure(print_debuginfo_objdump_stabs_type_def_
     memset(&nextDefs[old], 0, sizeof(**defs) * (next - old));
     *defs = nextDefs;
     *cap = next;
+}
+
+static int
+print_debuginfo_objdump_stabs_findNestedSimpleTypeDef(const print_debuginfo_objdump_stabs_type_def_t *defs,
+                                                      size_t cap,
+                                                      uint32_t typeId,
+                                                      char *outDef,
+                                                      size_t outCap)
+{
+    if (!defs || cap == 0 || typeId == 0 || !outDef || outCap == 0) {
+        return 0;
+    }
+    outDef[0] = '\0';
+    for (size_t i = 0; i < cap; ++i) {
+        const char *def = defs[i].def;
+        if (!def || !*def) {
+            continue;
+        }
+        const char *p = def;
+        while ((p = strchr(p, ':')) != NULL) {
+            ++p;
+            uint32_t nestedId = 0;
+            const char *end = NULL;
+            if (!print_debuginfo_objdump_stabs_parseTypeId(p, &end, &nestedId)) {
+                continue;
+            }
+            if (nestedId != typeId || !end || *end != '=' || !end[1]) {
+                p = end ? end : p;
+                continue;
+            }
+            const char *spec = end + 1;
+            if (*spec != '*' && *spec != 'B' && *spec != 'k' && *spec != 'K' &&
+                !isdigit((unsigned char)*spec) && *spec != '(') {
+                p = spec;
+                continue;
+            }
+            size_t len = 0;
+            while (spec[len] && spec[len] != ',' && spec[len] != ';') {
+                ++len;
+            }
+            if (len == 0) {
+                p = spec;
+                continue;
+            }
+            if (len >= outCap) {
+                len = outCap - 1;
+            }
+            memcpy(outDef, spec, len);
+            outDef[len] = '\0';
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static uint32_t
@@ -820,6 +882,19 @@ print_debuginfo_objdump_stabs_buildType(print_index_t *index,
     type->kind = print_type_invalid;
     type->name = print_debuginfo_objdump_stabs_strdup(defs[typeId].name ? defs[typeId].name : "");
 
+    if ((!defs[typeId].def || !*defs[typeId].def) && defs[typeId].alias == 0 && defs[typeId].bits == 0) {
+        char nestedDef[128];
+        if (print_debuginfo_objdump_stabs_findNestedSimpleTypeDef(defs, cap, typeId, nestedDef, sizeof(nestedDef))) {
+            ((print_debuginfo_objdump_stabs_type_def_t *)defs)[typeId].def =
+                print_debuginfo_objdump_stabs_strdup(nestedDef);
+            if (((print_debuginfo_objdump_stabs_type_def_t *)defs)[typeId].def) {
+                print_debuginfo_objdump_stabs_splitNestedAliasDef((print_debuginfo_objdump_stabs_type_def_t **)&defs,
+                                                                  (size_t *)&cap,
+                                                                  typeId);
+            }
+        }
+    }
+
     if (defs[typeId].alias != 0 && defs[typeId].alias < cap) {
         type->kind = print_type_typedef;
         type->targetType = print_debuginfo_objdump_stabs_buildType(index, defs, cap, defs[typeId].alias, depth + 1);
@@ -1051,10 +1126,10 @@ print_debuginfo_objdump_stabs_maybeParseInlineTypeDef(const char *stabStr,
     if (!colon || !colon[1] || !colon[2]) {
         return;
     }
-    if (!isalpha((unsigned char)colon[1])) {
-        return;
+    const char *p = colon + 1;
+    while (*p && isalpha((unsigned char)*p)) {
+        ++p;
     }
-    const char *p = colon + 2;
     uint32_t typeId = 0;
     const char *end = NULL;
     if (!print_debuginfo_objdump_stabs_parseTypeId(p, &end, &typeId)) {
@@ -1702,6 +1777,10 @@ print_debuginfo_objdump_stabs_loadLocals(const char *elfPath, print_index_t *ind
             if (handledType) {
                 continue;
             }
+        }
+
+        if (strcmp(stabType, "LSYM") != 0) {
+            print_debuginfo_objdump_stabs_maybeParseInlineTypeDef(stabStr, &typeDefs, &typeCap);
         }
 
         if (strcmp(stabType, "FUN") == 0) {
