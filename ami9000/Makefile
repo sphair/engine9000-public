@@ -106,10 +106,8 @@ else ifeq ($(platform), osx)
    TARGET := $(TARGET_NAME)_libretro.dylib
    MINVERSION := -mmacosx-version-min=10.6
    fpic := -fPIC
-   CFLAGS += -fno-lto
-   LDFLAGS += -fno-lto
-   CFLAGS += -flto   
-   LDFLAGS := -flto
+   CFLAGS += -flto
+   LDFLAGS += -flto
    SHARED := -dynamiclib
    PLATFLAGS += -DUSE_NAMED_SEMAPHORES
 

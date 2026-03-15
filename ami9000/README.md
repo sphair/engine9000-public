@@ -1,6 +1,6 @@
 # PUAE LIBRETRO
 
-Based on WinUAE 5.3.0, git commit `5b86c94b9f9161f58340ed15059e4ab61cd0af3b`
+Based on WinUAE 5.3.1, git commit `51b7be351f359dc97f967f051da390283bc4b409`
 
 - Core options reference: `ami9000/docs/core-options.md`
 

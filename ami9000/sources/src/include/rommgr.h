@@ -1,7 +1,7 @@
 #ifndef UAE_ROMMGR_H
 #define UAE_ROMMGR_H
 
-#define MAX_ROMMGR_ROMS 320
+#define MAX_ROMMGR_ROMS 340
 
 extern int decode_cloanto_rom_do(uae_u8 *mem, int size, int real_size);
 
@@ -57,6 +57,7 @@ extern int decode_cloanto_rom_do(uae_u8 *mem, int size, int real_size);
 #define ROMTYPE_CB_DRACO	0x00040022
 #define ROMTYPE_CB_CASAB	0x00040023
 #define ROMTYPE_CB_APOLLO_630 0x00040024
+#define ROMTYPE_CB_TREXII	0x00040025
 
 #define ROMTYPE_FREEZER		0x00080000
 #define ROMTYPE_AR			0x00080001
@@ -214,6 +215,7 @@ extern int decode_cloanto_rom_do(uae_u8 *mem, int size, int real_size);
 #define ROMTYPE_PROMETHEUSFS 0x00100091
 #define ROMTYPE_RAINBOWII	0x00100092
 #define ROMTYPE_MERLIN		0x00100093
+#define ROMTYPE_KBMCU		0x00100094
 
 #define ROMTYPE_NOT			0x00800000
 #define ROMTYPE_QUAD		0x01000000

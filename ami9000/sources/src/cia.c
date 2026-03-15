@@ -551,10 +551,14 @@ static void CIA_update_check(void)
 		}
 		if (cc > 0) {
 			c->t[0].timer -= cc;
+			c->t[0].timer &= 0xffff;
 			if (c->t[0].timer == 0) {
 				// SP in output mode (data sent can be ignored if CIA-A)
 				if ((c->t[0].cr & (CR_SPMODE | CR_RUNMODE)) == CR_SPMODE && c->sdr_cnt > 0) {
 					c->sdr_cnt--;
+					if (c->sdr_cnt & 1) {
+						c->sdr_buf <<= 1;
+					}
 					if (c->sdr_cnt == 0) {
 						sp = 1;
 						if (c->sdr_load) {
@@ -579,6 +583,7 @@ static void CIA_update_check(void)
 				ovfl[1] = 2;
 			} else {
 				c->t[1].timer -= cc;
+				c->t[1].timer &= 0xffff;
 				if ((c->t[1].timer == 0 && !(c->t[1].cr & (CR_INMODE | CR_INMODE1)))) {
 					ovfl[1] = 2;
 				}

@@ -97,7 +97,7 @@ struct romdata *getromdatabypath (const TCHAR *path)
 	return NULL;
 }
 
-#define NEXT_ROM_ID 314
+#define NEXT_ROM_ID 322
 
 #if NEXT_ROM_ID >= MAX_ROMMGR_ROMS
 #error Increase MAX_ROMMGR_ROMS!
@@ -122,6 +122,9 @@ static struct romdata roms[] = {
 	0xb01c4b56, 0xbba8e5cd,0x118b8d92,0xafed5693,0x5eeb9770,0x2a662d8f },
 	{ _T("Cloanto Amiga Forever 2010 ROM key"), 0, 0, 0, 0, 0, 1544, 73, 0, 1, ROMTYPE_KEY, 0, 0, NULL,
 	0x8c4dd05c, 0x05034f62,0x0b5bb7b2,0x86954ea9,0x164fdb90,0xfb2897a4 },
+
+	{ _T("6500/1 Keyboard MCU ROM"), 0, 0, 0, 0, _T("KBDMCU\0"), 2048, 321, 0, 0, ROMTYPE_KBMCU, 0, 0, NULL,
+	0x4a3fc332, 0x83b21d0c, 0x8b93fc9b, 0x9b3b287f, 0xde4ec8f3, 0xbadac5a2 },
 
 	{ _T("KS ROM v23.93 (Velvet)"), 23, 93, 23, 93, _T("VELVET\0"), 131072, 125, 0, 0, ROMTYPE_KICK, 0, 0, NULL,
 	0xadcb44c9, 0x7c36b2ba,0x298da3da,0xce60d0ba,0x8511d470,0x76a40d5c, NULL, NULL, 4 },
@@ -522,6 +525,8 @@ static struct romdata roms[] = {
 	0xff60cfe3, 0xea208934,0x5e2602cf,0xc715b2fc,0x50a392dd,0xd751823a, NULL,  _T("tekmagic2040.rom") },
 	ALTROMPN(303, 1, 1, 32768, ROMTYPE_ODD  | ROMTYPE_8BIT, NULL, 0xc19580de, 0x691b1119, 0x5163fd52, 0xb8a9025e, 0x3ac4311f, 0x7bc84013)
 	ALTROMPN(303, 1, 2, 32768, ROMTYPE_EVEN | ROMTYPE_8BIT, NULL, 0xbf3551fd, 0x4dc520fa, 0x7868e01b, 0xd6bfa3d6, 0x396f1e55 ,0x18d55372)
+	{ _T("GVP T-Rex II v1.0"), 1, 0, 1, 0, _T("GVPTREXII\0"), 32768, 317, 0, 0, ROMTYPE_CB_TREXII, 0, 0, NULL,
+	0xd908947a, 0x888b53f0,0xb7f064e5,0xf068279f,0x855dba0e,0x5a42249f, NULL, NULL },
 
 	{ _T("Zeus 040"), 2, 98, 2, 98, _T("ZEUS040\0"), 16384, 225, 0, 0, ROMTYPE_CB_ZEUS040, 0, 0, NULL,
 	0x2c609194, 0x9a91cf45,0x6816067a,0x943c18f1,0xbd30effe,0x482d4aaf, NULL, NULL },
@@ -590,7 +595,9 @@ static struct romdata roms[] = {
 	0xaaff7c65, 0x424cf3da,0xcc9da794,0x0ba74446,0x69dd1691,0x44ae87ee, NULL, NULL },
 	{ _T("Kupke Golem 030"), 0, 0, 0, 0, _T("GOLEM030\0"), 8192, 126, 0, 0, ROMTYPE_CB_GOLEM030, 0, 0, NULL,
 	0x05d473f4, 0x574ec567, 0xcc67e06f, 0x91dcecb9, 0x8c204399, 0x5fe2a09f, NULL, NULL },
-	{ _T("DKB WildFire"), 1, 1, 1, 1, _T("WILDFIRE\0"), 18352, 143, 0, 0, ROMTYPE_CB_DBK_WF, 0, 0, NULL,
+	{ _T("DKB WildFire v1.0"), 1, 0, 1, 0, _T("WILDFIRE\0"), 18016, 318, 0, 0, ROMTYPE_CB_DBK_WF, 0, 0, NULL,
+	0x08fc84f6, 0xec27aab5, 0x0cdd0db9, 0x6ddd9db3, 0xeff92183, 0xcbaf3f78, NULL, NULL },
+	{ _T("DKB WildFire v1.1"), 1, 1, 1, 1, _T("WILDFIRE\0"), 18352, 143, 0, 0, ROMTYPE_CB_DBK_WF, 0, 0, NULL,
 	0xb2dae8c4, 0xcdfe2d96, 0xe44d4f8d, 0x3833a5e8, 0xb6c832fd, 0xc7b341a9, NULL, NULL },
 	{ _T("M-Tec E-Matrix 530"), 0, 0, 0, 0, _T("EMATRIX530\0"), 65536, 144, 0, 0, ROMTYPE_CB_EMATRIX, 0, 0, NULL,
 	0x3942d827, 0x5aaf118f, 0x61fc3083, 0x1435b87c, 0x8bdab6a4, 0x59b4ee22, NULL, NULL },
@@ -602,8 +609,12 @@ static struct romdata roms[] = {
 	0x3befa0c0, 0x4414673c, 0xa52f78a0, 0xae656824, 0xfd08b54f, 0xa1de237c, NULL, NULL },
 	ALTROMPN(166, 1, 1, 32768, ROMTYPE_ODD  | ROMTYPE_8BIT, NULL, 0xb64e3bbf, 0xd6f4fc81, 0x38325a78, 0x74ff1c15, 0x7c93f1a2, 0x444904ae)
 	ALTROMPN(166, 1, 2, 32768, ROMTYPE_EVEN | ROMTYPE_8BIT, NULL, 0x541b5988, 0x3546517b, 0x57cecd2f, 0x9fbfcd0c, 0xf26fdbbf, 0xfb009e3e)
-	{ _T("QuikPak 4060 XP"), 2, 1, 2, 1, _T("QUIKPAK\0"), 32768, 239, 0, 0, ROMTYPE_CB_QUIKPAK, 0, 0, NULL,
+	{ _T("QuikPak 4060 XP v2.1"), 2, 1, 2, 1, _T("QUIKPAK\0"), 32768, 239, 0, 0, ROMTYPE_CB_QUIKPAK, 0, 0, NULL,
 	0x3a8eb518, 0x902dd0ba, 0x56c2afd0, 0xbb425bf5, 0x264fbc62, 0x90ad2c4e, NULL, NULL },
+	{ _T("QuikPak 4060 XP v2.2"), 2, 2, 2, 2, _T("QUIKPAK\0"), 65536, 319, 0, 0, ROMTYPE_CB_QUIKPAK, 0, 0, NULL,
+	0x47009144, 0x547fd232, 0xd774e872, 0x37a83d30, 0xeb06e3d6, 0xb88456c2, NULL, NULL },
+	{ _T("QuikPak 4060"), 0, 0, 0, 0, _T("QUIKPAK\0"), 32768, 320, 0, 0, ROMTYPE_CB_QUIKPAK, 0, 0, NULL,
+	0x2b12aa6d, 0x023cd8a5, 0x7f24a992, 0x12d64c93, 0x69da614a, 0x3f6d0932, NULL, NULL },
 
 	{ _T("Preferred Technologies Nexus"), 1, 0, 1, 0, _T("PTNEXUS\0"), 8192, 139, 0, 0, ROMTYPE_PTNEXUS, 0, 0, NULL,
 	0xf495879a, 0xa3bd0202, 0xe14aa5b6, 0x49d3ce88, 0x22975950, 0x6500dbc2, NULL, NULL },
@@ -672,6 +683,8 @@ static struct romdata roms[] = {
 	0xe8201bad, 0xdefea015,0x596fce32,0x11e84397,0x23046a31,0x5a7726dc, NULL, NULL },
 	{ _T("Masoboshi MC-702 v2.201"), 2, 201, 2, 201, _T("MASOBOSHI\0"), 32768, 120, 0, 0, ROMTYPE_MASOBOSHI, 0, 0, NULL,
 	0xcd99b98a, 0x3897e46a,0x66d5833f,0x849b8e81,0x30acb3cb,0x319a2fa0, NULL, NULL },
+	{ _T("Masoboshi MC-702 v2.197"), 2, 197, 2, 197, _T("MASOBOSHI\0"), 32768, 316, 0, 0, ROMTYPE_MASOBOSHI, 0, 0, NULL,
+	0x534e170c, 0xcf7c6c51,0x1c767f68,0x934aa897,0xb08b70bc,0xcf2a367f, NULL, NULL },
 	{ _T("Roctec RocHard RH800C v1"), 1, 0, 1, 0, _T("ROCHARD\0"), 16384, 138, 0, 0, ROMTYPE_ROCHARD, 0, 0, NULL,
 	0x0e980aec, 0xbcafa14d,0xe80576cb,0xe3e0c638,0x1ca90379,0xe078a8bd, NULL, NULL },
 	ALTROMPN(138, 1, 1, 8192, ROMTYPE_ODD  | ROMTYPE_8BIT, NULL, 0xde3a855b, 0xda2fe069, 0xd78c9ccc, 0xc221711f, 0x1e598298, 0x2bdabffd)
@@ -1026,6 +1039,15 @@ static struct romdata roms[] = {
 	0xf78c8fa2, 0x07656cbf,0xdb6135f2,0x6add3b5f,0xa4ce5d46,0xdda706f9, NULL, NULL, 10 },
 	ALTROMPN(302, 1, 1, 65536, ROMTYPE_EVEN  | ROMTYPE_8BIT, NULL, 0x01c9a503, 0xf61ec2cd,0x241b2bf8,0xa982e81e,0x5a181786,0x01f0a0a0)
 	ALTROMPN(302, 1, 2, 65536, ROMTYPE_ODD   | ROMTYPE_8BIT, NULL, 0x78eb6fd6, 0xe4048180,0x95f03b6e,0x0746620f,0x5ce48c3f,0x7149b8a0)
+	{ _T("Picmatic Marbella Vice (100Hz TV)"), 0, 0, 0, 0, _T("ALG\0"), 131072, 315, 0, 0, ROMTYPE_ALG, 0, 0, NULL,
+	0xae2d2805, 0x0e392b46,0x15777fe5,0x24ed27ab,0xf8539d4b,0xb1e3ba9d, NULL, NULL, 10 },
+	ALTROMPN(315, 1, 1, 65536, ROMTYPE_EVEN  | ROMTYPE_8BIT, NULL, 0xd2b5e5ca, 0xde765039,0x61076aca,0xd405db9e,0x83bd5334,0xb02bf908)
+	ALTROMPN(315, 1, 2, 65536, ROMTYPE_ODD   | ROMTYPE_8BIT, NULL, 0x2c9ebccb, 0x4e8dcb85,0x26a8debb,0x70f3f567,0x13903ba8,0xbfbb3ed5)
+	// spilz0d4-odd-27-9-95-salvajes-displays-27c512.u4, spilz0d4-even-27-9-95-salvajes-displays-27c512.u5
+	{ _T("Picmatic Tierras Salvajes (100Hz TV)"), 0, 0, 0, 0, _T("ALG\0"), 131072, 314, 0, 0, ROMTYPE_ALG, 0, 0, NULL,
+	0xe6c539ec, 0xa5f70818,0xd93ab33c,0xa4149a50,0xc38b2a13,0x0ee5d7ab, NULL, NULL, 10 },
+	ALTROMPN(314, 1, 1, 65536, ROMTYPE_EVEN  | ROMTYPE_8BIT, NULL, 0x730e4696, 0x4db0cc7d,0x160de5e7,0x0f1d1842,0xfa94adb8,0xee7f954f)
+	ALTROMPN(314, 1, 2, 65536, ROMTYPE_ODD   | ROMTYPE_8BIT, NULL, 0xd46dd5e0, 0x7d808c6e,0xd88bf9a9,0x8cdb468c,0xe71c0952,0xb0b5d7b2)
 
 	{ NULL }
 

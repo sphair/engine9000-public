@@ -44,6 +44,20 @@ static const TCHAR *csmode[] = { _T("ocs"), _T("ecs_agnus"), _T("ecs_denise"), _
 #define utf8_to_local_string_alloc strdup
 #endif
 
+#define CORE_OPTION_VALUE_RANGE(min, max) \
+{ \
+   int value = min; \
+   while (value <= max) \
+   { \
+      char str[4]; \
+      snprintf(str, sizeof(str), "%d", value); \
+      if (!option_defs_us[i].values[j].value) \
+         option_defs_us[i].values[j].value = strdup(str); \
+      ++value; \
+      ++j; \
+   } \
+} \
+
 #define E9K_DEBUG_EXPORT RETRO_API
 
 bool libretro_runloop_active = false;
@@ -77,7 +91,7 @@ char opt_model[10] = {0};
 char opt_model_fd[10] = {0};
 char opt_model_hd[10] = {0};
 char opt_model_cd[10] = {0};
-char opt_kickstart[20] = {0};
+char opt_kickstart[64] = {0};
 
 struct preset_options
 {
@@ -139,7 +153,8 @@ extern uae_u32 natmem_size;
 char full_path[RETRO_PATH_MAX] = {0};
 static char *uae_argv[] = { "puae" };
 static int restart_pending = 0;
-static struct puae_cart_info puae_carts[RETRO_NUM_CORE_OPTION_VALUES_MAX] = {0};
+static struct puae_core_option_info puae_carts[RETRO_NUM_CORE_OPTION_VALUES_MAX] = {0};
+static struct puae_core_option_info puae_kickstarts[RETRO_NUM_CORE_OPTION_VALUES_MAX] = {0};
 
 static long retro_now = 0;
 float retro_refresh = 0;
@@ -732,22 +747,54 @@ static void retro_set_paths(void)
             retro_system_directory, DIR_SEP_STR, "uae");
 }
 
-static void free_puae_carts(void)
+static void free_puae_core_options(void)
 {
    size_t i;
    for (i = 0; i < RETRO_NUM_CORE_OPTION_VALUES_MAX; i++)
    {
-      if (puae_carts[i].value)
+      free(puae_carts[i].value);
+      puae_carts[i].value = NULL;
+
+      free(puae_carts[i].label);
+      puae_carts[i].label = NULL;
+
+      free(puae_kickstarts[i].value);
+      puae_kickstarts[i].value = NULL;
+
+      free(puae_kickstarts[i].label);
+      puae_kickstarts[i].label = NULL;
+   }
+}
+
+static uae_u64
+libretro_estimateSaveStateSize(void)
+{
+   uae_u64 size = 0;
+   int i = 0;
+
+   size += chipmem_bank.allocated_size;
+   size += bogomem_bank.allocated_size;
+   size += mem25bit_bank.allocated_size;
+   size += a3000lmem_bank.allocated_size;
+   size += a3000hmem_bank.allocated_size;
+   size += z3chipmem_bank.allocated_size;
+
+   for (i = 0; i < MAX_RAM_BOARDS; i++)
+   {
+      size += fastmem_bank[i].allocated_size;
+      size += z3fastmem_bank[i].allocated_size;
+   }
+
+   for (i = 0; i < MAX_RTG_BOARDS; i++)
+   {
+      if (gfxmem_banks[i])
       {
-         free(puae_carts[i].value);
-         puae_carts[i].value = NULL;
-      }
-      if (puae_carts[i].label)
-      {
-         free(puae_carts[i].label);
-         puae_carts[i].label = NULL;
+         size += gfxmem_banks[i]->allocated_size;
       }
    }
+
+   size += 2 * 1024 * 1024;
+   return size;
 }
 
 static void retro_set_core_options()
@@ -900,23 +947,11 @@ static void retro_set_core_options()
          "puae_kickstart",
          "System > Kickstart ROM",
          "Kickstart ROM",
-         "'Automatic' defaults to the most compatible version for the model. 'AROS' is a built-in replacement with fair compatibility.\nCore restart required.",
+         "Kickstart ROMs are searched from 'system'.\nCore restart required.",
          NULL,
          "system",
          {
-            { "auto", "Automatic" },
-            { "aros", "AROS" },
-            { "kick31034.A1000", "v1.1 rev 31.034 (A1000 NTSC)" },
-            { "kick32034.A1000", "v1.1 rev 32.034 (A1000 PAL)" },
-            { "kick33180.A500", "v1.2 rev 33.180 (A500-A2000)" },
-            { "kick34005.A500", "v1.3 rev 34.005 (A500-A1000-A2000-CDTV)" },
-            { "kick37175.A500", "v2.04 rev 37.175 (A500+)" },
-            { "kick37350.A600", "v2.05 rev 37.350 (A600)" },
-            { "kick40063.A600", "v3.1 rev 40.063 (A500-A600-A2000)" },
-            { "kick39106.A1200", "v3.0 rev 39.106 (A1200)" },
-            { "kick40068.A1200", "v3.1 rev 40.068 (A1200)" },
-            { "kick39106.A4000", "v3.0 rev 39.106 (A4000)" },
-            { "kick40068.A4000", "v3.1 rev 40.068 (A4000)" },
+            /* Options filled dynamically in retro_set_environment() */
             { NULL, NULL },
          },
          "auto"
@@ -1317,15 +1352,15 @@ static void retro_set_core_options()
          },
          "disabled"
       },
-      /* Sublabel and options filled dynamically in retro_set_environment() */
       {
          "puae_cart_file",
          "Media > Cartridge",
          "Cartridge",
-         "",
+         "Cartridge images go in 'system/uae/' or 'system/uae_data/'.\nCore restart required.",
          NULL,
          "media",
          {
+            /* Options filled dynamically in retro_set_environment() */
             { NULL, NULL },
          },
          NULL
@@ -1486,53 +1521,7 @@ static void retro_set_core_options()
          NULL,
          "video",
          {
-            { "auto", "Automatic" },
-            { "0", "Default" },
-            { "2", NULL },
-            { "4", NULL },
-            { "6", NULL },
-            { "8", NULL },
-            { "10", NULL },
-            { "12", NULL },
-            { "14", NULL },
-            { "16", NULL },
-            { "18", NULL },
-            { "20", NULL },
-            { "22", NULL },
-            { "24", NULL },
-            { "26", NULL },
-            { "28", NULL },
-            { "30", NULL },
-            { "32", NULL },
-            { "34", NULL },
-            { "36", NULL },
-            { "38", NULL },
-            { "40", NULL },
-            { "42", NULL },
-            { "44", NULL },
-            { "46", NULL },
-            { "48", NULL },
-            { "50", NULL },
-            { "52", NULL },
-            { "54", NULL },
-            { "56", NULL },
-            { "58", NULL },
-            { "60", NULL },
-            { "62", NULL },
-            { "64", NULL },
-            { "66", NULL },
-            { "68", NULL },
-            { "70", NULL },
-            { "-20", NULL },
-            { "-18", NULL },
-            { "-16", NULL },
-            { "-14", NULL },
-            { "-12", NULL },
-            { "-10", NULL },
-            { "-8", NULL },
-            { "-6", NULL },
-            { "-4", NULL },
-            { "-2", NULL },
+            /* Options filled dynamically in retro_set_environment() */
             { NULL, NULL },
          },
          "auto"
@@ -1545,48 +1534,7 @@ static void retro_set_core_options()
          NULL,
          "video",
          {
-            { "auto", "Automatic" },
-            { "0", "Default" },
-            { "2", NULL },
-            { "4", NULL },
-            { "6", NULL },
-            { "8", NULL },
-            { "10", NULL },
-            { "12", NULL },
-            { "14", NULL },
-            { "16", NULL },
-            { "18", NULL },
-            { "20", NULL },
-            { "22", NULL },
-            { "24", NULL },
-            { "26", NULL },
-            { "28", NULL },
-            { "30", NULL },
-            { "32", NULL },
-            { "34", NULL },
-            { "36", NULL },
-            { "38", NULL },
-            { "40", NULL },
-            { "-40", NULL },
-            { "-38", NULL },
-            { "-36", NULL },
-            { "-34", NULL },
-            { "-32", NULL },
-            { "-30", NULL },
-            { "-28", NULL },
-            { "-26", NULL },
-            { "-24", NULL },
-            { "-22", NULL },
-            { "-20", NULL },
-            { "-18", NULL },
-            { "-16", NULL },
-            { "-14", NULL },
-            { "-12", NULL },
-            { "-10", NULL },
-            { "-8", NULL },
-            { "-6", NULL },
-            { "-4", NULL },
-            { "-2", NULL },
+            /* Options filled dynamically in retro_set_environment() */
             { NULL, NULL },
          },
          "auto"
@@ -2625,7 +2573,7 @@ static void retro_set_core_options()
       { NULL, NULL, NULL, NULL, NULL, NULL, {{0}}, NULL },
    };
 
-   free_puae_carts();
+   free_puae_core_options();
 
    /* Fill in the values for all the mappers */
    int i = 0;
@@ -2686,6 +2634,95 @@ static void retro_set_core_options()
          option_defs_us[i].values[j].value = NULL;
          option_defs_us[i].values[j].label = NULL;
       }
+      else if (!strcmp(option_defs_us[i].key, "puae_vertical_pos"))
+      {
+         j = 0;
+
+         option_defs_us[i].values[j].value = "auto";
+         option_defs_us[i].values[j].label = "Automatic";
+         ++j;
+
+         option_defs_us[i].values[j].value = "0";
+         option_defs_us[i].values[j].label = "Default";
+         ++j;
+
+         CORE_OPTION_VALUE_RANGE(1, 70);
+         CORE_OPTION_VALUE_RANGE(-20, -1);
+
+         option_defs_us[i].values[j].value = NULL;
+         option_defs_us[i].values[j].label = NULL;
+      }
+      else if (!strcmp(option_defs_us[i].key, "puae_horizontal_pos"))
+      {
+         j = 0;
+
+         option_defs_us[i].values[j].value = "auto";
+         option_defs_us[i].values[j].label = "Automatic";
+         ++j;
+
+         option_defs_us[i].values[j].value = "0";
+         option_defs_us[i].values[j].label = "Default";
+         ++j;
+
+         CORE_OPTION_VALUE_RANGE(1, 40);
+         CORE_OPTION_VALUE_RANGE(-40, -1);
+
+         option_defs_us[i].values[j].value = NULL;
+         option_defs_us[i].values[j].label = NULL;
+      }
+      else if (!strcmp(option_defs_us[i].key, "puae_kickstart"))
+      {
+         j = 0;
+         option_defs_us[i].values[j].value = "auto";
+         option_defs_us[i].values[j].label = "Automatic";
+         ++j;
+
+         option_defs_us[i].values[j].value = "aros";
+         option_defs_us[i].values[j].label = "AROS";
+         ++j;
+
+         /* Scan system directory for Kickstarts */
+         if (path_is_directory(retro_system_directory))
+         {
+            DIR *dir;
+            struct dirent *dirp;
+
+            dir = opendir(retro_system_directory);
+            while ((dirp = readdir(dir)) != NULL && j < RETRO_NUM_CORE_OPTION_VALUES_MAX - 1)
+            {
+               const char *fileExtension = path_get_extension(dirp->d_name);
+
+               if (  strstartswith(dirp->d_name, "kick")
+                  || strstartswith(dirp->d_name, "amiga-os")
+                  || strstartswith(dirp->d_name, "KS ROM")
+                  )
+               {
+                  if (   !string_is_equal_noncase(fileExtension, "pat")
+                      && !string_is_equal_noncase(fileExtension, "rtb"))
+                  {
+                     if (   !string_is_equal_noncase(dirp->d_name, "Kickstart_Information")
+                         && !string_is_equal_noncase(dirp->d_name, "Kickstart_Information.info"))
+                     {
+                        char value[RETRO_PATH_MAX] = {0};
+                        snprintf(value, sizeof(value), "%s", dirp->d_name);
+
+                        puae_kickstarts[j].value = strdup(value);
+
+                        option_defs_us[i].values[j].value = puae_kickstarts[j].value;
+                        ++j;
+                     }
+                  }
+               }
+
+               puae_kickstarts[j].value = NULL;
+               puae_kickstarts[j].label = NULL;
+            }
+            closedir(dir);
+         }
+
+         option_defs_us[i].values[j].value = NULL;
+         option_defs_us[i].values[j].label = NULL;
+      }
       else if (!strcmp(option_defs_us[i].key, "puae_cart_file"))
       {
          j = 0;
@@ -2696,21 +2733,21 @@ static void retro_set_core_options()
          /* Scan system data directory for cartridges */
          if (path_is_directory(retro_system_data_directory))
          {
-            DIR *cart_dir;
-            struct dirent *cart_dirp;
+            DIR *dir;
+            struct dirent *dirp;
 
-            cart_dir = opendir(retro_system_data_directory);
-            while ((cart_dirp = readdir(cart_dir)) != NULL && j < RETRO_NUM_CORE_OPTION_VALUES_MAX - 1)
+            dir = opendir(retro_system_data_directory);
+            while ((dirp = readdir(dir)) != NULL && j < RETRO_NUM_CORE_OPTION_VALUES_MAX - 1)
             {
-               if (strendswith(cart_dirp->d_name, "rom"))
+               if (strendswith(dirp->d_name, "rom"))
                {
-                  char cart_value[RETRO_PATH_MAX] = {0};
-                  char cart_label[128]            = {0};
-                  snprintf(cart_value, sizeof(cart_value), "%s", cart_dirp->d_name);
-                  snprintf(cart_label, sizeof(cart_label), "%s", path_remove_extension(cart_dirp->d_name));
+                  char value[RETRO_PATH_MAX] = {0};
+                  char label[128]            = {0};
+                  snprintf(value, sizeof(value), "%s", dirp->d_name);
+                  snprintf(label, sizeof(label), "%s", path_remove_extension(dirp->d_name));
 
-                  puae_carts[j].value = strdup(cart_value);
-                  puae_carts[j].label = strdup(cart_label);
+                  puae_carts[j].value = strdup(value);
+                  puae_carts[j].label = strdup(label);
 
                   option_defs_us[i].values[j].value = puae_carts[j].value;
                   option_defs_us[i].values[j].label = puae_carts[j].label;
@@ -2720,16 +2757,11 @@ static void retro_set_core_options()
                puae_carts[j].value = NULL;
                puae_carts[j].label = NULL;
             }
-            closedir(cart_dir);
+            closedir(dir);
          }
 
          option_defs_us[i].values[j].value = NULL;
          option_defs_us[i].values[j].label = NULL;
-
-         /* Info sublabel */
-         char info[128] = {0};
-         snprintf(info, sizeof(info), "Cartridge images go in 'system/uae/' or 'system/uae_data/'.\nCore restart required.");
-         option_defs_us[i].info = strdup(info);
       }
       ++i;
    }
@@ -3432,6 +3464,9 @@ static void update_variables(void)
    GET_VAR("kickstart")
    {
       strlcpy(opt_kickstart, var.value, sizeof(opt_kickstart));
+      if (string_is_empty(opt_kickstart)) {
+         strlcpy(opt_kickstart, "auto", sizeof(opt_kickstart));
+      }
 
       if (libretro_runloop_active)
       {
@@ -5332,8 +5367,8 @@ void retro_deinit(void)
    if (dc)
       dc_free(dc);
 
-   /* Clean dynamic cartridge info */
-   free_puae_carts();
+   /* Clean dynamic core option info */
+   free_puae_core_options();
 
    /* Free buffers used by libretro-graph */
    libretro_graph_free();
@@ -5545,6 +5580,130 @@ static void retro_config_append(const char *row, ...)
    va_end(ap);
 
    strlcat(uae_full_config, output, sizeof(uae_full_config));
+
+   /* Cycle-exact force */
+   if (strstr(output, "cycle_exact=true") && output[0] == 'c')
+      cpu_cycle_exact_force = true;
+
+   /* Parse Kickstart for alternate namings */
+   if (strstr(output, "kickstart_rom_file=") && output[0] == 'k')
+   {
+      char *token = strtok(output, "=");
+      while (token != NULL)
+      {
+         snprintf(uae_kickstart, sizeof(uae_kickstart), "%s", trimwhitespace(token));
+         token = strtok(NULL, "=");
+      }
+   }
+
+   /* Parse diskimage & floppy rows */
+   if ((strstr(output, "diskimage") && output[0] == 'd') ||
+       (strstr(output, "floppy") && output[0] == 'f'))
+   {
+      char disk_image[RETRO_PATH_MAX] = {0};
+      char disk_image_label[RETRO_PATH_MAX] = {0};
+
+      char *token = strtok(output, "=");
+      while (token != NULL)
+      {
+         snprintf(disk_image, sizeof(disk_image), "%s", token);
+         token = strtok(NULL, "=");
+      }
+      strtok(disk_image, "\n");
+      if (!string_is_empty(disk_image) && path_is_valid(disk_image))
+      {
+         /* Add the file to Disk Control */
+         fill_pathname(disk_image_label, path_basename(disk_image), "", sizeof(disk_image_label));
+         dc_add_file(dc, disk_image, disk_image_label);
+      }
+   }
+
+   /* Parse and replace presets */
+   {
+      if (strstr(output, "chipmem_size=") && output[0] == 'c')
+      {
+         char *token = strtok(output, "=");
+         while (token != NULL)
+         {
+            preset_opt.chipmem_size = atoi(token);
+            token = strtok(NULL, "=");
+         }
+      }
+
+      if (strstr(output, "bogomem_size=") && output[0] == 'b')
+      {
+         char *token = strtok(output, "=");
+         while (token != NULL)
+         {
+            preset_opt.bogomem_size = atoi(token);
+            token = strtok(NULL, "=");
+         }
+      }
+
+      if (strstr(output, "fastmem_size=") && output[0] == 'f')
+      {
+         char *token = strtok(output, "=");
+         while (token != NULL)
+         {
+            preset_opt.fastmem_size = atoi(token);
+            token = strtok(NULL, "=");
+         }
+      }
+
+      if (strstr(output, "z3mem_size=") && output[0] == 'z')
+      {
+         char *token = strtok(output, "=");
+         while (token != NULL)
+         {
+            preset_opt.z3mem_size = atoi(token);
+            token = strtok(NULL, "=");
+         }
+      }
+
+      if (strstr(output, "cpu_model=") && output[0] == 'c')
+      {
+         char *token = strtok(output, "=");
+         while (token != NULL)
+         {
+            preset_opt.cpu_model = atoi(token);
+            token = strtok(NULL, "=");
+         }
+      }
+
+      if (strstr(output, "fpu_model=") && output[0] == 'f')
+      {
+         char *token = strtok(output, "=");
+         while (token != NULL)
+         {
+            preset_opt.fpu_model = atoi(token);
+            token = strtok(NULL, "=");
+         }
+      }
+
+      if (strstr(output, "chipset=") && output[0] == 'c')
+      {
+         char value[255];
+         char *token = strtok(output, "=");
+         while (token != NULL)
+         {
+            snprintf(value, sizeof(value), "%s", trimwhitespace(token));
+            token = strtok(NULL, "=");
+         }
+         cfgfile_strval ("chipset", value, _T("chipset"), &preset_opt.chipset, csmode, 0);
+      }
+
+      if (strstr(output, "chipset_compatible=") && output[0] == 'c')
+      {
+         char value[255];
+         char *token = strtok(output, "=");
+         while (token != NULL)
+         {
+            snprintf(value, sizeof(value), "%s", trimwhitespace(token));
+            token = strtok(NULL, "=");
+         }
+         cfgfile_strval ("chipset_compatible", value, _T("chipset_compatible"), &preset_opt.cs_compatible, cscompa, 0);
+      }
+   }
 }
 
 static void retro_config_force_region(void)
@@ -7269,8 +7428,6 @@ static bool retro_create_config(void)
       /* UAE config file */
       else if (strendswith(full_path, "uae"))
       {
-         char disk_image[RETRO_PATH_MAX] = {0};
-
          /* Write model preset */
          retro_config_append(uae_model_config);
 
@@ -7287,9 +7444,6 @@ static bool retro_create_config(void)
          char filebuf[RETRO_PATH_MAX];
          if ((configfile_custom = fopen(full_path, "r")))
          {
-            char disk_image_label[RETRO_PATH_MAX];
-            disk_image_label[0] = '\0';
-
             while (fgets(filebuf, sizeof(filebuf), configfile_custom))
             {
                /* Skip input rows */
@@ -7333,134 +7487,13 @@ static bool retro_create_config(void)
 
                /* Append */
                retro_config_append(filebuf);
-
-               /* Cycle-exact force */
-               if (strstr(filebuf, "cycle_exact=true") && filebuf[0] == 'c')
-                  cpu_cycle_exact_force = true;
-
-               /* Parse Kickstart for alternate namings */
-               if (strstr(filebuf, "kickstart_rom_file=") && filebuf[0] == 'k')
-               {
-                  char *token = strtok(filebuf, "=");
-                  while (token != NULL)
-                  {
-                     snprintf(uae_kickstart, sizeof(uae_kickstart), "%s", trimwhitespace(token));
-                     token = strtok(NULL, "=");
-                  }
-               }
-
-               /* Parse diskimage & floppy rows */
-               if ((strstr(filebuf, "diskimage") && filebuf[0] == 'd') ||
-                   (strstr(filebuf, "floppy") && filebuf[0] == 'f'))
-               {
-                  char *token = strtok(filebuf, "=");
-                  while (token != NULL)
-                  {
-                     snprintf(disk_image, sizeof(disk_image), "%s", token);
-                     token = strtok(NULL, "=");
-                  }
-                  strtok(disk_image, "\n");
-                  if (!string_is_empty(disk_image) && path_is_valid(disk_image))
-                  {
-                     /* Add the file to Disk Control */
-                     fill_pathname(disk_image_label, path_basename(disk_image), "", sizeof(disk_image_label));
-                     dc_add_file(dc, disk_image, disk_image_label);
-                  }
-               }
-
-               /* Parse and replace presets */
-               {
-                  if (strstr(filebuf, "chipmem_size=") && filebuf[0] == 'c')
-                  {
-                     char *token = strtok(filebuf, "=");
-                     while (token != NULL)
-                     {
-                        preset_opt.chipmem_size = atoi(token);
-                        token = strtok(NULL, "=");
-                     }
-                  }
-
-                  if (strstr(filebuf, "bogomem_size=") && filebuf[0] == 'b')
-                  {
-                     char *token = strtok(filebuf, "=");
-                     while (token != NULL)
-                     {
-                        preset_opt.bogomem_size = atoi(token);
-                        token = strtok(NULL, "=");
-                     }
-                  }
-
-                  if (strstr(filebuf, "fastmem_size=") && filebuf[0] == 'f')
-                  {
-                     char *token = strtok(filebuf, "=");
-                     while (token != NULL)
-                     {
-                        preset_opt.fastmem_size = atoi(token);
-                        token = strtok(NULL, "=");
-                     }
-                  }
-
-                  if (strstr(filebuf, "z3mem_size=") && filebuf[0] == 'z')
-                  {
-                     char *token = strtok(filebuf, "=");
-                     while (token != NULL)
-                     {
-                        preset_opt.z3mem_size = atoi(token);
-                        token = strtok(NULL, "=");
-                     }
-                  }
-
-                  if (strstr(filebuf, "cpu_model=") && filebuf[0] == 'c')
-                  {
-                     char *token = strtok(filebuf, "=");
-                     while (token != NULL)
-                     {
-                        preset_opt.cpu_model = atoi(token);
-                        token = strtok(NULL, "=");
-                     }
-                  }
-
-                  if (strstr(filebuf, "fpu_model=") && filebuf[0] == 'f')
-                  {
-                     char *token = strtok(filebuf, "=");
-                     while (token != NULL)
-                     {
-                        preset_opt.fpu_model = atoi(token);
-                        token = strtok(NULL, "=");
-                     }
-                  }
-
-                  if (strstr(filebuf, "chipset=") && filebuf[0] == 'c')
-                  {
-                     char value[255];
-                     char *token = strtok(filebuf, "=");
-                     while (token != NULL)
-                     {
-                        snprintf(value, sizeof(value), "%s", trimwhitespace(token));
-                        token = strtok(NULL, "=");
-                     }
-                     cfgfile_strval ("chipset", value, _T("chipset"), &preset_opt.chipset, csmode, 0);
-                  }
-
-                  if (strstr(filebuf, "chipset_compatible=") && filebuf[0] == 'c')
-                  {
-                     char value[255];
-                     char *token = strtok(filebuf, "=");
-                     while (token != NULL)
-                     {
-                        snprintf(value, sizeof(value), "%s", trimwhitespace(token));
-                        token = strtok(NULL, "=");
-                     }
-                     cfgfile_strval ("chipset_compatible", value, _T("chipset_compatible"), &preset_opt.cs_compatible, cscompa, 0);
-                  }
-               }
             }
             
             fclose(configfile_custom);
          }
 
          /* Init only existing disks */
-         if (!string_is_empty(disk_image) && dc->count)
+         if (dc->count)
          {
             /* Init first disk */
             dc->index = 0;
@@ -7522,6 +7555,9 @@ static bool retro_create_config(void)
          while (fgets(filebuf, sizeof(filebuf), configfile))
             retro_config_append(filebuf);
          fclose(configfile);
+
+         /* Verify and write Kickstart */
+         retro_config_kickstart();
       }
    }
 
@@ -7541,6 +7577,9 @@ static bool retro_create_config(void)
          while (fgets(filebuf, sizeof(filebuf), configfile))
             retro_config_append(filebuf);
          fclose(configfile);
+
+         /* Verify and write Kickstart */
+         retro_config_kickstart();
       }
    }
 
@@ -8896,8 +8935,7 @@ bool retro_load_game(const struct retro_game_info *info)
    savestate_fname[0] = '\0';
 
    /* Estimate necessary save state size */
-   save_state_file_size = currprefs.chipmem.size + currprefs.bogomem.size + currprefs.fastmem[0].size + currprefs.z3fastmem[0].size;
-   save_state_file_size += 128 * 1000;
+   save_state_file_size = libretro_estimateSaveStateSize();
 
    struct retro_memory_descriptor memdesc[] = {
       {RETRO_MEMDESC_SYSTEM_RAM, chipmem_bank.baseaddr, 0, 0, 0, 0, chipmem_bank.allocated_size, "CHIP"},
@@ -8974,6 +9012,9 @@ bool retro_serialize(void *data_, size_t size)
    if (state_file)
    {
       uae_s64 state_file_size = zfile_size(state_file);
+
+      if (state_file_size > 0 && (uae_u64)state_file_size <= (uae_u64)((size_t)-1))
+         save_state_file_size = (size_t)state_file_size;
 
       if (size >= state_file_size)
       {

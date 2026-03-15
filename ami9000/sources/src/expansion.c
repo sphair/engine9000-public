@@ -5700,7 +5700,7 @@ const struct expansionromtype expansionroms[] = {
 		false, EXPANSIONTYPE_SCSI
 	},
 	{
-		_T("golem"), _T("HD3000"), _T("Kupke"),
+		_T("golemhd3000"), _T("HD3000"), _T("Kupke"),
 		NULL, hd3000_init, NULL, hd3000_add_scsi_unit, ROMTYPE_GOLEMHD3000, 0, 0, BOARD_AUTOCONFIG_Z2, true,
 		NULL, 0,
 		true, EXPANSIONTYPE_CUSTOM | EXPANSIONTYPE_SCSI
@@ -6465,7 +6465,7 @@ static const struct cpuboardsubtype gvpboard_sub[] = {
 		_T("TekMagic"),
 		ROMTYPE_CB_TEKMAGIC, 0, 4,
 		tekmagic_add_scsi_unit, EXPANSIONTYPE_SCSI,
-		BOARD_MEMORY_HIGHMEM,
+		BOARD_MEMORY_25BITMEM,
 		128 * 1024 * 1024
 	},
 	{
@@ -6495,6 +6495,14 @@ static const struct cpuboardsubtype gvpboard_sub[] = {
 		quikpak_add_scsi_unit, EXPANSIONTYPE_SCSI,
 		BOARD_MEMORY_HIGHMEM,
 		128 * 1024 * 1024,
+	},
+	{
+		_T("T-Rex II"),
+		_T("trexii"),
+		ROMTYPE_CB_TREXII, 0, 4,
+		tekmagic_add_scsi_unit, EXPANSIONTYPE_SCSI,
+		BOARD_MEMORY_HIGHMEM,
+		128 * 1024 * 1024
 	},
 	{
 		NULL
