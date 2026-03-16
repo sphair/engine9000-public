@@ -42,12 +42,29 @@
 #endif
 
 #ifdef E9UI_ENABLE_GAMEPAD
+typedef enum e9ui_controller_device_type
+{
+  e9ui_controllerDeviceNone = 0,
+  e9ui_controllerDeviceGameController,
+  e9ui_controllerDeviceJoystick
+} e9ui_controller_device_type_t;
+
 static SDL_GameController *e9ui_controller = NULL;
+static SDL_Joystick *e9ui_joystick = NULL;
 static SDL_JoystickID e9ui_controllerId = -1;
+static e9ui_controller_device_type_t e9ui_controllerDeviceType = e9ui_controllerDeviceNone;
 static int e9ui_controllerLeft = 0;
 static int e9ui_controllerRight = 0;
 static int e9ui_controllerUp = 0;
 static int e9ui_controllerDown = 0;
+static int e9ui_controllerAxisLeft = 0;
+static int e9ui_controllerAxisRight = 0;
+static int e9ui_controllerAxisUp = 0;
+static int e9ui_controllerAxisDown = 0;
+static int e9ui_controllerHatLeft = 0;
+static int e9ui_controllerHatRight = 0;
+static int e9ui_controllerHatUp = 0;
+static int e9ui_controllerHatDown = 0;
 static const int e9ui_controllerDeadzone = 8000;
 static char e9ui_controllerPreferredGuid[E9UI_GAMEPAD_GUID_CAP];
 #endif
@@ -932,7 +949,7 @@ e9ui_controllerGetGuidString(SDL_JoystickGUID guid, char *out, size_t outCap)
 static int
 e9ui_controllerReadGuidForIndex(int index, char *out, size_t outCap)
 {
-  if (!out || outCap == 0 || index < 0 || !SDL_IsGameController(index)) {
+  if (!out || outCap == 0 || index < 0) {
     return 0;
   }
   e9ui_controllerGetGuidString(SDL_JoystickGetDeviceGUID(index), out, outCap);
@@ -942,10 +959,17 @@ e9ui_controllerReadGuidForIndex(int index, char *out, size_t outCap)
 static int
 e9ui_controllerReadActiveGuid(char *out, size_t outCap)
 {
-  if (!out || outCap == 0 || !e9ui_controller) {
+  SDL_Joystick *joy = NULL;
+  if (!out || outCap == 0) {
     return 0;
   }
-  SDL_Joystick *joy = SDL_GameControllerGetJoystick(e9ui_controller);
+  if (e9ui_controller) {
+    joy = SDL_GameControllerGetJoystick(e9ui_controller);
+  } else if (e9ui_joystick) {
+    joy = e9ui_joystick;
+  } else {
+    return 0;
+  }
   if (!joy) {
     out[0] = '\0';
     return 0;
@@ -967,40 +991,61 @@ e9ui_controllerClose(void)
     SDL_GameControllerClose(e9ui_controller);
     e9ui_controller = NULL;
   }
+  if (e9ui_joystick) {
+    SDL_JoystickClose(e9ui_joystick);
+    e9ui_joystick = NULL;
+  }
   e9ui_controllerId = -1;
+  e9ui_controllerDeviceType = e9ui_controllerDeviceNone;
   e9ui_controllerLeft = 0;
   e9ui_controllerRight = 0;
   e9ui_controllerUp = 0;
   e9ui_controllerDown = 0;
+  e9ui_controllerAxisLeft = 0;
+  e9ui_controllerAxisRight = 0;
+  e9ui_controllerAxisUp = 0;
+  e9ui_controllerAxisDown = 0;
+  e9ui_controllerHatLeft = 0;
+  e9ui_controllerHatRight = 0;
+  e9ui_controllerHatUp = 0;
+  e9ui_controllerHatDown = 0;
   libretro_host_clearJoypadState();
 }
 
 static void
 e9ui_controllerOpenIndex(int index)
 {
-  if (e9ui_controller || index < 0) {
+  if (e9ui_controller || e9ui_joystick || index < 0) {
     return;
   }
-  if (!SDL_IsGameController(index)) {
+  if (SDL_IsGameController(index)) {
+    SDL_GameController *pad = SDL_GameControllerOpen(index);
+    if (!pad) {
+      return;
+    }
+    SDL_Joystick *joy = SDL_GameControllerGetJoystick(pad);
+    if (!joy) {
+      SDL_GameControllerClose(pad);
+      return;
+    }
+    e9ui_controller = pad;
+    e9ui_controllerId = SDL_JoystickInstanceID(joy);
+    e9ui_controllerDeviceType = e9ui_controllerDeviceGameController;
     return;
   }
-  SDL_GameController *pad = SDL_GameControllerOpen(index);
-  if (!pad) {
-    return;
-  }
-  SDL_Joystick *joy = SDL_GameControllerGetJoystick(pad);
+  SDL_Joystick *joy = SDL_JoystickOpen(index);
   if (!joy) {
-    SDL_GameControllerClose(pad);
     return;
   }
-  e9ui_controller = pad;
+  e9ui_joystick = joy;
   e9ui_controllerId = SDL_JoystickInstanceID(joy);
+  e9ui_controllerDeviceType = e9ui_controllerDeviceJoystick;
 }
 
 static void
 e9ui_controllerTryOpenPreferred(void)
 {
-  if (e9ui_controller || !e9ui_controllerPreferredGuidSet()) {
+  if (e9ui_controller || e9ui_joystick || !e9ui_controllerPreferredGuidSet()) {
     return;
   }
   int count = SDL_NumJoysticks();
@@ -1013,7 +1058,7 @@ e9ui_controllerTryOpenPreferred(void)
       continue;
     }
     e9ui_controllerOpenIndex(i);
-    if (e9ui_controller) {
+    if (e9ui_controller || e9ui_joystick) {
       return;
     }
   }
@@ -1022,7 +1067,7 @@ e9ui_controllerTryOpenPreferred(void)
 static void
 e9ui_controllerOpenPreferredOrAuto(void)
 {
-  if (e9ui_controller) {
+  if (e9ui_controller || e9ui_joystick) {
     return;
   }
   if (e9ui_controllerPreferredGuidSet()) {
@@ -1035,7 +1080,16 @@ e9ui_controllerOpenPreferredOrAuto(void)
       continue;
     }
     e9ui_controllerOpenIndex(i);
-    if (e9ui_controller) {
+    if (e9ui_controller || e9ui_joystick) {
+      return;
+    }
+  }
+  for (int i = 0; i < count; ++i) {
+    if (SDL_IsGameController(i)) {
+      continue;
+    }
+    e9ui_controllerOpenIndex(i);
+    if (e9ui_controller || e9ui_joystick) {
       return;
     }
   }
@@ -1074,20 +1128,103 @@ e9ui_controllerSetDir(unsigned port, unsigned id, int *state, int pressed)
 }
 
 static void
-e9ui_controllerHandleAxis(SDL_GameControllerAxis axis, int value)
+e9ui_controllerSyncAxesAndHat(void)
 {
   unsigned port = 0u;
+  e9ui_controllerSetDir(port,
+                        RETRO_DEVICE_ID_JOYPAD_LEFT,
+                        &e9ui_controllerLeft,
+                        e9ui_controllerAxisLeft || e9ui_controllerHatLeft);
+  e9ui_controllerSetDir(port,
+                        RETRO_DEVICE_ID_JOYPAD_RIGHT,
+                        &e9ui_controllerRight,
+                        e9ui_controllerAxisRight || e9ui_controllerHatRight);
+  e9ui_controllerSetDir(port,
+                        RETRO_DEVICE_ID_JOYPAD_UP,
+                        &e9ui_controllerUp,
+                        e9ui_controllerAxisUp || e9ui_controllerHatUp);
+  e9ui_controllerSetDir(port,
+                        RETRO_DEVICE_ID_JOYPAD_DOWN,
+                        &e9ui_controllerDown,
+                        e9ui_controllerAxisDown || e9ui_controllerHatDown);
+}
+
+static void
+e9ui_controllerHandleAxis(SDL_GameControllerAxis axis, int value)
+{
   if (axis == SDL_CONTROLLER_AXIS_LEFTX) {
-    int left = (value < -e9ui_controllerDeadzone) ? 1 : 0;
-    int right = (value > e9ui_controllerDeadzone) ? 1 : 0;
-    e9ui_controllerSetDir(port, RETRO_DEVICE_ID_JOYPAD_LEFT, &e9ui_controllerLeft, left);
-    e9ui_controllerSetDir(port, RETRO_DEVICE_ID_JOYPAD_RIGHT, &e9ui_controllerRight, right);
+    e9ui_controllerAxisLeft = (value < -e9ui_controllerDeadzone) ? 1 : 0;
+    e9ui_controllerAxisRight = (value > e9ui_controllerDeadzone) ? 1 : 0;
   } else if (axis == SDL_CONTROLLER_AXIS_LEFTY) {
-    int up = (value < -e9ui_controllerDeadzone) ? 1 : 0;
-    int down = (value > e9ui_controllerDeadzone) ? 1 : 0;
-    e9ui_controllerSetDir(port, RETRO_DEVICE_ID_JOYPAD_UP, &e9ui_controllerUp, up);
-    e9ui_controllerSetDir(port, RETRO_DEVICE_ID_JOYPAD_DOWN, &e9ui_controllerDown, down);
+    e9ui_controllerAxisUp = (value < -e9ui_controllerDeadzone) ? 1 : 0;
+    e9ui_controllerAxisDown = (value > e9ui_controllerDeadzone) ? 1 : 0;
   }
+  e9ui_controllerSyncAxesAndHat();
+}
+
+static int
+e9ui_controllerMapGenericButton(Uint8 button, SDL_GameControllerButton *outButton)
+{
+  SDL_GameControllerButton mapped = SDL_CONTROLLER_BUTTON_INVALID;
+  switch (button) {
+  case 0:
+    mapped = SDL_CONTROLLER_BUTTON_A;
+    break;
+  case 1:
+    mapped = SDL_CONTROLLER_BUTTON_B;
+    break;
+  case 2:
+    mapped = SDL_CONTROLLER_BUTTON_X;
+    break;
+  case 3:
+    mapped = SDL_CONTROLLER_BUTTON_Y;
+    break;
+  case 4:
+    mapped = SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
+    break;
+  case 5:
+    mapped = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+    break;
+  case 6:
+  case 8:
+    mapped = SDL_CONTROLLER_BUTTON_BACK;
+    break;
+  case 7:
+  case 9:
+    mapped = SDL_CONTROLLER_BUTTON_START;
+    break;
+  default:
+    return 0;
+  }
+  if (outButton) {
+    *outButton = mapped;
+  }
+  return 1;
+}
+
+static void
+e9ui_controllerHandleJoystickButton(Uint8 button, int pressed)
+{
+  SDL_GameControllerButton mappedButton = SDL_CONTROLLER_BUTTON_INVALID;
+  unsigned id = 0u;
+  unsigned port = 0u;
+  if (!e9ui_controllerMapGenericButton(button, &mappedButton)) {
+    return;
+  }
+  if (!e9ui_controllerMapButton(mappedButton, &id)) {
+    return;
+  }
+  libretro_host_setJoypadState(port, id, pressed);
+}
+
+static void
+e9ui_controllerHandleHat(Uint8 value)
+{
+  e9ui_controllerHatLeft = (value & SDL_HAT_LEFT) ? 1 : 0;
+  e9ui_controllerHatRight = (value & SDL_HAT_RIGHT) ? 1 : 0;
+  e9ui_controllerHatUp = (value & SDL_HAT_UP) ? 1 : 0;
+  e9ui_controllerHatDown = (value & SDL_HAT_DOWN) ? 1 : 0;
+  e9ui_controllerSyncAxesAndHat();
 }
 #endif
 
@@ -1098,14 +1235,13 @@ e9ui_gamepadReadAvailable(e9ui_gamepad_info_t *out, size_t cap)
   size_t count = 0;
   int total = SDL_NumJoysticks();
   for (int i = 0; i < total; ++i) {
-    if (!SDL_IsGameController(i)) {
-      continue;
-    }
     if (out && count < cap) {
       e9ui_gamepad_info_t *dst = &out[count];
       memset(dst, 0, sizeof(*dst));
       e9ui_controllerReadGuidForIndex(i, dst->guid, sizeof(dst->guid));
-      const char *name = SDL_GameControllerNameForIndex(i);
+      const char *name = SDL_IsGameController(i)
+        ? SDL_GameControllerNameForIndex(i)
+        : SDL_JoystickNameForIndex(i);
       strutil_strlcpy(dst->name, sizeof(dst->name), name ? name : dst->guid);
     }
     count++;
@@ -1135,7 +1271,7 @@ e9ui_gamepadSetPreferredGuid(const char *guid)
   char normalized[E9UI_GAMEPAD_GUID_CAP];
   e9ui_controllerNormalizeGuid(guid, normalized, sizeof(normalized));
   if (strcmp(normalized, e9ui_controllerPreferredGuid) == 0) {
-    if (!e9ui_controller) {
+    if (!e9ui_controller && !e9ui_joystick) {
       e9ui_controllerOpenPreferredOrAuto();
     }
     return;
@@ -1151,10 +1287,10 @@ e9ui_gamepadSetPreferredGuid(const char *guid)
       keepActive = 1;
     }
   }
-  if (!keepActive && e9ui_controller) {
+  if (!keepActive && (e9ui_controller || e9ui_joystick)) {
     e9ui_controllerClose();
   }
-  if (!e9ui_controller) {
+  if (!e9ui_controller && !e9ui_joystick) {
     e9ui_controllerOpenPreferredOrAuto();
   }
 #else
@@ -2492,9 +2628,9 @@ e9ui_ctor(const char* configPath, int cliOverrideWindowSize, int cliWinW, int cl
   }    
   
     // Load persisted layout before creating window (for geometry)
-    if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS|SDL_INIT_AUDIO|SDL_INIT_GAMECONTROLLER) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS|SDL_INIT_AUDIO|SDL_INIT_GAMECONTROLLER|SDL_INIT_JOYSTICK) != 0) {
         debug_error("SDL_Init with audio failed: %s", SDL_GetError());
-        if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS|SDL_INIT_GAMECONTROLLER) != 0) {
+        if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS|SDL_INIT_GAMECONTROLLER|SDL_INIT_JOYSTICK) != 0) {
             debug_error("SDL_Init failed: %s", SDL_GetError());
             return 0;
         }
@@ -2783,31 +2919,77 @@ e9ui_processEvents(void)
         
 #ifdef E9UI_ENABLE_GAMEPAD
         else if (ev.type == SDL_CONTROLLERDEVICEADDED) {
-            if (!e9ui_controller) {
+            if (!e9ui_controller && !e9ui_joystick) {
                 e9ui_controllerOpenPreferredOrAuto();
             }
             continue;
         }
         else if (ev.type == SDL_CONTROLLERDEVICEREMOVED) {
-            if (e9ui_controller && ev.cdevice.which == e9ui_controllerId) {
+            if (ev.cdevice.which == e9ui_controllerId) {
                 e9ui_controllerClose();
             }
             continue;
         }
         else if (ev.type == SDL_CONTROLLERAXISMOTION) {
-            if (e9ui_controller && ev.caxis.which == e9ui_controllerId) {
+            if (e9ui_controllerDeviceType == e9ui_controllerDeviceGameController &&
+                e9ui_controller &&
+                ev.caxis.which == e9ui_controllerId) {
                 e9ui_controllerHandleAxis((SDL_GameControllerAxis)ev.caxis.axis, ev.caxis.value);
             }
             continue;
         }
         else if (ev.type == SDL_CONTROLLERBUTTONDOWN || ev.type == SDL_CONTROLLERBUTTONUP) {
-            if (e9ui_controller && ev.cbutton.which == e9ui_controllerId) {
+            if (e9ui_controllerDeviceType == e9ui_controllerDeviceGameController &&
+                e9ui_controller &&
+                ev.cbutton.which == e9ui_controllerId) {
                 unsigned id = 0;
                 if (e9ui_controllerMapButton((SDL_GameControllerButton)ev.cbutton.button, &id)) {
                     int pressed = (ev.type == SDL_CONTROLLERBUTTONDOWN) ? 1 : 0;
                     unsigned port = 0u;
                     libretro_host_setJoypadState(port, id, pressed);
                 }
+            }
+            continue;
+        }
+        else if (ev.type == SDL_JOYDEVICEADDED) {
+            if (!e9ui_controller && !e9ui_joystick) {
+                e9ui_controllerOpenPreferredOrAuto();
+            }
+            continue;
+        }
+        else if (ev.type == SDL_JOYDEVICEREMOVED) {
+            if (ev.jdevice.which == e9ui_controllerId) {
+                e9ui_controllerClose();
+            }
+            continue;
+        }
+        else if (ev.type == SDL_JOYAXISMOTION) {
+            if (e9ui_controllerDeviceType == e9ui_controllerDeviceJoystick &&
+                e9ui_joystick &&
+                ev.jaxis.which == e9ui_controllerId) {
+                if (ev.jaxis.axis == 0) {
+                    e9ui_controllerHandleAxis(SDL_CONTROLLER_AXIS_LEFTX, ev.jaxis.value);
+                } else if (ev.jaxis.axis == 1) {
+                    e9ui_controllerHandleAxis(SDL_CONTROLLER_AXIS_LEFTY, ev.jaxis.value);
+                }
+            }
+            continue;
+        }
+        else if (ev.type == SDL_JOYBUTTONDOWN || ev.type == SDL_JOYBUTTONUP) {
+            if (e9ui_controllerDeviceType == e9ui_controllerDeviceJoystick &&
+                e9ui_joystick &&
+                ev.jbutton.which == e9ui_controllerId) {
+                int pressed = (ev.type == SDL_JOYBUTTONDOWN) ? 1 : 0;
+                e9ui_controllerHandleJoystickButton(ev.jbutton.button, pressed);
+            }
+            continue;
+        }
+        else if (ev.type == SDL_JOYHATMOTION) {
+            if (e9ui_controllerDeviceType == e9ui_controllerDeviceJoystick &&
+                e9ui_joystick &&
+                ev.jhat.which == e9ui_controllerId &&
+                ev.jhat.hat == 0) {
+                e9ui_controllerHandleHat(ev.jhat.value);
             }
             continue;
         }
