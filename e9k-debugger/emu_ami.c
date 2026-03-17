@@ -17,6 +17,7 @@
 #include "debug.h"
 #include "e9ui.h"
 #include "range_bar.h"
+#include "custom_amiga.h"
 #include "custom_log.h"
 #include "custom_ui.h"
 #include "amiga_custom_regs.h"
@@ -874,6 +875,20 @@ emu_ami_tryBindCustomLogFrameCallback(void)
 static void
 emu_ami_destroy(void)
 {
+    if (emu_ami_blitterVisCache.texture) {
+        SDL_DestroyTexture(emu_ami_blitterVisCache.texture);
+        emu_ami_blitterVisCache.texture = NULL;
+    }
+    free(emu_ami_blitterVisCache.pixels);
+    free(emu_ami_blitterVisCache.retainedBlitIds);
+    free(emu_ami_blitterVisCache.retainedFrames);
+    free(emu_ami_blitterVisCache.retainedRgbs);
+    free(emu_ami_blitterVisCache.blitFrameIds);
+    free(emu_ami_blitterVisCache.blitFrameValues);
+    free(emu_ami_blitterVisCache.points);
+    free(emu_ami_blitterVisCache.lineTable);
+    free(emu_ami_blitterVisCache.lineList);
+    memset(&emu_ami_blitterVisCache, 0, sizeof(emu_ami_blitterVisCache));
 #if E9K_HACK_AMI_SPRITE_VIS
     if (emu_ami_spriteVisCache.texture) {
         SDL_DestroyTexture(emu_ami_spriteVisCache.texture);
@@ -3491,11 +3506,23 @@ emu_ami_toggleCustomLog(e9ui_context_t *ctx, void *user)
 }
 
 static void
+emu_ami_toggleCustomAmiga(e9ui_context_t *ctx, void *user)
+{
+    (void)ctx;
+    (void)user;
+    if (custom_amiga_isOpen()) {
+        custom_amiga_shutdown();
+    } else {
+        (void)custom_amiga_init();
+    }
+}
+
+static void
 emu_ami_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
 {
     emu_ami_tryBindCustomLogFrameCallback();
 
-    e9ui_component_t *btn = e9ui_button_make("DMA Debug", emu_ami_cycleDebugDma, comp);
+    e9ui_component_t *btn = e9ui_button_make("DMA", emu_ami_cycleDebugDma, comp);
     if (btn) {
         e9ui_button_setMini(btn, 1);
         e9ui_setFocusTarget(btn, comp);
@@ -3507,7 +3534,7 @@ emu_ami_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
         }
     }
 
-    e9ui_component_t *btnCustom = e9ui_button_make("Custom Debug", emu_ami_toggleCustom, comp);
+    e9ui_component_t *btnCustom = e9ui_button_make("Visualisers", emu_ami_toggleCustom, comp);
     if (btnCustom) {
         e9ui_button_setMini(btnCustom, 1);
         e9ui_setFocusTarget(btnCustom, comp);
@@ -3519,7 +3546,19 @@ emu_ami_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
         }
     }
 
-    e9ui_component_t *btnCustomLog = e9ui_button_make("Custom Logger", emu_ami_toggleCustomLog, comp);
+    e9ui_component_t *btnCustomAmiga = e9ui_button_make("Chipset", emu_ami_toggleCustomAmiga, comp);
+    if (btnCustomAmiga) {
+        e9ui_button_setMini(btnCustomAmiga, 1);
+        e9ui_setFocusTarget(btnCustomAmiga, comp);
+        void *customAmigaBtnMeta = alloc_strdup("custom_amiga");
+        if (button_stack) {
+            e9ui_child_add(button_stack, btnCustomAmiga, customAmigaBtnMeta);
+        } else {
+            e9ui_child_add(comp, btnCustomAmiga, customAmigaBtnMeta);
+        }
+    }
+
+    e9ui_component_t *btnCustomLog = e9ui_button_make("Chipset Log", emu_ami_toggleCustomLog, comp);
     if (btnCustomLog) {
         e9ui_button_setMini(btnCustomLog, 1);
         e9ui_setFocusTarget(btnCustomLog, comp);

@@ -15,6 +15,8 @@
 #define E9K_HACK_AMI_SPRITE_VIS 0
 #endif
 
+#define E9K_DEBUG_EXCEPTION_WATCH_PREWRITE 0x7e91
+
 // Debug base register sections (passed to e9k_debug_set_debug_base_callback()).
 #define E9K_DEBUG_BASE_SECTION_TEXT 0u
 #define E9K_DEBUG_BASE_SECTION_DATA 1u
@@ -137,8 +139,23 @@ int *
 e9k_debug_amiga_get_debug_copper_addr(void);
 #endif
 
+const e9k_debug_ami_custom_reg_state_t *
+e9k_debug_ami_get_custom_regs(void);
+
 void
 e9k_debug_reapply_memhooks(void);
+
+int
+e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
+
+void
+e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
+
+int
+e9k_debug_memhook_beforeWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid);
+
+void
+e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid);
 
 // Optional host callback invoked when the target writes a new relocatable base.
 void

@@ -216,6 +216,9 @@ libretro_host_debugGetAmigaDebugDmaAddr(int **out_addr);
 bool
 libretro_host_debugGetAmigaDebugCopperAddr(int **out_addr);
 
+const e9k_debug_ami_custom_reg_state_t *
+libretro_host_debugAmiGetCustomRegs(void);
+
 bool
 libretro_host_debugAmiSetBlitterDebug(int enabled);
 

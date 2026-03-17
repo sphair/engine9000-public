@@ -131,7 +131,7 @@ typedef struct source_pane_line_metrics {
     int innerHeight;
 } source_pane_line_metrics_t;
 
-/* Set to 0 to restore the old snapshot-while-running behavior for ASM/HEX/CPR. */
+/* Set to 0 to restore the old snapshot-while-running behavior for ASM/HEX. */
 static int source_pane_enableLiveAsmViews = 0;
 
 static void
@@ -444,6 +444,9 @@ static int
 source_pane_shouldFreezeAsmWhileRunning(const source_pane_state_t *st)
 {
     if (!st) {
+        return 0;
+    }
+    if (st->viewMode == source_pane_mode_cpr) {
         return 0;
     }
     if (source_pane_isAsmViewLiveUpdateEnabled()) {

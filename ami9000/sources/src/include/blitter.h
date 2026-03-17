@@ -54,6 +54,7 @@ extern void blitter_setDestinationWriteEnabled(int enabled);
 extern void blitter_setDebugWriteEnabled(int enabled);
 extern int blitter_getDebugWriteEnabled(void);
 extern void blitter_debugFrameTick(void);
+extern void blitter_debugRetireCollectedWrites(void);
 extern void blitter_debugRestoreWritesOlderThan(uint32_t frameAge);
 extern void blitter_setDebugVisDecayFrames(uint32_t frameCount);
 extern uint32_t blitter_getDebugVisDecayFrames(void);

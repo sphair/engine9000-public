@@ -12,6 +12,7 @@
 
 #include "runtime.h"
 #include "ui.h"
+#include "custom_amiga.h"
 #include "debug.h"
 #include "e9ui.h"
 #include "input_record.h"
@@ -307,6 +308,7 @@ runtime_runLoop(void)
         e9ui_renderFrame();
         custom_ui_render();
         custom_log_render();
+        custom_amiga_render();
         shader_ui_render();
         memory_track_ui_render();
         if (debugger.smokeTestCompleted) {

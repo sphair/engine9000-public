@@ -14,6 +14,21 @@ typedef struct e9ui_hstack_item {
     int                 calcW;  // cached width during layout
 } e9ui_hstack_item_t;
 
+static int
+e9ui_hstack_intersectsClip(e9ui_context_t *ctx, e9ui_rect_t bounds)
+{
+  if (!ctx || !ctx->renderer) {
+    return 1;
+  }
+  if (!SDL_RenderIsClipEnabled(ctx->renderer)) {
+    return 1;
+  }
+  SDL_Rect clip;
+  SDL_RenderGetClipRect(ctx->renderer, &clip);
+  SDL_Rect rect = { bounds.x, bounds.y, bounds.w, bounds.h };
+  return SDL_HasIntersection(&rect, &clip) ? 1 : 0;
+}
+
 
 static int
 e9ui_hstack_preferredHeight(e9ui_component_t *self, e9ui_context_t *ctx, int availW)
@@ -95,6 +110,12 @@ e9ui_hstack_layout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_rect_t boun
 static void
 e9ui_hstack_render(e9ui_component_t *self, e9ui_context_t *ctx)
 {
+  if (!self) {
+    return;
+  }
+  if (!e9ui_hstack_intersectsClip(ctx, self->bounds)) {
+    return;
+  }
   if (ctx && ctx->renderer && e9ui->transition.inTransition <= 0) {
     SDL_Rect bg = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
     SDL_SetRenderDrawColor(ctx->renderer, 0, 0, 0, 255);
@@ -104,7 +125,7 @@ e9ui_hstack_render(e9ui_component_t *self, e9ui_context_t *ctx)
   e9ui_child_iterator* ptr =  e9ui_child_iterateChildren(self, &iter);
   while (e9ui_child_interateNext(ptr)) {
     e9ui_component_t *c = ptr->child;
-    if (c && c->render) {
+    if (c && !e9ui_getHidden(c) && c->render) {
       c->render(c, ctx);
     }
   }

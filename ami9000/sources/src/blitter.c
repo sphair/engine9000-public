@@ -872,11 +872,11 @@ blitter_debugRecordWrite(uaecptr addr)
 	if (!hasExisting) {
 		if (blitter_debugActiveCount >= blitter_debugActiveCapacity) {
 			return;
-			}
-			blitter_debugEpoch[wordIndex] = blitter_debugEpochCounter;
-			blitter_debugActiveWords[blitter_debugActiveCount] = wordIndex;
-			blitter_debugActiveCount++;
 		}
+		blitter_debugEpoch[wordIndex] = blitter_debugEpochCounter;
+		blitter_debugActiveWords[blitter_debugActiveCount] = wordIndex;
+		blitter_debugActiveCount++;
+	}
 	blitter_debugPatterns[wordIndex] = blitter_debugCurrentBlitPattern;
 	blitter_debugBlitIds[wordIndex] = blitter_debugCurrentBlitId;
 	blitter_debugFrames[wordIndex] = blitter_debugFrameCounter;
@@ -971,6 +971,31 @@ blitter_getDebugVideoFetchInfo(uaecptr addr, uae_u16 *value, uint32_t *blitId, i
 #endif
 
 #if E9K_HACK_BLITTER_VIS
+void
+blitter_debugRetireCollectedWrites(void)
+{
+	if (!blitter_debugActiveCount || !blitter_debugCollected) {
+		return;
+	}
+
+	uint32_t keptCount = 0;
+	for (uint32_t index = 0; index < blitter_debugActiveCount; ++index) {
+		uint32_t wordIndex = blitter_debugActiveWords[index];
+		if (!blitter_debugHasEntryByIndex(wordIndex)) {
+			continue;
+		}
+		if (!blitter_debugCollected[wordIndex]) {
+			blitter_debugActiveWords[keptCount] = wordIndex;
+			keptCount++;
+			continue;
+		}
+		blitter_debugCollected[wordIndex] = 0u;
+		blitter_debugEpoch[wordIndex] = 0;
+	}
+
+	blitter_debugActiveCount = keptCount;
+}
+
 void
 blitter_debugRestoreWritesOlderThan(uint32_t frameAge)
 {

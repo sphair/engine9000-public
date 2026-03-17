@@ -113,6 +113,18 @@ static e9k_debug_watchbreak_t e9k_debug_watchbreak = {0};
 static int e9k_debug_watchbreakPending = 0;
 static int e9k_debug_watchpointSuspend = 0;
 
+typedef struct e9k_debug_watch_snapshot
+{
+	newcpu_restart_state_t cpuState;
+	uint32_t callstack[E9K_DEBUG_CALLSTACK_MAX];
+	size_t callstackDepth;
+	int valid;
+} e9k_debug_watch_snapshot_t;
+
+static e9k_debug_watch_snapshot_t e9k_debug_watchSnapshot = {0};
+static int e9k_debug_watchReplayPending = 0;
+static int e9k_debug_watchReplayActive = 0;
+
 static e9k_debug_protect_t e9k_debug_protects[E9K_PROTECT_COUNT];
 static uint64_t e9k_debug_protectEnabledMask = 0;
 
@@ -708,6 +720,51 @@ e9k_debug_watchbreakRequest(uint32_t index, uint32_t accessAddr, uint32_t access
 
 	e9k_debug_watchbreakPending = 1;
 	e9k_debug_requestBreak();
+}
+
+static void
+e9k_debug_watchSnapshotInvalidate(void)
+{
+	e9k_debug_watchSnapshot.valid = 0;
+}
+
+static void
+e9k_debug_watchSnapshotCapture(void)
+{
+	newcpu_captureRestartState(&e9k_debug_watchSnapshot.cpuState);
+	e9k_debug_watchSnapshot.callstackDepth = e9k_debug_callstackDepth;
+	if (e9k_debug_callstackDepth > 0) {
+		memcpy(e9k_debug_watchSnapshot.callstack, e9k_debug_callstack,
+		       e9k_debug_callstackDepth * sizeof(e9k_debug_callstack[0]));
+	}
+	e9k_debug_watchSnapshot.valid = 1;
+}
+
+static int
+e9k_debug_watchSnapshotRestore(void)
+{
+	if (!e9k_debug_watchSnapshot.valid) {
+		return 0;
+	}
+	newcpu_restoreRestartState(&e9k_debug_watchSnapshot.cpuState);
+	e9k_debug_callstackDepth = e9k_debug_watchSnapshot.callstackDepth;
+	if (e9k_debug_callstackDepth > 0) {
+		memcpy(e9k_debug_callstack, e9k_debug_watchSnapshot.callstack,
+		       e9k_debug_callstackDepth * sizeof(e9k_debug_callstack[0]));
+	}
+	return 1;
+}
+
+static int
+e9k_debug_watchpointsSuppressed(void)
+{
+	if (e9k_debug_watchpointSuspend > 0) {
+		return 1;
+	}
+	if (e9k_debug_watchReplayActive) {
+		return 1;
+	}
+	return 0;
 }
 
 static int
@@ -1707,6 +1764,7 @@ e9k_debug_ami_on_video_presented(void)
 	if (blitter_getDebugWriteEnabled()) {
 		drawing_blitterVisSnapshotFrame();
 		if (collectMode) {
+			blitter_debugRetireCollectedWrites();
 			drawing_blitterVisClearFrame();
 		}
 	}
@@ -1751,7 +1809,7 @@ e9k_debug_requestBreak(void)
 static void
 e9k_debug_watchpointRead(uint32_t addr24, uint32_t value, uint32_t sizeBits)
 {
-	if (e9k_debug_watchpointSuspend > 0) {
+	if (e9k_debug_watchpointsSuppressed()) {
 		return;
 	}
 	if (e9k_debug_paused) {
@@ -1775,7 +1833,7 @@ e9k_debug_watchpointRead(uint32_t addr24, uint32_t value, uint32_t sizeBits)
 static void
 e9k_debug_watchpointWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid)
 {
-	if (e9k_debug_watchpointSuspend > 0) {
+	if (e9k_debug_watchpointsSuppressed()) {
 		return;
 	}
 	if (e9k_debug_paused) {
@@ -1794,6 +1852,39 @@ e9k_debug_watchpointWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, ui
 			return;
 		}
 	}
+}
+
+static int
+e9k_debug_watchpointWriteBreakBeforeWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid)
+{
+	if (e9k_debug_watchpointsSuppressed()) {
+		return 1;
+	}
+	if (e9k_debug_paused) {
+		return 1;
+	}
+	if (e9k_debug_watchpointEnabledMask == 0) {
+		return 1;
+	}
+
+	for (uint32_t index = 0; index < E9K_WATCHPOINT_COUNT; ++index) {
+		if ((e9k_debug_watchpointEnabledMask & (1ull << index)) == 0ull) {
+			continue;
+		}
+		if (!e9k_debug_watchpointMatch(&e9k_debug_watchpoints[index], addr24, E9K_WATCH_ACCESS_WRITE,
+		                               sizeBits, value, oldValue, oldValueValid)) {
+			continue;
+		}
+		if (!e9k_debug_watchSnapshotRestore()) {
+			return 1;
+		}
+		e9k_debug_watchReplayPending = 1;
+		e9k_debug_skipBreakpointOnce = 1;
+		e9k_debug_skipBreakpointPc = e9k_debug_maskAddr(regs.instruction_pc);
+		e9k_debug_watchbreakRequest(index, addr24, E9K_WATCH_ACCESS_WRITE, sizeBits, value, oldValue, oldValueValid);
+		return 0;
+	}
+	return 1;
 }
 
 static int
@@ -1910,6 +2001,13 @@ e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldVa
 	return e9k_debug_protectFilterWrite(addr24, sizeBits, oldValue, oldValueValid, inoutValue);
 }
 
+E9K_DEBUG_EXPORT int
+e9k_debug_memhook_beforeWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid)
+{
+	addr24 &= 0x00ffffffu;
+	return e9k_debug_watchpointWriteBreakBeforeWrite(addr24, value, oldValue, sizeBits, oldValueValid);
+}
+
 E9K_DEBUG_EXPORT void
 e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid)
 {
@@ -1921,6 +2019,18 @@ E9K_DEBUG_EXPORT int
 e9k_debug_instructionHook(uaecptr pc, uae_u16 opcode)
 {
 	uint32_t pc24 = e9k_debug_maskAddr(pc);
+
+	if (e9k_debug_watchReplayActive) {
+		e9k_debug_watchReplayActive = 0;
+	} else if (e9k_debug_watchReplayPending) {
+		e9k_debug_watchReplayPending = 0;
+		e9k_debug_watchReplayActive = 1;
+	}
+	if (e9k_debug_watchpointEnabledMask != 0) {
+		e9k_debug_watchSnapshotCapture();
+	} else {
+		e9k_debug_watchSnapshotInvalidate();
+	}
 
 	e9k_debug_profiler_instrHook(pc24);
 
@@ -2052,6 +2162,9 @@ e9k_debug_reset_watchpoints(void)
 	memset(&e9k_debug_watchbreak, 0, sizeof(e9k_debug_watchbreak));
 	e9k_debug_watchbreakPending = 0;
 	e9k_debug_watchpointSuspend = 0;
+	e9k_debug_watchSnapshotInvalidate();
+	e9k_debug_watchReplayPending = 0;
+	e9k_debug_watchReplayActive = 0;
 }
 
 E9K_DEBUG_EXPORT int
@@ -2091,6 +2204,11 @@ e9k_debug_remove_watchpoint(uint32_t index)
 	}
 	e9k_debug_watchpointEnabledMask &= ~(1ull << index);
 	memset(&e9k_debug_watchpoints[index], 0, sizeof(e9k_debug_watchpoints[index]));
+	if (e9k_debug_watchpointEnabledMask == 0) {
+		e9k_debug_watchSnapshotInvalidate();
+		e9k_debug_watchReplayPending = 0;
+		e9k_debug_watchReplayActive = 0;
+	}
 }
 
 E9K_DEBUG_EXPORT size_t
@@ -2123,6 +2241,11 @@ e9k_debug_set_watchpoint_enabled_mask(uint64_t mask)
 		}
 	}
 	e9k_debug_watchpointEnabledMask = mask;
+	if (mask == 0) {
+		e9k_debug_watchSnapshotInvalidate();
+		e9k_debug_watchReplayPending = 0;
+		e9k_debug_watchReplayActive = 0;
+	}
 }
 
 E9K_DEBUG_EXPORT int
@@ -2447,3 +2570,9 @@ e9k_debug_amiga_get_debug_copper_addr(void)
 	return &debug_copper;
 }
 #endif
+
+E9K_DEBUG_EXPORT const e9k_debug_ami_custom_reg_state_t *
+e9k_debug_ami_get_custom_regs(void)
+{
+	return (const e9k_debug_ami_custom_reg_state_t *)custom_storage;
+}

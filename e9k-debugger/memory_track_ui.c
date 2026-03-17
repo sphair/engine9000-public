@@ -33,6 +33,7 @@
 #include "libretro_host.h"
 #include "protect.h"
 #include "state_buffer.h"
+#include "state_wrap.h"
 #include "trainer.h"
 
 #define MEMORY_TRACK_UI_TITLE "ENGINE9000 DEBUGGER - MEMORY TRACKER"
@@ -53,6 +54,12 @@ typedef struct memory_track_frame_data {
     memory_track_entry_t *entries;
     size_t entryCount;
 } memory_track_frame_data_t;
+
+typedef struct memory_track_marker_state {
+    uint64_t frameNo;
+    uint8_t *wrappedState;
+    size_t wrappedStateSize;
+} memory_track_marker_state_t;
 
 typedef struct memory_track_ui memory_track_ui_t;
 
@@ -108,6 +115,8 @@ struct memory_track_ui {
     char **frameTexts;
     size_t frameTextsCap;
     size_t frameTextsCount;
+    memory_track_marker_state_t *markerStates;
+    size_t markerStatesCap;
     e9ui_component_t **filterInputs;
     size_t filterInputsCap;
     size_t filterInputsCount;
@@ -214,6 +223,27 @@ memory_track_ui_clearFrameMarkersInternal(memory_track_ui_t *ui);
 static void
 memory_track_ui_clearFrameMarkers(e9ui_context_t *ctx, void *user);
 
+static int
+memory_track_ui_parseFrameValue(const char *text, uint64_t *outFrame, int *outEmpty);
+
+static int
+memory_track_ui_captureWrappedCurrentState(uint8_t **outState, size_t *outSize);
+
+static int
+memory_track_ui_restoreWrappedState(const uint8_t *wrappedState, size_t wrappedStateSize, uint64_t frameNo);
+
+static int
+memory_track_ui_readRangesFromWrappedState(const uint8_t *wrappedState, size_t wrappedStateSize,
+                                           uint64_t frameNo, const memory_track_ranges_t *ranges,
+                                           uint8_t *out, size_t size);
+
+static int
+memory_track_ui_readFrameRangesAtIndex(memory_track_ui_t *ui, int preferredIndex, uint64_t frameNo,
+                                       const memory_track_ranges_t *ranges, uint8_t *out, size_t size);
+
+static void
+memory_track_ui_sortRanges(memory_track_ranges_t *ranges);
+
 static void
 memory_track_ui_setError(memory_track_ui_t *ui, const char *fmt, ...)
 {
@@ -231,10 +261,40 @@ memory_track_ui_setError(memory_track_ui_t *ui, const char *fmt, ...)
     ui->error[sizeof(ui->error) - 1] = '\0';
 }
 
-static int
-memory_track_ui_parseFrameText(memory_track_ui_t *ui, const char *text, uint64_t *outFrame, int *outEmpty)
+static void
+memory_track_ui_sortRanges(memory_track_ranges_t *ranges)
 {
-    if (!ui || !outFrame) {
+    if (!ranges || ranges->count < 2) {
+        return;
+    }
+    for (size_t i = 1; i < ranges->count; ++i) {
+        target_memory_range_t cur = ranges->ranges[i];
+        size_t j = i;
+        while (j > 0) {
+            target_memory_range_t prev = ranges->ranges[j - 1];
+            if (prev.baseAddr < cur.baseAddr) {
+                break;
+            }
+            if (prev.baseAddr == cur.baseAddr && prev.size <= cur.size) {
+                break;
+            }
+            ranges->ranges[j] = prev;
+            --j;
+        }
+        ranges->ranges[j] = cur;
+    }
+}
+
+static int
+memory_track_ui_parseFrameValue(const char *text, uint64_t *outFrame, int *outEmpty)
+{
+    if (outFrame) {
+        *outFrame = 0;
+    }
+    if (outEmpty) {
+        *outEmpty = 0;
+    }
+    if (!outFrame) {
         return 0;
     }
     if (!text || !*text) {
@@ -243,23 +303,244 @@ memory_track_ui_parseFrameText(memory_track_ui_t *ui, const char *text, uint64_t
         }
         return 1;
     }
-    if (outEmpty) {
-        *outEmpty = 0;
-    }
     char *end = NULL;
     unsigned long long val = strtoull(text, &end, 0);
     if (!end || end == text) {
-        memory_track_ui_setError(ui, "Invalid frame: \"%s\"", text);
         return 0;
     }
     while (*end && isspace((unsigned char)*end)) {
         ++end;
     }
     if (*end) {
-        memory_track_ui_setError(ui, "Invalid frame: \"%s\"", text);
         return 0;
     }
     *outFrame = (uint64_t)val;
+    return 1;
+}
+
+static int
+memory_track_ui_ensureMarkerStateCap(memory_track_ui_t *ui, size_t count)
+{
+    if (!ui) {
+        return 0;
+    }
+    if (count <= ui->markerStatesCap) {
+        return 1;
+    }
+    size_t newCap = ui->markerStatesCap ? ui->markerStatesCap : 4;
+    while (newCap < count) {
+        newCap *= 2;
+    }
+    memory_track_marker_state_t *next =
+        (memory_track_marker_state_t*)alloc_realloc(ui->markerStates, newCap * sizeof(*next));
+    if (!next) {
+        return 0;
+    }
+    for (size_t i = ui->markerStatesCap; i < newCap; ++i) {
+        memset(&next[i], 0, sizeof(next[i]));
+    }
+    ui->markerStates = next;
+    ui->markerStatesCap = newCap;
+    return 1;
+}
+
+static void
+memory_track_ui_clearMarkerStateAtIndex(memory_track_ui_t *ui, size_t index)
+{
+    if (!ui || !ui->markerStates || index >= ui->markerStatesCap) {
+        return;
+    }
+    alloc_free(ui->markerStates[index].wrappedState);
+    ui->markerStates[index].wrappedState = NULL;
+    ui->markerStates[index].wrappedStateSize = 0;
+    ui->markerStates[index].frameNo = 0;
+}
+
+static void
+memory_track_ui_clearAllMarkerStates(memory_track_ui_t *ui)
+{
+    if (!ui || !ui->markerStates) {
+        return;
+    }
+    for (size_t i = 0; i < ui->markerStatesCap; ++i) {
+        memory_track_ui_clearMarkerStateAtIndex(ui, i);
+    }
+    ui->cacheValid = 0;
+}
+
+static int
+memory_track_ui_setMarkerStateAtIndex(memory_track_ui_t *ui, size_t index, uint64_t frameNo,
+                                      uint8_t *wrappedState, size_t wrappedStateSize)
+{
+    if (!ui || !wrappedState || wrappedStateSize == 0) {
+        return 0;
+    }
+    if (!memory_track_ui_ensureMarkerStateCap(ui, index + 1)) {
+        return 0;
+    }
+    memory_track_ui_clearMarkerStateAtIndex(ui, index);
+    ui->markerStates[index].frameNo = frameNo;
+    ui->markerStates[index].wrappedState = wrappedState;
+    ui->markerStates[index].wrappedStateSize = wrappedStateSize;
+    ui->cacheValid = 0;
+    return 1;
+}
+
+static void
+memory_track_ui_syncMarkerStateForText(memory_track_ui_t *ui, size_t index, const char *text)
+{
+    if (!ui || !ui->markerStates || index >= ui->markerStatesCap) {
+        return;
+    }
+    memory_track_marker_state_t *marker = &ui->markerStates[index];
+    if (!marker->wrappedState || marker->wrappedStateSize == 0) {
+        return;
+    }
+    uint64_t frameNo = 0;
+    int empty = 0;
+    if (!memory_track_ui_parseFrameValue(text, &frameNo, &empty) || empty || frameNo != marker->frameNo) {
+        memory_track_ui_clearMarkerStateAtIndex(ui, index);
+        ui->cacheValid = 0;
+    }
+}
+
+static int
+memory_track_ui_findMarkerState(const memory_track_ui_t *ui, int preferredIndex, uint64_t frameNo,
+                                const uint8_t **outState, size_t *outSize)
+{
+    if (outState) {
+        *outState = NULL;
+    }
+    if (outSize) {
+        *outSize = 0;
+    }
+    if (!ui || !ui->markerStates || frameNo == 0) {
+        return 0;
+    }
+    if (preferredIndex >= 0 && (size_t)preferredIndex < ui->markerStatesCap) {
+        const memory_track_marker_state_t *marker = &ui->markerStates[preferredIndex];
+        if (marker->wrappedState && marker->wrappedStateSize > 0 && marker->frameNo == frameNo) {
+            if (outState) {
+                *outState = marker->wrappedState;
+            }
+            if (outSize) {
+                *outSize = marker->wrappedStateSize;
+            }
+            return 1;
+        }
+    }
+    for (size_t i = 0; i < ui->markerStatesCap; ++i) {
+        if ((int)i == preferredIndex) {
+            continue;
+        }
+        const memory_track_marker_state_t *marker = &ui->markerStates[i];
+        if (!marker->wrappedState || marker->wrappedStateSize == 0 || marker->frameNo != frameNo) {
+            continue;
+        }
+        if (outState) {
+            *outState = marker->wrappedState;
+        }
+        if (outSize) {
+            *outSize = marker->wrappedStateSize;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static int
+memory_track_ui_canResolveFrame(const memory_track_ui_t *ui, int preferredIndex, uint64_t frameNo)
+{
+    if (frameNo == 0) {
+        return 0;
+    }
+    if (memory_track_ui_findMarkerState(ui, preferredIndex, frameNo, NULL, NULL)) {
+        return 1;
+    }
+    return state_buffer_hasFrameNo(frameNo);
+}
+
+static int
+memory_track_ui_captureWrappedCurrentState(uint8_t **outState, size_t *outSize)
+{
+    if (outState) {
+        *outState = NULL;
+    }
+    if (outSize) {
+        *outSize = 0;
+    }
+    size_t payloadSize = 0;
+    if (!outState || !outSize || !libretro_host_getSerializeSize(&payloadSize) || payloadSize == 0) {
+        return 0;
+    }
+    size_t wrappedSize = state_wrap_wrappedSize(payloadSize);
+    uint8_t *wrappedState = (uint8_t*)alloc_alloc(wrappedSize);
+    if (!wrappedState) {
+        return 0;
+    }
+    size_t headerSize = state_wrap_headerSize();
+    if (!libretro_host_serializeTo(wrappedState + headerSize, payloadSize) ||
+        !state_wrap_writeHeader(wrappedState, wrappedSize, payloadSize, &debugger.machine)) {
+        alloc_free(wrappedState);
+        return 0;
+    }
+    *outState = wrappedState;
+    *outSize = wrappedSize;
+    return 1;
+}
+
+static int
+memory_track_ui_restoreWrappedState(const uint8_t *wrappedState, size_t wrappedStateSize, uint64_t frameNo)
+{
+    if (!wrappedState || wrappedStateSize == 0) {
+        return 0;
+    }
+    state_wrap_info_t info;
+    if (!state_wrap_parse(wrappedState, wrappedStateSize, &info)) {
+        return 0;
+    }
+    debugger_applyStateWrapBases(&info);
+    if (!libretro_host_unserializeFrom(info.payload, info.payloadSize)) {
+        return 0;
+    }
+    debugger.frameCounter = frameNo;
+    state_buffer_setCurrentFrameNo(frameNo);
+    return 1;
+}
+
+static int
+memory_track_ui_readRangesFromWrappedState(const uint8_t *wrappedState, size_t wrappedStateSize,
+                                           uint64_t frameNo, const memory_track_ranges_t *ranges,
+                                           uint8_t *out, size_t size)
+{
+    if (!ranges || !out || size != ranges->totalSize) {
+        return 0;
+    }
+    if (!memory_track_ui_restoreWrappedState(wrappedState, wrappedStateSize, frameNo)) {
+        return 0;
+    }
+    size_t offset = 0;
+    for (size_t i = 0; i < ranges->count; ++i) {
+        uint32_t base = ranges->ranges[i].baseAddr;
+        size_t rangeSize = (size_t)ranges->ranges[i].size;
+        if (!libretro_host_debugReadMemory(base, out + offset, rangeSize)) {
+            return 0;
+        }
+        offset += rangeSize;
+    }
+    return 1;
+}
+
+static int
+memory_track_ui_parseFrameText(memory_track_ui_t *ui, const char *text, uint64_t *outFrame, int *outEmpty)
+{
+    if (!ui || !outFrame) {
+        return 0;
+    }
+    if (!memory_track_ui_parseFrameValue(text, outFrame, outEmpty)) {
+        memory_track_ui_setError(ui, "Invalid frame: \"%s\"", text);
+        return 0;
+    }
     return 1;
 }
 
@@ -297,6 +578,7 @@ memory_track_ui_getRanges(memory_track_ranges_t *outRanges)
     for (size_t i = 0; i < outRanges->count; ++i) {
         outRanges->totalSize += (size_t)outRanges->ranges[i].size;
     }
+    memory_track_ui_sortRanges(outRanges);
 }
 
 static int
@@ -308,6 +590,8 @@ memory_track_ui_readFrameRanges(uint64_t frameNo, const memory_track_ranges_t *r
     if (!state_buffer_restoreFrameNo(frameNo)) {
         return 0;
     }
+    debugger.frameCounter = frameNo;
+    state_buffer_setCurrentFrameNo(frameNo);
     size_t offset = 0;
     for (size_t i = 0; i < ranges->count; ++i) {
         uint32_t base = ranges->ranges[i].baseAddr;
@@ -318,6 +602,19 @@ memory_track_ui_readFrameRanges(uint64_t frameNo, const memory_track_ranges_t *r
         offset += rangeSize;
     }
     return 1;
+}
+
+static int
+memory_track_ui_readFrameRangesAtIndex(memory_track_ui_t *ui, int preferredIndex, uint64_t frameNo,
+                                       const memory_track_ranges_t *ranges, uint8_t *out, size_t size)
+{
+    const uint8_t *wrappedState = NULL;
+    size_t wrappedStateSize = 0;
+    if (memory_track_ui_findMarkerState(ui, preferredIndex, frameNo, &wrappedState, &wrappedStateSize)) {
+        return memory_track_ui_readRangesFromWrappedState(wrappedState, wrappedStateSize, frameNo,
+                                                          ranges, out, size);
+    }
+    return memory_track_ui_readFrameRanges(frameNo, ranges, out, size);
 }
 
 static int
@@ -646,6 +943,7 @@ memory_track_ui_setStoredFrameText(memory_track_ui_t *ui, size_t index, const ch
         if (text && text[0]) {
             ui->frameTexts[index] = alloc_strdup(text);
         }
+        memory_track_ui_syncMarkerStateForText(ui, index, text);
     }
 }
 
@@ -670,8 +968,7 @@ memory_track_ui_storeFrameTexts(memory_track_ui_t *ui)
     }
     for (size_t textIndex = 0; textIndex < count; ++textIndex) {
         const char *text = e9ui_textbox_getText(ui->frameInputs[textIndex]);
-        alloc_free(ui->frameTexts[textIndex]);
-        ui->frameTexts[textIndex] = text ? alloc_strdup(text) : NULL;
+        memory_track_ui_setStoredFrameText(ui, textIndex, text);
     }
 }
 
@@ -748,6 +1045,7 @@ memory_track_ui_clearFrameMarkersInternal(memory_track_ui_t *ui)
     for (size_t i = 0; i < count; ++i) {
         memory_track_ui_setFrameTextAtIndex(ui, i, "");
     }
+    memory_track_ui_clearAllMarkerStates(ui);
     ui->needsRefresh = 1;
 }
 
@@ -1383,6 +1681,8 @@ memory_track_ui_collectData(memory_track_ui_t *ui, int columnCount)
 
     uint64_t restoreFrame = state_buffer_getCurrentFrameNo();
     uint64_t currentFrameNo = restoreFrame;
+    uint8_t *restoreState = NULL;
+    size_t restoreStateSize = 0;
     memory_track_ranges_t ranges = {0};
     memory_track_ui_getRanges(&ranges);
     size_t regionSize = ranges.totalSize;
@@ -1432,6 +1732,11 @@ memory_track_ui_collectData(memory_track_ui_t *ui, int columnCount)
         memory_track_ui_clearData(ui);
         return 0;
     }
+    if (!memory_track_ui_captureWrappedCurrentState(&restoreState, &restoreStateSize)) {
+        memory_track_ui_setError(ui, "Failed to capture current state");
+        memory_track_ui_clearData(ui);
+        return 0;
+    }
     memset(frameNos, 0, (size_t)columnCount * sizeof(uint64_t));
     memset(frameActive, 0, (size_t)columnCount * sizeof(int));
 
@@ -1453,8 +1758,8 @@ memory_track_ui_collectData(memory_track_ui_t *ui, int columnCount)
         if (empty) {
             continue;
         }
-        if (!state_buffer_hasFrameNo(frameNo)) {
-            memory_track_ui_setError(ui, "Frame %llu not in state buffer", (unsigned long long)frameNo);
+        if (!memory_track_ui_canResolveFrame(ui, frameIndex, frameNo)) {
+            memory_track_ui_setError(ui, "Frame %llu not available", (unsigned long long)frameNo);
             goto cleanup;
         }
         frameActive[frameIndex] = 1;
@@ -1661,7 +1966,7 @@ memory_track_ui_collectData(memory_track_ui_t *ui, int columnCount)
     }
 
     if (frameActive[0]) {
-        if (!memory_track_ui_readFrameRanges(frameNos[0], &ranges, refBytes, regionSize)) {
+        if (!memory_track_ui_readFrameRangesAtIndex(ui, 0, frameNos[0], &ranges, refBytes, regionSize)) {
             memory_track_ui_setError(ui, "Failed to read frame %llu",
                                      (unsigned long long)frameNos[0]);
             goto cleanup;
@@ -1679,8 +1984,8 @@ memory_track_ui_collectData(memory_track_ui_t *ui, int columnCount)
         if (hasPrevActive) {
             baseFrameNo = prevActiveFrameNo;
         } else {
-            if (frameNo == 0 || !state_buffer_hasFrameNo(frameNo - 1)) {
-                memory_track_ui_setError(ui, "Previous frame %llu not in state buffer",
+            if (frameNo == 0 || !memory_track_ui_canResolveFrame(ui, -1, frameNo - 1)) {
+                memory_track_ui_setError(ui, "Previous frame %llu not available",
                                          (unsigned long long)(frameNo - 1));
                 goto cleanup;
             }
@@ -1694,20 +1999,20 @@ memory_track_ui_collectData(memory_track_ui_t *ui, int columnCount)
             } else if (frameActive[0] && frameNos[0] == prevActiveFrameNo) {
                 memcpy(baseBytes, refBytes, regionSize);
             } else {
-                if (!memory_track_ui_readFrameRanges(baseFrameNo, &ranges, baseBytes, regionSize)) {
+                if (!memory_track_ui_readFrameRangesAtIndex(ui, -1, baseFrameNo, &ranges, baseBytes, regionSize)) {
                     memory_track_ui_setError(ui, "Failed to read frame %llu",
                                              (unsigned long long)baseFrameNo);
                     goto cleanup;
                 }
             }
         } else {
-            if (!memory_track_ui_readFrameRanges(baseFrameNo, &ranges, baseBytes, regionSize)) {
+            if (!memory_track_ui_readFrameRangesAtIndex(ui, -1, baseFrameNo, &ranges, baseBytes, regionSize)) {
                 memory_track_ui_setError(ui, "Failed to read frame %llu",
                                          (unsigned long long)baseFrameNo);
                 goto cleanup;
             }
         }
-        if (!memory_track_ui_readFrameRanges(frameNo, &ranges, curBytes, regionSize)) {
+        if (!memory_track_ui_readFrameRangesAtIndex(ui, frameIndex, frameNo, &ranges, curBytes, regionSize)) {
             memory_track_ui_setError(ui, "Failed to read frame %llu", (unsigned long long)frameNo);
             goto cleanup;
         }
@@ -1848,9 +2153,14 @@ memory_track_ui_collectData(memory_track_ui_t *ui, int columnCount)
     success = 1;
 
 cleanup:
-    (void)state_buffer_restoreFrameNo(restoreFrame);
-    debugger.frameCounter = restoreFrame;
-    state_buffer_setCurrentFrameNo(restoreFrame);
+    if (restoreState && restoreStateSize > 0) {
+        (void)memory_track_ui_restoreWrappedState(restoreState, restoreStateSize, restoreFrame);
+    } else {
+        (void)state_buffer_restoreFrameNo(restoreFrame);
+        debugger.frameCounter = restoreFrame;
+        state_buffer_setCurrentFrameNo(restoreFrame);
+    }
+    alloc_free(restoreState);
     if (!success && !usedCache) {
         memory_track_ui_clearData(ui);
     }
@@ -3038,10 +3348,21 @@ void
 memory_track_ui_addFrameMarker(uint64_t frameNo)
 {
     memory_track_ui_t *ui = &memory_track_ui_state;
+    uint8_t *wrappedState = NULL;
+    size_t wrappedStateSize = 0;
     char text[64];
     snprintf(text, sizeof(text), "%llu", (unsigned long long)frameNo);
     size_t index = memory_track_ui_findEmptyFrameIndex(ui);
+    if (!memory_track_ui_captureWrappedCurrentState(&wrappedState, &wrappedStateSize)) {
+        debug_error("memory_track_ui: failed to capture marker state for frame %llu",
+                    (unsigned long long)frameNo);
+    } else if (!memory_track_ui_setMarkerStateAtIndex(ui, index, frameNo, wrappedState, wrappedStateSize)) {
+        debug_error("memory_track_ui: failed to store marker state for frame %llu",
+                    (unsigned long long)frameNo);
+        alloc_free(wrappedState);
+    }
     memory_track_ui_setFrameTextAtIndex(ui, index, text);
+    ui->cacheValid = 0;
     ui->needsRefresh = 1;
 }
 

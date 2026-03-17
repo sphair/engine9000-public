@@ -1087,6 +1087,19 @@ settings_funChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, v
 }
 
 static void
+settings_logsChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
+{
+    (void)self;
+    (void)ctx;
+    int *flag = (int *)user;
+    if (!flag) {
+        return;
+    }
+    *flag = selected ? 1 : 0;
+    settings_updateSaveLabel();
+}
+
+static void
 settings_crtChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
 {
     (void)self;
@@ -1292,6 +1305,10 @@ settings_buildModalBody(e9ui_context_t *ctx)
     }
 
     int funSelected = (e9ui->transition.mode != e9k_transition_none);
+    e9ui_component_t *cbLogs = e9ui_checkbox_make("LOGS",
+                                                  debugger.settingsEdit.logsEnabled,
+                                                  settings_logsChanged,
+                                                  &debugger.settingsEdit.logsEnabled);
     e9ui_component_t *cbFun = e9ui_checkbox_make("FUN", funSelected, settings_funChanged, NULL);
     e9ui_component_t *cbCrt = e9ui_checkbox_make("CRT",
                                                  debugger.settingsEdit.crtEnabled,
@@ -1370,6 +1387,7 @@ settings_buildModalBody(e9ui_context_t *ctx)
     }
     if (rowGlobal && ctx) {
         int gap = e9ui_scale_px(ctx, 8);
+        int wLogs = cbLogs ? settings_checkboxMeasureWidth(cbLogs, ctx) : 0;
         int wFun = cbFun ? settings_checkboxMeasureWidth(cbFun, ctx) : 0;
         int wCrt = cbCrt ? settings_checkboxMeasureWidth(cbCrt, ctx) : 0;
         int wRecord = cbRecord ? settings_checkboxMeasureWidth(cbRecord, ctx) : 0;
@@ -1381,7 +1399,13 @@ settings_buildModalBody(e9ui_context_t *ctx)
             (void)hHotkeys;
         }
         int groupW = 0;
+        if (cbLogs) {
+            groupW += wLogs;
+        }
         if (cbFun) {
+            if (groupW > 0) {
+                groupW += gap;
+            }
             groupW += wFun;
         }
         if (cbCrt) {
@@ -1412,7 +1436,14 @@ settings_buildModalBody(e9ui_context_t *ctx)
             e9ui_hstack_addFlex(rowGlobal, e9ui_spacer_make(1));
         }
         int addedAny = 0;
+        if (cbLogs) {
+            e9ui_hstack_addFixed(rowGlobal, cbLogs, wLogs);
+            addedAny = 1;
+        }
         if (cbFun) {
+            if (addedAny) {
+                e9ui_hstack_addFixed(rowGlobal, e9ui_spacer_make(gap), gap);
+            }
             e9ui_hstack_addFixed(rowGlobal, cbFun, wFun);
             addedAny = 1;
         }

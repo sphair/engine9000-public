@@ -108,6 +108,14 @@ static volatile uae_atomic uae_interrupt;
 static volatile uae_atomic uae_interrupts2[IRQ_SOURCE_MAX];
 static volatile uae_atomic uae_interrupts6[IRQ_SOURCE_MAX];
 
+#ifdef __LIBRETRO__
+static int
+newcpu_isDebuggerPreWriteAbort(int exceptionCode)
+{
+	return exceptionCode == E9K_DEBUG_EXCEPTION_WATCH_PREWRITE;
+}
+#endif
+
 static int cacheisets04060, cacheisets04060mask, cacheitag04060mask;
 static int cachedsets04060, cachedsets04060mask, cachedtag04060mask;
 
@@ -2386,6 +2394,28 @@ void init_m68k (void)
 struct regstruct regs, mmu_backup_regs;
 struct flag_struct regflags;
 static int m68kpc_offset;
+
+void
+newcpu_captureRestartState(newcpu_restart_state_t *state)
+{
+	if (!state) {
+		return;
+	}
+	memcpy(&state->regs, &regs, sizeof(regs));
+	memcpy(&state->regflags, &regflags, sizeof(regflags));
+	memcpy(state->caches020, caches020, sizeof(caches020));
+}
+
+void
+newcpu_restoreRestartState(const newcpu_restart_state_t *state)
+{
+	if (!state) {
+		return;
+	}
+	memcpy(&regs, &state->regs, sizeof(regs));
+	memcpy(&regflags, &state->regflags, sizeof(regflags));
+	memcpy(caches020, state->caches020, sizeof(caches020));
+}
 
 STATIC_INLINE int in_rom (uaecptr pc)
 {
@@ -5052,12 +5082,25 @@ static void m68k_run_1 (void)
 					exit = true;
 			}
 		} CATCH (prb) {
-			bus_error();
-			if (r->spcflags) {
-				if (do_specialties(cpu_cycles))
-					exit = true;
+#ifdef __LIBRETRO__
+			if (newcpu_isDebuggerPreWriteAbort(prb)) {
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
+				regs.ipl[0] = regs.ipl[1] = regs.ipl_pin;
+			} else
+#endif
+			{
+				bus_error();
+				if (r->spcflags) {
+					if (do_specialties(cpu_cycles)) {
+						exit = true;
+					}
+				}
+				regs.ipl[0] = regs.ipl[1] = regs.ipl_pin;
 			}
-			regs.ipl[0] = regs.ipl[1] = regs.ipl_pin;
 		} ENDTRY
 	}
 }
@@ -5197,10 +5240,22 @@ cont:
 					exit = true;
 			}
 		} CATCH (prb) {
-			bus_error();
-			if (r->spcflags) {
-				if (do_specialties(0))
-					exit = true;
+#ifdef __LIBRETRO__
+			if (newcpu_isDebuggerPreWriteAbort(prb)) {
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
+			} else
+#endif
+			{
+				bus_error();
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
 			}
 		} ENDTRY
 	}
@@ -6076,6 +6131,12 @@ static void m68k_run_3ce (void)
 					debug_trainer_match();
 				}
 #endif
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 				(*cpufunctbl_noret[r->opcode])(r->opcode);
 
 				if (r->spcflags) {
@@ -6095,10 +6156,22 @@ static void m68k_run_3ce (void)
 				regs.instruction_cnt++;
 			}
 		} CATCH(prb) {
-			bus_error();
-			if (r->spcflags) {
-				if (do_specialties(0))
-					exit = true;
+#ifdef __LIBRETRO__
+			if (newcpu_isDebuggerPreWriteAbort(prb)) {
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
+			} else
+#endif
+			{
+				bus_error();
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
 			}
 		} ENDTRY
 	}
@@ -6126,6 +6199,12 @@ static void m68k_run_3p(void)
 					debug_trainer_match();
 				}
 #endif
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 
 				(*cpufunctbl_noret[r->opcode])(r->opcode);
 
@@ -6141,10 +6220,22 @@ static void m68k_run_3p(void)
 
 			}
 		} CATCH(prb) {
-			bus_error();
-			if (r->spcflags) {
-				if (do_specialties(0))
-					exit = true;
+#ifdef __LIBRETRO__
+			if (newcpu_isDebuggerPreWriteAbort(prb)) {
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
+			} else
+#endif
+			{
+				bus_error();
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
 			}
 		} ENDTRY
 	}
@@ -6266,6 +6357,12 @@ static void m68k_run_2ce (void)
 					debug_trainer_match();
 				}
 #endif
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 
 				(*cpufunctbl_noret[r->opcode])(r->opcode);
 		
@@ -6283,11 +6380,23 @@ static void m68k_run_2ce (void)
 
 			}
 		} CATCH(prb) {
-			bus_error();
-			ipl_fetch_now();
-			if (r->spcflags || time_for_interrupt()) {
-				if (do_specialties(0))
-					exit = true;
+#ifdef __LIBRETRO__
+			if (newcpu_isDebuggerPreWriteAbort(prb)) {
+				if (r->spcflags || time_for_interrupt()) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
+			} else
+#endif
+			{
+				bus_error();
+				ipl_fetch_now();
+				if (r->spcflags || time_for_interrupt()) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
 			}
 		} ENDTRY
 	}
@@ -6394,6 +6503,12 @@ static void m68k_run_2p (void)
 					debug_trainer_match();
 				}
 #endif
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 
 				if (currprefs.cpu_memory_cycle_exact) {
 
@@ -6425,12 +6540,24 @@ cont:
 				ipl_fetch_now();
 			}
 		} CATCH(prb) {
-			bus_error();
-			if (r->spcflags) {
-				if (do_specialties(cpu_cycles))
-					exit = true;
+#ifdef __LIBRETRO__
+			if (newcpu_isDebuggerPreWriteAbort(prb)) {
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
+			} else
+#endif
+			{
+				bus_error();
+				if (r->spcflags) {
+					if (do_specialties(cpu_cycles)) {
+						exit = true;
+					}
+				}
+				ipl_fetch_now();
 			}
-			ipl_fetch_now();
 		} ENDTRY
 	}
 }
@@ -6470,10 +6597,22 @@ static void cpu_thread_run_2(void *v)
 			}
 		} CATCH(prb)
 		{
-			bus_error();
-			if (r->spcflags) {
-				if (do_specialties_thread())
-					exit = true;
+#ifdef __LIBRETRO__
+			if (newcpu_isDebuggerPreWriteAbort(prb)) {
+				if (r->spcflags) {
+					if (do_specialties_thread()) {
+						exit = true;
+					}
+				}
+			} else
+#endif
+			{
+				bus_error();
+				if (r->spcflags) {
+					if (do_specialties_thread()) {
+						exit = true;
+					}
+				}
 			}
 		} ENDTRY
 	}
@@ -6517,10 +6656,22 @@ static void m68k_run_2_000(void)
 				}
 			}
 		} CATCH(prb) {
-			bus_error();
-			if (r->spcflags) {
-				if (do_specialties(cpu_cycles))
-					exit = true;
+#ifdef __LIBRETRO__
+			if (newcpu_isDebuggerPreWriteAbort(prb)) {
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
+			} else
+#endif
+			{
+				bus_error();
+				if (r->spcflags) {
+					if (do_specialties(cpu_cycles)) {
+						exit = true;
+					}
+				}
 			}
 		} ENDTRY
 	}
@@ -6569,10 +6720,22 @@ static void m68k_run_2_020(void)
 				}
 			}
 		} CATCH(prb) {
-			bus_error();
-			if (r->spcflags) {
-				if (do_specialties(cpu_cycles))
-					exit = true;
+#ifdef __LIBRETRO__
+			if (newcpu_isDebuggerPreWriteAbort(prb)) {
+				if (r->spcflags) {
+					if (do_specialties(0)) {
+						exit = true;
+					}
+				}
+			} else
+#endif
+			{
+				bus_error();
+				if (r->spcflags) {
+					if (do_specialties(cpu_cycles)) {
+						exit = true;
+					}
+				}
 			}
 		} ENDTRY
 	}

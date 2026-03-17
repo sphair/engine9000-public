@@ -24,7 +24,7 @@
 #include "amiga_custom_regs.h"
 #include "ui.h"
 
-#define CUSTOM_LOG_TITLE "ENGINE9000 DEBUGGER - CUSTOM LOG"
+#define CUSTOM_LOG_TITLE "ENGINE9000 DEBUGGER - CHIPSET LOG"
 #define CUSTOM_LOG_PAD 10
 #define CUSTOM_LOG_ROW_PAD_Y 2
 #define CUSTOM_LOG_COL_GAP 12
@@ -1500,8 +1500,11 @@ custom_log_overlayBodyHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, c
     if (localEv.type == SDL_MOUSEBUTTONDOWN && localEv.button.button == SDL_BUTTON_LEFT) {
         custom_log_row_hit_t hitRow;
         if (custom_log_findAddressHit(ui, localEv.button.x, localEv.button.y, &hitRow)) {
-            if (!hitRow.sourceIsCopper) {
-                custom_log_addOrEnableBreakpoint(custom_log_normalizeAddress(hitRow.sourceAddr));
+            uint32_t sourceAddr = custom_log_normalizeAddress(hitRow.sourceAddr);
+            if (hitRow.sourceIsCopper) {
+                ui_centerCprSourceOnAddress(sourceAddr);
+            } else {
+                custom_log_addOrEnableBreakpoint(sourceAddr);
             }
             return 1;
         }

@@ -8,6 +8,7 @@
 
 #include "config.h"
 #include "crt.h"
+#include "custom_amiga.h"
 #include "custom_log.h"
 #include "custom_ui.h"
 #include "debugger.h"
@@ -149,6 +150,7 @@ config_persistConfig(FILE *f)
     }
     fprintf(f, "comp.config.megadrive.audio_enabled=%d\n", debugger.config.megadrive.libretro.audioEnabled);
     fprintf(f, "comp.config.crt_enabled=%d\n", debugger.config.crtEnabled ? 1 : 0);
+    fprintf(f, "comp.config.logs_enabled=%d\n", debugger.config.logsEnabled ? 1 : 0);
     fprintf(f, "comp.config.record_enabled=%d\n", debugger.config.recordEnabled ? 1 : 0);
     if (!debugger.config.logosEnabled) {
         fprintf(f, "comp.config.logos_enabled=0\n");
@@ -167,6 +169,7 @@ config_persistConfig(FILE *f)
     mega_sprite_debug_persistConfig(f);
     custom_ui_persistConfig(f);
     custom_log_persistConfig(f);
+    custom_amiga_persistConfig(f);
     shader_ui_persistConfig(f);
     hex_convert_persistConfig(f);
     settings_persistConfig(f);
@@ -289,6 +292,8 @@ config_loadConfigFile(const char *path)
                 debugger.config.megadrive.libretro.audioEnabled = atoi(value) ? 1 : 0;
             } else if (strcmp(prop, "crt_enabled") == 0) {
                 debugger.config.crtEnabled = atoi(value) ? 1 : 0;
+            } else if (strcmp(prop, "logs_enabled") == 0) {
+                debugger.config.logsEnabled = atoi(value) ? 1 : 0;
             } else if (strcmp(prop, "record_enabled") == 0) {
                 debugger.config.recordEnabled = atoi(value) ? 1 : 0;
             } else if (strcmp(prop, "logos_enabled") == 0) {
@@ -340,6 +345,11 @@ config_loadConfigFile(const char *path)
         if (strncmp(key, "comp.custom_log.", 16) == 0) {
             const char *prop = key + 16;
             custom_log_loadConfigProperty(prop, value);
+            continue;
+        }
+        if (strncmp(key, "comp.custom_amiga.", 18) == 0) {
+            const char *prop = key + 18;
+            custom_amiga_loadConfigProperty(prop, value);
             continue;
         }
         if (strncmp(key, "comp.shader_ui.", 15) == 0) {

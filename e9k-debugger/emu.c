@@ -1238,7 +1238,7 @@ emu_makeComponent(void)
 
     target->emu->createOverlays(view, button_stack);
     
-    e9ui_component_t *btn_shader = e9ui_button_make("CRT Settings", emu_toggleShaderUi, view);
+    e9ui_component_t *btn_shader = e9ui_button_make("CRT", emu_toggleShaderUi, view);
     if (btn_shader) {
         e9ui_button_setMini(btn_shader, 1);
         e9ui_setFocusTarget(btn_shader, view);

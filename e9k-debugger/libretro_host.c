@@ -96,6 +96,7 @@ typedef void (*e9k_debug_set_vblank_callback_fn_t)(void (*cb)(void *), void *use
 typedef void (*e9k_debug_set_custom_log_frame_callback_fn_t)(e9k_debug_ami_custom_log_frame_callback_t cb, void *user);
 typedef int *(*e9k_debug_amiga_get_debug_dma_addr_fn_t)(void);
 typedef int *(*e9k_debug_amiga_get_debug_copper_addr_fn_t)(void);
+typedef const e9k_debug_ami_custom_reg_state_t *(*e9k_debug_ami_get_custom_regs_fn_t)(void);
 typedef void (*e9k_debug_ami_set_blitter_debug_fn_t)(int enabled);
 typedef int (*e9k_debug_ami_get_blitter_debug_fn_t)(void);
 typedef size_t (*e9k_debug_ami_blitter_vis_read_points_fn_t)(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height);
@@ -239,6 +240,7 @@ typedef struct  {
     e9k_debug_set_custom_log_frame_callback_fn_t setCustomLogFrameCallback;
     e9k_debug_amiga_get_debug_dma_addr_fn_t debugAmigaGetDebugDmaAddr;
     e9k_debug_amiga_get_debug_copper_addr_fn_t debugAmigaGetDebugCopperAddr;
+    e9k_debug_ami_get_custom_regs_fn_t debugAmiGetCustomRegs;
     e9k_debug_ami_set_blitter_debug_fn_t debugAmiSetBlitterDebug;
     e9k_debug_ami_get_blitter_debug_fn_t debugAmiGetBlitterDebug;
     e9k_debug_ami_blitter_vis_read_points_fn_t debugAmiBlitterVisReadPoints;
@@ -768,15 +770,22 @@ libretro_host_mkdir_p(const char *path)
 static void
 libretro_host_log(enum retro_log_level level, const char *fmt, ...)
 {
-    if (level == RETRO_LOG_DEBUG || level == RETRO_LOG_INFO) {
+    if (level == RETRO_LOG_DEBUG) {
         return;
     }
+    char buffer[2048];
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, "libretro: ");
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "\n");
+    vsnprintf(buffer, sizeof(buffer), fmt, ap);
     va_end(ap);
+    if (level == RETRO_LOG_INFO) {
+        if (debugger.config.logsEnabled) {
+            debug_printf("libretro: %s", buffer);
+        }
+        return;
+    }
+    linebuf_pushErr(&debugger.console, buffer);
+    fprintf(stderr, "libretro: %s\n", buffer);
 }
 
 static void
@@ -2331,6 +2340,19 @@ libretro_host_debugGetAmigaDebugCopperAddr(int **out_addr)
     }
     *out_addr = libretro_host.debugAmigaGetDebugCopperAddr();
     return *out_addr != NULL;
+}
+
+const e9k_debug_ami_custom_reg_state_t *
+libretro_host_debugAmiGetCustomRegs(void)
+{
+    if (!libretro_host.debugAmiGetCustomRegs) {
+        libretro_host.debugAmiGetCustomRegs = (e9k_debug_ami_get_custom_regs_fn_t)
+            libretro_host_loadSymbol("e9k_debug_ami_get_custom_regs");
+    }
+    if (!libretro_host.debugAmiGetCustomRegs) {
+        return NULL;
+    }
+    return libretro_host.debugAmiGetCustomRegs();
 }
 
 bool

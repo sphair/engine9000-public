@@ -200,6 +200,11 @@ typedef void (*e9k_debug_ami_custom_log_frame_callback_t)(const e9k_debug_ami_cu
                                                           uint64_t frameNo,
                                                           void *user);
 
+typedef struct e9k_debug_ami_custom_reg_state {
+    uint16_t value;
+    uint32_t pc;
+} e9k_debug_ami_custom_reg_state_t;
+
 
 #define E9K_WATCHPOINT_COUNT 64
 

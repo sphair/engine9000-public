@@ -833,9 +833,32 @@ state_buffer_isPaused(void)
 }
 
 void
+state_buffer_clearCurrent(void)
+{
+    size_t maxBytes = state_buffer.current.maxBytes;
+    int paused = state_buffer.current.paused ? 1 : 0;
+    int rollingPaused = state_buffer.current.rollingPaused ? 1 : 0;
+    uint64_t currentFrameNo = state_buffer.current.currentFrameNo;
+
+    state_buffer_reset(&state_buffer.current);
+    state_buffer_configureLevelBudgets(&state_buffer.current, maxBytes);
+    state_buffer.current.paused = paused;
+    state_buffer.current.rollingPaused = rollingPaused;
+    state_buffer.current.currentFrameNo = currentFrameNo;
+}
+
+void
 state_buffer_setRollingPaused(int paused)
 {
-    state_buffer.current.rollingPaused = paused ? 1 : 0;
+    int nextPaused = paused ? 1 : 0;
+    if (state_buffer.current.rollingPaused == nextPaused) {
+        return;
+    }
+
+    state_buffer.current.rollingPaused = nextPaused;
+    if (!nextPaused) {
+        state_buffer_clearCurrent();
+    }
 }
 
 int

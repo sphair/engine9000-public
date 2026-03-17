@@ -36,6 +36,7 @@
 #include "input_record.h"
 #include "smoke_test.h"
 #include "ui_test.h"
+#include "custom_amiga.h"
 #include "shader_ui.h"
 #include "custom_log.h"
 #include "hotkeys.h"
@@ -611,6 +612,7 @@ debugger_cleanup(void)
     mega_sprite_debug_toggle();
   }
   custom_log_shutdown();
+  custom_amiga_shutdown();
   libretro_host_shutdown();
   emu_geo_shutdown();
   addr2line_stop();
@@ -676,6 +678,7 @@ debugger_ctor(void)
   debugger.uiFrameCounter = 0;
   debugger.uiRefreshHz = 0;
   debugger.config.crtEnabled = 0;
+  debugger.config.logsEnabled = 0;
   debugger.config.recordEnabled = 0;
   debugger.config.logosEnabled = 1;
   snprintf(debugger.config.neogeo.libretro.toolchainPrefix, sizeof(debugger.config.neogeo.libretro.toolchainPrefix), "m68k-neogeo-elf");

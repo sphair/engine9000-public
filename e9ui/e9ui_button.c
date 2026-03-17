@@ -504,8 +504,8 @@ e9ui_button_render(e9ui_component_t *self, e9ui_context_t *ctx)
     int iconMargin = 0;
     if (st->icon) {
         int lh = 0;
-        if (theme->font ? theme->font : ctx->font) {
-            TTF_Font *tfm = theme->font ? theme->font : ctx->font;
+        TTF_Font *tfm = e9ui_button_resolveFont(st, ctx);
+        if (tfm) {
             lh = TTF_FontHeight(tfm);
         }
         if (lh <= 0) {

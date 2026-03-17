@@ -79,6 +79,7 @@ typedef struct e9k_system_config {
     e9k_neogeo_config_t neogeo;
     e9k_amiga_config_t amiga;
     e9k_megadrive_config_t megadrive;
+    int logsEnabled;
     int recordEnabled;
     int logosEnabled;
     int crtEnabled;

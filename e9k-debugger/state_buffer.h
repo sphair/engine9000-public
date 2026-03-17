@@ -47,6 +47,9 @@ state_buffer_setRollingPaused(int paused);
 int
 state_buffer_isRollingPaused(void);
 
+void
+state_buffer_clearCurrent(void);
+
 int
 state_buffer_trimAfterPercent(float percent);
 

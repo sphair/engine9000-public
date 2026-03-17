@@ -29,13 +29,14 @@ endif
 
 DEBUG_FLAGS=-g -fno-omit-frame-pointer
 SANITIZER_LIBS=
+LTO_FLAGS := -flto
 ifeq ($(UNAME_S),Darwin)
 DEBUG_FLAGS += -fsanitize=address,undefined
 SANITIZER_LIBS += -fsanitize=address,undefined
 CFLAGS += 
 endif
 CFLAGS += $(DEBUG_FLAGS) -Wall -Wextra -std=c99 -MMD -MP -Werror -pthread
-CFLAGS += -O2 -flto
+CFLAGS += -O2 $(LTO_FLAGS)
 ifeq ($(UNAME_S),Linux)
 CFLAGS += -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
 endif
@@ -77,7 +78,7 @@ RELEASE_MINOR_FILE = assets/release_minor.txt
 RELEASE_PACKAGE_NAME = e9k-debugger
 RELEASE_W64_DLLS = libfreetype-6.dll libpng16-16.dll libreadline8.dll libssp-0.dll libtermcap-0.dll libwinpthread-1.dll SDL2_image.dll SDL2_ttf.dll SDL2.dll zlib1.dll
 RELEASE_SYSTEM_FILES = v-hunk-addr2line.exe v-hunk-objdump.exe ami9000.dll geo9000.dll
-W64_CFLAGS = -flto -O2 -Wall -Wextra -std=c99 -MMD -MP
+W64_CFLAGS = $(LTO_FLAGS) -O2 -Wall -Wextra -std=c99 -MMD -MP
 W64_CFLAGS += $(BASE_INCLUDES)
 W64_CFLAGS +=  -D_THREAD_SAFE
 W64_CFLAGS += -DUI_TEST_DISABLED
@@ -88,7 +89,7 @@ W64_CFLAGS += -DE9UI_ENABLE_GAMEPAD -DE9UI_ENABLE_DEBUG_FONT
 W64_CFLAGS += $(W64_EXTRA_CFLAGS)
 W64_LIBS    = -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lSDL2_image -lreadline -lole32 -lcomdlg32 -lpng -lz -lopengl32
 W64_LIBS   += $(W64_EXTRA_LIBS)
-W64_LDFLAGS = -s -flto -mconsole
+W64_LDFLAGS = -s $(LTO_FLAGS) -mconsole
 
 ifneq ($(IS_MAC_TO_W64),)
 W64_CFLAGS += -I$(MINGW_HOME)/include/SDL2 -I$(MINGW_HOME)/include -I$(MINGW_HOME)/include/readline
@@ -116,7 +117,7 @@ PLATFORM_LINUX_SRCS = platform/posix/clipboard.c
 PLATFORM_W64_SRCS = platform/w64/addr2line.c platform/w64/analyse.c platform/w64/profile_view.c platform/w64/signal.c platform/w64/debugger_platform.c platform/w64/clipboard.c
 PLATFORM_MACOS_SRCS = platform/macos/clipboard.m platform/macos/tinyfiledialogs.m
 
-SRCS = main.c source_pane.c source.c hunk_fileline_cache.c dasm.c dasm_geo.c dasm_ami.c elfutil.c console_cmd.c print_eval.c print_debuginfo_readelf.c print_debuginfo_readelf_frames.c print_debuginfo_objdump_stabs.c prompt.c console.c registers.c memory.c stack.c breakpoints.c trainer.c linebuf.c debug_font.c debug.c machine.c base_map.c profile.c profile_list.c profile_hotspot.c profile_checkpoints.c input_record.c hotkeys.c smoke_test.c ui_test.c snapshot.c rom_config.c romset.c settings.c settings_amiga.c target.c target_amiga.c target_neogeo.c core_options.c core_config.c amiga_uae_options.c amiga_custom_regs.c amiga_custom_regs_tooltip.c neogeo_core_options.c megadrive_core_options.c debugger_input_bindings.c cli.c runtime.c config.c ui.c debugger.c help.c emu.c emu_geo.c emu_ami.c emu_mega.c sprite_debug.c mega_sprite_debug.c range_bar.c system_badge.c libretro_host.c clipboard.c state_wrap.c state_buffer.c tinyfiledialogs.c transition.c transition_doom.c transition_slide.c transition_explode.c transition_flip.c transition_rbar.c crt.c shader_ui.c custom_ui.c custom_log.c memory_track_ui.c shader_base.c shader_advanced.c shader_bloom.c train.c protect.c status_bar.c hex_convert.c
+SRCS = main.c source_pane.c source.c hunk_fileline_cache.c dasm.c dasm_geo.c dasm_ami.c elfutil.c console_cmd.c print_eval.c print_debuginfo_readelf.c print_debuginfo_readelf_frames.c print_debuginfo_objdump_stabs.c prompt.c console.c registers.c memory.c stack.c breakpoints.c trainer.c linebuf.c debug_font.c debug.c machine.c base_map.c profile.c profile_list.c profile_hotspot.c profile_checkpoints.c input_record.c hotkeys.c smoke_test.c ui_test.c snapshot.c rom_config.c romset.c settings.c settings_amiga.c target.c target_amiga.c target_neogeo.c core_options.c core_config.c amiga_uae_options.c amiga_custom_regs.c amiga_custom_regs_tooltip.c neogeo_core_options.c megadrive_core_options.c debugger_input_bindings.c cli.c runtime.c config.c ui.c debugger.c help.c emu.c emu_geo.c emu_ami.c emu_mega.c sprite_debug.c mega_sprite_debug.c range_bar.c system_badge.c libretro_host.c clipboard.c state_wrap.c state_buffer.c tinyfiledialogs.c transition.c transition_doom.c transition_slide.c transition_explode.c transition_flip.c transition_rbar.c crt.c shader_ui.c custom_ui.c custom_log.c custom_amiga.c memory_track_ui.c shader_base.c shader_advanced.c shader_bloom.c train.c protect.c status_bar.c hex_convert.c
 ifeq ($(E9K_ENABLE_GL_COMPOSITE),1)
 SRCS += gl_composite.c
 else

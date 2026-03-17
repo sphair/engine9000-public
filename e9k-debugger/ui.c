@@ -49,6 +49,7 @@
 #include "trainer.h"
 #include "console.h"
 #include "smoke_test.h"
+#include "custom_amiga.h"
 #include "custom_log.h"
 #include "custom_ui.h"
 #include "memory_track_ui.h"
@@ -453,6 +454,10 @@ ui_routeAuxWindowEvent(e9ui_context_t *ctx, SDL_Event *eventValue, uint32_t main
         custom_ui_handleEvent(eventValue);
         return 1;
     }
+    if (custom_amiga_getWindowId() == evWindowId) {
+        custom_amiga_handleEvent(eventValue);
+        return 1;
+    }
     if (shader_ui_getWindowId() == evWindowId) {
         shader_ui_handleEvent(eventValue);
         return 1;
@@ -491,6 +496,7 @@ ui_setMainWindowFocused(e9ui_context_t *ctx, int focused)
     (void)ctx;
     custom_ui_setMainWindowFocused(focused);
     custom_log_setMainWindowFocused(focused);
+    custom_amiga_setMainWindowFocused(focused);
     shader_ui_setMainWindowFocused(focused);
     memory_track_ui_setMainWindowFocused(focused);
     sprite_debug_setMainWindowFocused(focused);

@@ -44,9 +44,7 @@ extern int diwfirstword_total;
 extern int diwlastword_total;
 
 #ifdef __LIBRETRO__
-void e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
-int e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
-void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid);
+#include "e9k_debug.h"
 #endif
 #include "inputrecord.h"
 #include "calc.h"
@@ -4583,6 +4581,12 @@ static void REGPARAM2 debug_lput (uaecptr addr, uae_u32 v)
 	v = vv;
 #endif
 	if (memwatch_func (addr, 2, 4, &v, MW_MASK_CPU_D_W, 0)) {
+#ifdef __LIBRETRO__
+		if (!e9k_debug_memhook_beforeWrite(addr24, v, oldv, 32u, oldvalid)) {
+			THROW(E9K_DEBUG_EXCEPTION_WATCH_PREWRITE);
+			return;
+		}
+#endif
 		debug_mem_banks[off]->lput (addr, v);
 #ifdef __LIBRETRO__
 		e9k_debug_memhook_afterWrite(addr24, v, oldv, 32u, oldvalid);
@@ -4609,6 +4613,12 @@ static void REGPARAM2 debug_wput (uaecptr addr, uae_u32 v)
 	v = vv;
 #endif
 	if (memwatch_func (addr, 2, 2, &v, MW_MASK_CPU_D_W, 0)) {
+#ifdef __LIBRETRO__
+		if (!e9k_debug_memhook_beforeWrite(addr24, v, oldv, 16u, oldvalid)) {
+			THROW(E9K_DEBUG_EXCEPTION_WATCH_PREWRITE);
+			return;
+		}
+#endif
 		debug_mem_banks[off]->wput (addr, v);
 #ifdef __LIBRETRO__
 		e9k_debug_memhook_afterWrite(addr24, v, oldv, 16u, oldvalid);
@@ -4635,6 +4645,12 @@ static void REGPARAM2 debug_bput (uaecptr addr, uae_u32 v)
 	v = vv;
 #endif
 	if (memwatch_func (addr, 2, 1, &v, MW_MASK_CPU_D_W, 0)) {
+#ifdef __LIBRETRO__
+		if (!e9k_debug_memhook_beforeWrite(addr24, v, oldv, 8u, oldvalid)) {
+			THROW(E9K_DEBUG_EXCEPTION_WATCH_PREWRITE);
+			return;
+		}
+#endif
 		debug_mem_banks[off]->bput (addr, v);
 #ifdef __LIBRETRO__
 		e9k_debug_memhook_afterWrite(addr24, v, oldv, 8u, oldvalid);

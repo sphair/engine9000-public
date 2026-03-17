@@ -2520,7 +2520,7 @@ static void retro_set_core_options()
             { "mouse", "Mouse (Port 2)" },
             { NULL, NULL },
          },
-         "mouse"
+         "joystick"
       },
       {
          "puae_joyport_order",
@@ -5837,10 +5837,19 @@ static void retro_config_boot_hd(void)
 static void retro_config_kickstart(void)
 {
    char kickstart[RETRO_PATH_MAX];
+   const char *kickstartRequested = NULL;
+   const char *kickstartFallback = NULL;
    bool valid = false;
+   bool autoKickstart = !strcmp(opt_kickstart, "auto");
 
    /* Wrong place for logging model but still the best place */
    log_cb(RETRO_LOG_INFO, "Model: \"%s\".\n", uae_preset);
+
+   if (autoKickstart)
+   {
+      kickstartRequested = uae_kickstart;
+      log_cb(RETRO_LOG_INFO, "ami9000: automatic kickstart requested \"%s\"\n", kickstartRequested);
+   }
 
    /* Forced Kickstart */
    if (strcmp(opt_kickstart, "auto"))
@@ -5877,12 +5886,16 @@ static void retro_config_kickstart(void)
 
       path_join(kickstart, retro_system_directory, uae_kickstarts[i].aforever);
       valid = path_is_valid(kickstart);
+      if (valid)
+         kickstartFallback = uae_kickstarts[i].aforever;
       if (!valid)
       {
          if (!string_is_empty(uae_kickstarts[i].tosec_mod))
          {
             path_join(kickstart, retro_system_directory, uae_kickstarts[i].tosec_mod);
             valid = path_is_valid(kickstart);
+            if (valid)
+               kickstartFallback = uae_kickstarts[i].tosec_mod;
          }
          if (!valid)
          {
@@ -5890,6 +5903,8 @@ static void retro_config_kickstart(void)
             {
                path_join(kickstart, retro_system_directory, uae_kickstarts[i].tosec);
                valid = path_is_valid(kickstart);
+               if (valid)
+                  kickstartFallback = uae_kickstarts[i].tosec;
             }
          }
       }
@@ -5902,6 +5917,8 @@ static void retro_config_kickstart(void)
    /* Final append + logging */
    if (valid)
    {
+      if (autoKickstart && kickstartFallback && strcmp(kickstartRequested, kickstartFallback))
+         log_cb(RETRO_LOG_INFO, "ami9000: automatic kickstart fallback \"%s\"\n", kickstartFallback);
       log_cb(RETRO_LOG_INFO, "Kickstart: \"%s\".\n", path_basename(kickstart));
       if (strcmp(opt_kickstart, "aros"))
          retro_config_append("kickstart_rom_file=%s\n", kickstart);

@@ -606,6 +606,17 @@ e9ui_captureOwnerIsLive(const e9ui_context_t *ctx, const void *owner)
     return 0;
 }
 
+static void
+e9ui_focusClearIfStale(e9ui_context_t *ctx)
+{
+    if (!ctx || !ctx->_focus) {
+        return;
+    }
+    if (!e9ui_captureOwnerIsLive(ctx, ctx->_focus)) {
+        ctx->_focus = NULL;
+    }
+}
+
 static int
 e9ui_dispatchCapturedPointerEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
 {
@@ -1482,6 +1493,7 @@ e9ui_setFocus(e9ui_context_t *ctx, e9ui_component_t *comp)
   if (!ctx) {
     return;
   }
+  e9ui_focusClearIfStale(ctx);
   e9ui_component_t *prev = ctx->_focus;
   if (prev && prev != comp && prev->name && strcmp(prev->name, "e9ui_textbox") == 0) {
     e9ui_textbox_clearSelectionExternal(prev);
@@ -2799,6 +2811,7 @@ e9ui_processEvents(void)
         e9ui->ctx.cursorOverride = 0;
         e9ui->ctx.focusRoot = e9ui->root;
         e9ui->ctx.focusFullscreen = e9ui->fullscreen;
+        e9ui_focusClearIfStale(&e9ui->ctx);
         if (ev.type == SDL_QUIT) {
             e9ui_runDeferred(&e9ui->ctx);
             return 1;

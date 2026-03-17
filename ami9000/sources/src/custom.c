@@ -829,6 +829,9 @@ custom_blitterVisTakeFetchPixelStart(int plane, int fm)
 #endif
 
 static int REGPARAM3 custom_wput_1(int, uaecptr, uae_u32, int) REGPARAM;
+#ifdef __LIBRETRO__
+static int REGPARAM3 custom_wput_1_protected(int, uaecptr, uae_u32, int) REGPARAM;
+#endif
 
 /*
 * helper functions
@@ -1008,7 +1011,11 @@ bool alloc_cycle_blitter(int hpos, uaecptr *ptr, int chnum, int add)
 		int spnum = (sprbplconflict2 - 0x140) / 8;
 		uaecptr pt = spr[spnum].pt;
 		spr[spnum].pt = *ptr + 2 + add;
+#ifdef __LIBRETRO__
+		custom_wput_1_protected(hpos, rga, v, 1);
+#else
 		custom_wput_1(hpos, rga, v, 1);
+#endif
 		sprbplconflict_hpos2 = -1;
 #ifdef DEBUGGER
 		if (debug_dma) {
@@ -2918,6 +2925,9 @@ static void setup_fmodes(int hpos, uae_u16 con0)
 }
 
 static int REGPARAM2 custom_wput_1(int hpos, uaecptr addr, uae_u32 value, int noget);
+#ifdef __LIBRETRO__
+static int REGPARAM2 custom_wput_1_protected(int hpos, uaecptr addr, uae_u32 value, int noget);
+#endif
 
 static uae_u16 get_strobe_reg(int slot)
 {
@@ -3127,7 +3137,11 @@ static int bplsprchipsetbug(int nr, int fm, int hpos)
 	bplpt[nr] = px;
 
 	if (creg < 0x110 || creg >= 0x120) {
+#ifdef __LIBRETRO__
+		custom_wput_1_protected(hpos, creg, v2, 1);
+#else
 		custom_wput_1(hpos, creg, v2, 1);
+#endif
 #ifdef DEBUGGER
 		if (debug_dma) {
 			record_dma_read_value_wide(v, false);
@@ -9218,7 +9232,11 @@ static void immediate_copper(int num)
 			if (test_copper_dangerous(cop_state.ir[0])) {
 				break;
 			}
+#ifdef __LIBRETRO__
+			custom_wput_1_protected(0, cop_state.ir[0], cop_state.ir[1], 0);
+#else
 			custom_wput_1 (0, cop_state.ir[0], cop_state.ir[1], 0);
+#endif
 		} else { // wait or skip
 			if ((cop_state.ir[0] >> 8) > ((pos >> 5) & 0xff))
 				pos = (((pos >> 5) & 0x100) | ((cop_state.ir[0] >> 8)) << 5) | ((cop_state.ir[0] & 0xff) >> 3);
@@ -11218,7 +11236,11 @@ static int custom_wput_copper(int hpos, uaecptr pt, uaecptr addr, uae_u32 value,
 	value = debug_putpeekdma_chipset(0xdff000 + addr, value, MW_MASK_COPPER, 0x08c);
 #endif
 	copper_access = 1;
+#ifdef __LIBRETRO__
+	v = custom_wput_1_protected(hpos, addr, value, noget);
+#else
 	v = custom_wput_1(hpos, addr, value, noget);
+#endif
 	copper_access = 0;
 	return v;
 }
@@ -15901,7 +15923,11 @@ writeonly:
 #ifdef DEBUGGER
 			debug_wputpeek(0xdff000 + addr, l);
 #endif
+#ifdef __LIBRETRO__
+			r = custom_wput_1_protected(hpos, addr, l, 1);
+#else
 			r = custom_wput_1(hpos, addr, l, 1);
+#endif
 			
 			// CPU gets back (OCS/ECS only):
 			// - if last cycle was DMA cycle: DMA cycle data
@@ -16364,6 +16390,22 @@ static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int n
 	}
 	return 0;
 }
+
+#ifdef __LIBRETRO__
+static int REGPARAM2 custom_wput_1_protected(int hpos, uaecptr addr, uae_u32 value, int noget)
+{
+	uaecptr regaddr = addr & 0x1FE;
+	uae_u32 filtered = value & 0xffff;
+	uae_u32 oldv = custom_storage[regaddr >> 1].value;
+	uae_u32 addr24 = (0x00dff000u + (uae_u32)regaddr) & 0x00ffffffu;
+	if (!e9k_debug_memhook_filterWrite(addr24, 16u, oldv, 1, &filtered)) {
+		return 0;
+	}
+	int result = custom_wput_1(hpos, regaddr, filtered, noget);
+	e9k_debug_memhook_afterWrite(addr24, filtered, oldv, 16u, 1);
+	return result;
+}
+#endif
 
 static void REGPARAM2 custom_wput(uaecptr addr, uae_u32 value)
 {
