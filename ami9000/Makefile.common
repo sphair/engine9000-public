@@ -13,19 +13,27 @@ INCFLAGS := \
 	-I$(DEPS_DIR)/libmpeg2/include \
 	-I$(LIBRETRO) \
 	-I$(LIBRETRO_COMM_DIR)/include \
-	-I$(LIBRETRO_COMM_DIR)/include/compat/zlib\
-	-I../e9k-lib
+	-I$(LIBRETRO_COMM_DIR)/include/compat/zlib
 
-	SOURCES_C += \
-	    $(LIBRETRO)/libretro-core.c \
-		$(LIBRETRO)/e9k_debug.c \
-		$(LIBRETRO)/libretro-mapper.c \
-		$(LIBRETRO)/libretro-dc.c \
-		$(LIBRETRO)/libretro-glue.c \
-		$(LIBRETRO)/libretro-vkbd.c \
-		$(LIBRETRO)/libretro-graph.c \
+ifneq ($(E9K_HACK_DEBUGGER_HOST),0)
+INCFLAGS += \
+	-I../e9k-lib
+endif
+
+SOURCES_C += \
+	$(LIBRETRO)/libretro-core.c \
+	$(LIBRETRO)/libretro-mapper.c \
+	$(LIBRETRO)/libretro-dc.c \
+	$(LIBRETRO)/libretro-glue.c \
+	$(LIBRETRO)/libretro-vkbd.c \
+	$(LIBRETRO)/libretro-graph.c \
 	$(DEPS_DIR)/libz/unzip.c \
 	$(DEPS_DIR)/libz/ioapi.c
+
+ifneq ($(E9K_HACK_DEBUGGER_HOST),0)
+SOURCES_C += \
+	$(LIBRETRO)/e9k_debug.c
+endif
 
 SOURCES_C += \
 	$(EMU)/a2065.c \

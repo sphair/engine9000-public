@@ -20,6 +20,10 @@
 #include "sysconfig.h"
 #include "sysdeps.h"
 
+#ifndef E9K_HACK_DEBUGGER_RUNTIME
+#define E9K_HACK_DEBUGGER_RUNTIME 0
+#endif
+
 #ifdef __LIBRETRO__
 extern bool libretro_frame_end;
 #endif
@@ -30,7 +34,7 @@ extern bool libretro_frame_end;
 #include "memory.h"
 #include "custom.h"
 #include "newcpu.h"
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 #include "e9k_debug.h"
 #endif
 #include "disasm.h"
@@ -108,7 +112,7 @@ static volatile uae_atomic uae_interrupt;
 static volatile uae_atomic uae_interrupts2[IRQ_SOURCE_MAX];
 static volatile uae_atomic uae_interrupts6[IRQ_SOURCE_MAX];
 
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 static int
 newcpu_isDebuggerPreWriteAbort(int exceptionCode)
 {
@@ -2395,6 +2399,7 @@ struct regstruct regs, mmu_backup_regs;
 struct flag_struct regflags;
 static int m68kpc_offset;
 
+#if E9K_HACK_DEBUGGER_RUNTIME
 void
 newcpu_captureRestartState(newcpu_restart_state_t *state)
 {
@@ -2416,6 +2421,7 @@ newcpu_restoreRestartState(const newcpu_restart_state_t *state)
 	memcpy(&regflags, &state->regflags, sizeof(regflags));
 	memcpy(caches020, state->caches020, sizeof(caches020));
 }
+#endif
 
 STATIC_INLINE int in_rom (uaecptr pc)
 {
@@ -5061,7 +5067,7 @@ static void m68k_run_1 (void)
 				}
 #endif
 					r->instruction_pc = m68k_getpc ();
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 					if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 						exit = true;
 						continue;
@@ -5082,7 +5088,7 @@ static void m68k_run_1 (void)
 					exit = true;
 			}
 		} CATCH (prb) {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			if (newcpu_isDebuggerPreWriteAbort(prb)) {
 				if (r->spcflags) {
 					if (do_specialties(0)) {
@@ -5199,7 +5205,7 @@ static void m68k_run_1_ce (void)
 #endif
 
 					r->instruction_pc = m68k_getpc ();
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 					if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 						exit = true;
 						continue;
@@ -5240,7 +5246,7 @@ cont:
 					exit = true;
 			}
 		} CATCH (prb) {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			if (newcpu_isDebuggerPreWriteAbort(prb)) {
 				if (r->spcflags) {
 					if (do_specialties(0)) {
@@ -6131,7 +6137,7 @@ static void m68k_run_3ce (void)
 					debug_trainer_match();
 				}
 #endif
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
@@ -6156,7 +6162,7 @@ static void m68k_run_3ce (void)
 				regs.instruction_cnt++;
 			}
 		} CATCH(prb) {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			if (newcpu_isDebuggerPreWriteAbort(prb)) {
 				if (r->spcflags) {
 					if (do_specialties(0)) {
@@ -6199,7 +6205,7 @@ static void m68k_run_3p(void)
 					debug_trainer_match();
 				}
 #endif
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
@@ -6220,7 +6226,7 @@ static void m68k_run_3p(void)
 
 			}
 		} CATCH(prb) {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			if (newcpu_isDebuggerPreWriteAbort(prb)) {
 				if (r->spcflags) {
 					if (do_specialties(0)) {
@@ -6357,7 +6363,7 @@ static void m68k_run_2ce (void)
 					debug_trainer_match();
 				}
 #endif
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
@@ -6380,7 +6386,7 @@ static void m68k_run_2ce (void)
 
 			}
 		} CATCH(prb) {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			if (newcpu_isDebuggerPreWriteAbort(prb)) {
 				if (r->spcflags || time_for_interrupt()) {
 					if (do_specialties(0)) {
@@ -6503,7 +6509,7 @@ static void m68k_run_2p (void)
 					debug_trainer_match();
 				}
 #endif
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
@@ -6540,7 +6546,7 @@ cont:
 				ipl_fetch_now();
 			}
 		} CATCH(prb) {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			if (newcpu_isDebuggerPreWriteAbort(prb)) {
 				if (r->spcflags) {
 					if (do_specialties(0)) {
@@ -6580,7 +6586,7 @@ static void cpu_thread_run_2(void *v)
 					r->instruction_pc = m68k_getpc();
 
 					r->opcode = x_get_iword(0);
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 					if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 						exit = true;
 						continue;
@@ -6597,7 +6603,7 @@ static void cpu_thread_run_2(void *v)
 			}
 		} CATCH(prb)
 		{
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			if (newcpu_isDebuggerPreWriteAbort(prb)) {
 				if (r->spcflags) {
 					if (do_specialties_thread()) {
@@ -6634,7 +6640,7 @@ static void m68k_run_2_000(void)
 
 					r->opcode = x_get_iword(0);
 					count_instr (r->opcode);
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 					if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 						exit = true;
 						continue;
@@ -6656,7 +6662,7 @@ static void m68k_run_2_000(void)
 				}
 			}
 		} CATCH(prb) {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			if (newcpu_isDebuggerPreWriteAbort(prb)) {
 				if (r->spcflags) {
 					if (do_specialties(0)) {
@@ -6697,7 +6703,7 @@ static void m68k_run_2_020(void)
 
 					r->opcode = x_get_iword(0);
 					count_instr(r->opcode);
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 					if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 						exit = true;
 						continue;
@@ -6720,7 +6726,7 @@ static void m68k_run_2_020(void)
 				}
 			}
 		} CATCH(prb) {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			if (newcpu_isDebuggerPreWriteAbort(prb)) {
 				if (r->spcflags) {
 					if (do_specialties(0)) {

@@ -51,8 +51,19 @@
 #include "rommgr.h"
 #include "specialmonitors.h"
 
-#ifdef __LIBRETRO__
+#ifndef E9K_HACK_DEBUGGER_RUNTIME
+#define E9K_HACK_DEBUGGER_RUNTIME 0
+#endif
+
+#if !defined(E9K_DEBUGGER_CUSTOM_LOGGER)
+#define E9K_DEBUGGER_CUSTOM_LOGGER 0
+#endif
+
+#if E9K_HACK_DEBUGGER_RUNTIME || E9K_DEBUGGER_CUSTOM_LOGGER
 #include "e9k_debug.h"
+#endif
+
+#ifdef __LIBRETRO__
 extern bool request_update_av_info;
 extern bool retro_av_info_change_timing;
 extern bool retro_av_info_is_ntsc;
@@ -99,10 +110,6 @@ extern uint8_t video_config_allow_hz_change;
 #define EXTRAWIDTH_ULTRA 77
 
 #define LORES_TO_SHRES_SHIFT 2
-
-#if !defined(E9K_DEBUGGER_CUSTOM_LOGGER)
-#define E9K_DEBUGGER_CUSTOM_LOGGER 0
-#endif
 
 #if E9K_HACK_BLITTER_VIS
 #define CUSTOM_BLITTER_VIS_MODE_SOLID 0x1
@@ -829,7 +836,7 @@ custom_blitterVisTakeFetchPixelStart(int plane, int fm)
 #endif
 
 static int REGPARAM3 custom_wput_1(int, uaecptr, uae_u32, int) REGPARAM;
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 static int REGPARAM3 custom_wput_1_protected(int, uaecptr, uae_u32, int) REGPARAM;
 #endif
 
@@ -1011,7 +1018,7 @@ bool alloc_cycle_blitter(int hpos, uaecptr *ptr, int chnum, int add)
 		int spnum = (sprbplconflict2 - 0x140) / 8;
 		uaecptr pt = spr[spnum].pt;
 		spr[spnum].pt = *ptr + 2 + add;
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 		custom_wput_1_protected(hpos, rga, v, 1);
 #else
 		custom_wput_1(hpos, rga, v, 1);
@@ -2925,7 +2932,7 @@ static void setup_fmodes(int hpos, uae_u16 con0)
 }
 
 static int REGPARAM2 custom_wput_1(int hpos, uaecptr addr, uae_u32 value, int noget);
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 static int REGPARAM2 custom_wput_1_protected(int hpos, uaecptr addr, uae_u32 value, int noget);
 #endif
 
@@ -3137,7 +3144,7 @@ static int bplsprchipsetbug(int nr, int fm, int hpos)
 	bplpt[nr] = px;
 
 	if (creg < 0x110 || creg >= 0x120) {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 		custom_wput_1_protected(hpos, creg, v2, 1);
 #else
 		custom_wput_1(hpos, creg, v2, 1);
@@ -9232,7 +9239,7 @@ static void immediate_copper(int num)
 			if (test_copper_dangerous(cop_state.ir[0])) {
 				break;
 			}
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			custom_wput_1_protected(0, cop_state.ir[0], cop_state.ir[1], 0);
 #else
 			custom_wput_1 (0, cop_state.ir[0], cop_state.ir[1], 0);
@@ -11236,7 +11243,7 @@ static int custom_wput_copper(int hpos, uaecptr pt, uaecptr addr, uae_u32 value,
 	value = debug_putpeekdma_chipset(0xdff000 + addr, value, MW_MASK_COPPER, 0x08c);
 #endif
 	copper_access = 1;
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 	v = custom_wput_1_protected(hpos, addr, value, noget);
 #else
 	v = custom_wput_1(hpos, addr, value, noget);
@@ -15923,7 +15930,7 @@ writeonly:
 #ifdef DEBUGGER
 			debug_wputpeek(0xdff000 + addr, l);
 #endif
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 			r = custom_wput_1_protected(hpos, addr, l, 1);
 #else
 			r = custom_wput_1(hpos, addr, l, 1);
@@ -16391,7 +16398,7 @@ static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int n
 	return 0;
 }
 
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 static int REGPARAM2 custom_wput_1_protected(int hpos, uaecptr addr, uae_u32 value, int noget)
 {
 	uaecptr regaddr = addr & 0x1FE;

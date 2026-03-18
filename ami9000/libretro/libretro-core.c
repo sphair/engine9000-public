@@ -24,7 +24,13 @@
 #include "memory.h"
 #include "sounddep/sound.h"
 
+#ifndef E9K_HACK_DEBUGGER_HOST
+#define E9K_HACK_DEBUGGER_HOST 0
+#endif
+
+#if E9K_HACK_DEBUGGER_HOST
 #include "e9k_debug.h"
+#endif
 
 #ifndef MAX_STOP
 #define MAX_STOP 30000
@@ -57,8 +63,6 @@ static const TCHAR *csmode[] = { _T("ocs"), _T("ecs_agnus"), _T("ecs_denise"), _
       ++j; \
    } \
 } \
-
-#define E9K_DEBUG_EXPORT RETRO_API
 
 bool libretro_runloop_active = false;
 bool libretro_frame_end = false;
@@ -766,6 +770,7 @@ static void free_puae_core_options(void)
    }
 }
 
+#if E9K_HACK_DEBUGGER_HOST
 static uae_u64
 libretro_estimateSaveStateSize(void)
 {
@@ -796,6 +801,7 @@ libretro_estimateSaveStateSize(void)
    size += 2 * 1024 * 1024;
    return size;
 }
+#endif
 
 static void retro_set_core_options()
 {
@@ -4880,6 +4886,7 @@ static void update_variables(void)
 }
 
 /*****************************************************************************/
+#if E9K_HACK_DEBUGGER_HOST
 static void
 e9k_debug_ami_sync_floppy_dc_slot(int drive, const char *path)
 {
@@ -4947,7 +4954,7 @@ e9k_debug_ami_sync_floppy_dc_slot(int drive, const char *path)
    }
 }
 
-E9K_DEBUG_EXPORT bool
+RETRO_API bool
 e9k_debug_ami_set_floppy_path(int drive, const char *path)
 {
    if (!libretro_runloop_active)
@@ -5052,6 +5059,7 @@ e9k_debug_ami_set_floppy_path(int drive, const char *path)
 
    return true;
 }
+#endif
 
 /* Disk Control */
 bool retro_disk_set_eject_state(bool ejected)
@@ -8790,6 +8798,7 @@ void retro_run(void)
    input_poll_cb();
    retro_poll_event();
 
+#if E9K_HACK_DEBUGGER_HOST
    if (e9k_debug_is_paused())
    {
       old_frame = 1;
@@ -8798,6 +8807,7 @@ void retro_run(void)
       upload_output_audio_buffer();
       return;
    }
+#endif
 
    /* Check if a restart is required */
    if (restart_pending)
@@ -8874,13 +8884,17 @@ void retro_run(void)
    if ((!retro_statusbar && opt_statusbar & STATUSBAR_MESSAGES && statusbar_message_timer) || retro_statusbar)
       print_statusbar();
 
+#if E9K_HACK_DEBUGGER_HOST
    e9k_vblank_notify();
-
    video_cb((old_frame || e9k_debug_is_paused()) ? NULL : retro_bmp + retro_bmp_offset, retrow_crop, retroh_crop, retrow << (pix_bytes >> 1));
    e9k_debug_ami_on_video_presented();
-   if (e9k_debug_is_paused()) {
+   if (e9k_debug_is_paused())
+   {
       output_audio_buffer.size = 0;
    }
+#else
+   video_cb(old_frame ? NULL : retro_bmp + retro_bmp_offset, retrow_crop, retroh_crop, retrow << (pix_bytes >> 1));
+#endif
    upload_output_audio_buffer();
 
    if (old_frame)
@@ -8952,7 +8966,9 @@ bool retro_load_game(const struct retro_game_info *info)
    savestate_fname[0] = '\0';
 
    /* Estimate necessary save state size */
+#if E9K_HACK_DEBUGGER_HOST
    save_state_file_size = libretro_estimateSaveStateSize();
+#endif
 
    struct retro_memory_descriptor memdesc[] = {
       {RETRO_MEMDESC_SYSTEM_RAM, chipmem_bank.baseaddr, 0, 0, 0, 0, chipmem_bank.allocated_size, "CHIP"},
@@ -9108,7 +9124,9 @@ bool retro_unserialize(const void *data_, size_t size)
                frame_counter++;
             }
             libretro_runloop_active = true;
+#if E9K_HACK_DEBUGGER_HOST
             e9k_debug_reapply_memhooks();
+#endif
 
             /* If the above while loop times out, then
              * everything is completely broken. We cannot

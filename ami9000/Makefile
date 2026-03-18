@@ -5,6 +5,13 @@ SOURCES_C :=
 EXEEXT    :=
 TARGET_NAME := puae
 SILENT    := 0
+E9K_HACK_DEBUGGER_RUNTIME ?= 1
+E9K_HACK_DEBUGGER_HOST ?= 1
+LINK_T := $(CORE_DIR)/libretro/link.T
+
+ifneq ($(E9K_HACK_DEBUGGER_HOST),0)
+LINK_T := $(CORE_DIR)/libretro/link-e9k.T
+endif
 
 ifeq ($(platform),)
 platform = unix
@@ -33,7 +40,7 @@ ifneq (,$(findstring unix,$(platform)))
    fpic := -fPIC
    LDFLAGS += -lpthread
    CFLAGS += -Wstringop-overflow=0 -Wno-unused-result
-   SHARED := -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--gc-sections
+   SHARED := -shared -Wl,--version-script=$(LINK_T) -Wl,--gc-sections
    ifneq ($(findstring Haiku,$(shell uname -s)),)
       LDFLAGS += -lroot -lnetwork
       ifneq ($(findstring BePC,$(shell uname -m)),)
@@ -48,14 +55,14 @@ else ifneq (,$(findstring rpi4,$(platform)))
    fpic := -fPIC
    LDFLAGS += -lm -lpthread -ldl
    CFLAGS += -march=armv8-a+crc+simd -mcpu=cortex-a72
-   SHARED := -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--no-undefined
+   SHARED := -shared -Wl,--version-script=$(LINK_T) -Wl,--no-undefined
 
 # RPI
 else ifeq ($(platform), rpi)
 	TARGET := $(TARGET_NAME)_libretro.so
 	fpic := -fPIC
 	LDFLAGS := -lpthread -lm -ldl
-	SHARED := -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--as-needed -Wl,--no-undefined
+	SHARED := -shared -Wl,--version-script=$(LINK_T) -Wl,--as-needed -Wl,--no-undefined
 
 # Classic Platforms ####################
 # Platform affix = classic_<ISA>_<µARCH>
@@ -65,7 +72,7 @@ else ifeq ($(platform), rpi)
 else ifeq ($(platform), classic_armv7_a7)
 	TARGET := $(TARGET_NAME)_libretro.so
 	fpic := -fPIC
-    SHARED := -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--no-undefined
+    SHARED := -shared -Wl,--version-script=$(LINK_T) -Wl,--no-undefined
     LDFLAGS += -lm -lpthread
     CFLAGS += -Ofast \
 	-flto -fwhole-program -fuse-linker-plugin \
@@ -93,7 +100,7 @@ else ifeq ($(platform), classic_armv7_a7)
 else ifeq ($(platform), classic_armv8_a35)
    TARGET := $(TARGET_NAME)_libretro.so
    fpic := -fPIC
-   SHARED := -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--no-undefined
+   SHARED := -shared -Wl,--version-script=$(LINK_T) -Wl,--no-undefined
    LDFLAGS += -lm -lrt -lpthread -ldl
    CFLAGS += -Ofast -flto \
            -fmerge-all-constants -fno-math-errno -march=armv8-a \
@@ -129,7 +136,7 @@ else ifeq ($(platform), android-armv7)
    TARGET := $(TARGET_NAME)_libretro_android.so
    fpic := -fPIC
    LDFLAGS := -lm
-   SHARED := -Wl,--fix-cortex-a8 -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--no-undefined
+   SHARED := -Wl,--fix-cortex-a8 -shared -Wl,--version-script=$(LINK_T) -Wl,--no-undefined
    PLATFLAGS += -DANDROID
 
 else ifeq ($(platform), android)
@@ -139,7 +146,7 @@ else ifeq ($(platform), android)
    TARGET := $(TARGET_NAME)_libretro_android.so
    fpic := -fPIC
    LDFLAGS :=
-   SHARED := -Wl,--fix-cortex-a8 -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--no-undefined
+   SHARED := -Wl,--fix-cortex-a8 -shared -Wl,--version-script=$(LINK_T) -Wl,--no-undefined
    PLATFLAGS += -DANDROID
 
 # CTR(3DS)
@@ -269,7 +276,7 @@ else ifeq ($(platform), tvos-arm64)
 # ARM
 else ifneq (,$(findstring armv,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.so
-   SHARED := -shared -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--no-undefined
+   SHARED := -shared -Wl,--version-script=$(LINK_T) -Wl,--no-undefined
    LDFLAGS += -lm -lpthread -ldl
    fpic := -fPIC
    ifneq (,$(findstring cortexa8,$(platform)))
@@ -295,7 +302,7 @@ else
    PLATFLAGS += -DWIN32
    TARGET := $(TARGET_NAME)_libretro.dll
    fpic := -fPIC
-   SHARED := -shared -static-libgcc -Wl,--version-script=$(CORE_DIR)/libretro/link.T -Wl,--no-undefined -Wl,--gc-sections
+   SHARED := -shared -static-libgcc -Wl,--version-script=$(LINK_T) -Wl,--no-undefined -Wl,--gc-sections
    LDFLAGS += -lm
 endif
 
@@ -322,6 +329,8 @@ HAVE_CHD = 1
 HAVE_MPEG2 = 1
 
 CFLAGS += -std=gnu99 -DINLINE="inline" -D__LIBRETRO__ -MMD
+CFLAGS += -DE9K_HACK_DEBUGGER_RUNTIME=$(E9K_HACK_DEBUGGER_RUNTIME)
+CFLAGS += -DE9K_HACK_DEBUGGER_HOST=$(E9K_HACK_DEBUGGER_HOST)
 CFLAGS += -DE9K_HACK_BLITTER_VIS=1
 CFLAGS += -DE9K_HACK_AMI_SPRITE_VIS=1
 CFLAGS += -DE9K_HACK_AMI_PALETTE_VIS=1

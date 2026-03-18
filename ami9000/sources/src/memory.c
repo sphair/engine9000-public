@@ -43,6 +43,10 @@
 #include "inputdevice.h"
 #include "draco.h"
 
+#ifndef E9K_HACK_DEBUGGER_RUNTIME
+#define E9K_HACK_DEBUGGER_RUNTIME 0
+#endif
+
 #ifdef __LIBRETRO__
 extern bool retro_message;
 extern char retro_message_msg[1024];
@@ -1046,7 +1050,7 @@ MEMORY_LGETI(debugmem);
 
 uae_u16 kickstart_version;
 
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 #define AMI_DBG_TEXT_ADDR 0x00FC0000u // Fake debug output register
 #define AMI_DBG_SETBASE_TEXT_ADDR 0x00FC0004u // Fake debug base register: text section base (long write)
 #define AMI_DBG_SETBASE_DATA_ADDR 0x00FC0008u // Fake debug base register: data section base (long write)
@@ -1208,7 +1212,7 @@ MEMORY_XLATE(kickmem);
 
 static void REGPARAM2 kickmem_lput (uaecptr addr, uae_u32 b)
 {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 	uaecptr addr24 = addr & 0x00ffffffu;
 	if (addr24 == AMI_DBG_TEXT_ADDR) {
 		e9k_debug_text_write((uae_u8)((b >> 24) & 0xffu));
@@ -1273,7 +1277,7 @@ static void REGPARAM2 kickmem_lput (uaecptr addr, uae_u32 b)
 
 static void REGPARAM2 kickmem_wput (uaecptr addr, uae_u32 b)
 {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 	uaecptr addr24 = addr & 0x00ffffffu;
 	if (addr24 == AMI_DBG_TEXT_ADDR) {
 		e9k_debug_text_write((uae_u8)((b >> 8) & 0xffu));
@@ -1307,7 +1311,7 @@ static void REGPARAM2 kickmem_wput (uaecptr addr, uae_u32 b)
 
 static void REGPARAM2 kickmem_bput (uaecptr addr, uae_u32 b)
 {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 	uaecptr addr24 = addr & 0x00ffffffu;
 	if (addr24 == AMI_DBG_TEXT_ADDR) {
 		e9k_debug_text_write((uae_u8)(b & 0xffu));
@@ -1376,7 +1380,7 @@ MEMORY_XLATE(extendedkickmem);
 
 static void REGPARAM2 extendedkickmem_lput (uaecptr addr, uae_u32 b)
 {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 	uaecptr addr24 = addr & 0x00ffffffu;
 	if (addr24 == AMI_DBG_TEXT_ADDR) {
 		e9k_debug_text_write((uae_u8)((b >> 24) & 0xffu));
@@ -1405,7 +1409,7 @@ static void REGPARAM2 extendedkickmem_lput (uaecptr addr, uae_u32 b)
 }
 static void REGPARAM2 extendedkickmem_wput (uaecptr addr, uae_u32 b)
 {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 	uaecptr addr24 = addr & 0x00ffffffu;
 	if (addr24 == AMI_DBG_TEXT_ADDR) {
 		e9k_debug_text_write((uae_u8)((b >> 8) & 0xffu));
@@ -1424,7 +1428,7 @@ static void REGPARAM2 extendedkickmem_wput (uaecptr addr, uae_u32 b)
 }
 static void REGPARAM2 extendedkickmem_bput (uaecptr addr, uae_u32 b)
 {
-#ifdef __LIBRETRO__
+#if E9K_HACK_DEBUGGER_RUNTIME
 	uaecptr addr24 = addr & 0x00ffffffu;
 	if (addr24 == AMI_DBG_TEXT_ADDR) {
 		e9k_debug_text_write((uae_u8)(b & 0xffu));

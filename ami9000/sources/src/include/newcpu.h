@@ -15,6 +15,10 @@
 #include "events.h"
 #include <softfloat/softfloat.h>
 
+#ifndef E9K_HACK_DEBUGGER_RUNTIME
+#define E9K_HACK_DEBUGGER_RUNTIME 0
+#endif
+
 #ifndef SET_CFLG
 
 #define SET_CFLG(x) (CFLG() = (x))
@@ -272,6 +276,7 @@ struct regstruct
 
 extern struct regstruct regs;
 
+#if E9K_HACK_DEBUGGER_RUNTIME
 typedef struct newcpu_restart_state
 {
 	struct regstruct regs;
@@ -284,6 +289,7 @@ newcpu_captureRestartState(newcpu_restart_state_t *state);
 
 void
 newcpu_restoreRestartState(const newcpu_restart_state_t *state);
+#endif
 
 #define MAX_CPUTRACESIZE 128
 struct cputracememory
