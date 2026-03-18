@@ -123,7 +123,8 @@ typedef struct custom_ui_state {
     e9ui_component_t *dmaStatsCheckbox;
     e9ui_component_t *estimateFpsCheckbox;
     e9ui_component_t *estimateFpsText;
-    e9ui_component_t *estimateFpsTextRow;
+    e9ui_component_t *estimateFpsColorsText;
+    e9ui_component_t *estimateFpsDetailsRow;
     e9ui_component_t *dmaStatsHintText;
     e9ui_component_t *dmaStatsHintTextRow;
     e9ui_component_t *copperStatsChart;
@@ -5041,7 +5042,7 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
     e9ui_stack_addFixed(leftColumn, cbBlitter);
     e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(8));
 
-    e9ui_component_t *cbEstimateFps = e9ui_checkbox_make("Estimate FPS",
+    e9ui_component_t *cbEstimateFps = e9ui_checkbox_make("Analyse Screen Data",
                                                          ui->estimateFpsEnabled,
                                                          custom_ui_estimateFpsChanged,
                                                          ui);
@@ -5052,25 +5053,40 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
     ui->estimateFpsCheckbox = cbEstimateFps;
     e9ui_checkbox_setLeftMargin(cbEstimateFps, 12);
 
-    e9ui_component_t *estimateFpsText = e9ui_text_make("--");
+    e9ui_component_t *estimateFpsText = e9ui_text_make("FPS: --");
     if (!estimateFpsText) {
         e9ui_childDestroy(rootStack, &ui->ctx);
         return NULL;
     }
     e9ui_text_setColor(estimateFpsText, (SDL_Color){ 196, 214, 232, 255 });
     ui->estimateFpsText = estimateFpsText;
-    e9ui_component_t *estimateFpsTextRow = custom_ui_insetRowMake(estimateFpsText, 0, 0);
-    if (!estimateFpsTextRow) {
+
+    e9ui_component_t *estimateFpsColorsText = e9ui_text_make("COLORS: --");
+    if (!estimateFpsColorsText) {
         e9ui_childDestroy(rootStack, &ui->ctx);
         return NULL;
     }
-    ui->estimateFpsTextRow = estimateFpsTextRow;
-    e9ui_component_t *estimateFpsRow = custom_ui_dmaStatsHeaderRowMake(cbEstimateFps, estimateFpsTextRow, 0, 16);
-    if (!estimateFpsRow) {
+    e9ui_text_setColor(estimateFpsColorsText, (SDL_Color){ 196, 214, 232, 255 });
+    ui->estimateFpsColorsText = estimateFpsColorsText;
+
+    e9ui_component_t *estimateFpsDetails = e9ui_stack_makeVertical();
+    if (!estimateFpsDetails) {
         e9ui_childDestroy(rootStack, &ui->ctx);
         return NULL;
     }
-    e9ui_stack_addFixed(leftColumn, estimateFpsRow);
+    e9ui_stack_addFixed(estimateFpsDetails, estimateFpsText);
+    e9ui_stack_addFixed(estimateFpsDetails, e9ui_vspacer_make(2));
+    e9ui_stack_addFixed(estimateFpsDetails, estimateFpsColorsText);
+
+    e9ui_component_t *estimateFpsDetailsRow = custom_ui_insetRowMake(estimateFpsDetails, 28, 0);
+    if (!estimateFpsDetailsRow) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    ui->estimateFpsDetailsRow = estimateFpsDetailsRow;
+    e9ui_stack_addFixed(leftColumn, cbEstimateFps);
+    e9ui_stack_addFixed(leftColumn, e9ui_vspacer_make(4));
+    e9ui_stack_addFixed(leftColumn, estimateFpsDetailsRow);
     custom_ui_syncEstimateFpsDisplay(ui);
 
     e9ui_component_t *rightColumn = e9ui_stack_makeVertical();
@@ -5489,24 +5505,37 @@ custom_ui_syncEstimateFpsDisplay(custom_ui_state_t *ui)
     if (!ui) {
         return;
     }
-    if (ui->estimateFpsTextRow) {
-        e9ui_setHidden(ui->estimateFpsTextRow, ui->estimateFpsEnabled ? 0 : 1);
+    if (ui->estimateFpsDetailsRow) {
+        e9ui_setHidden(ui->estimateFpsDetailsRow, ui->estimateFpsEnabled ? 0 : 1);
     }
     if (!ui->estimateFpsText) {
         return;
     }
     if (!ui->estimateFpsEnabled) {
-        e9ui_text_setText(ui->estimateFpsText, "--");
+        e9ui_text_setText(ui->estimateFpsText, "FPS: --");
+        if (ui->estimateFpsColorsText) {
+            e9ui_text_setText(ui->estimateFpsColorsText, "COLORS: --");
+        }
         return;
     }
     double estimatedFps = libretro_host_getEstimatedVideoFps();
     if (estimatedFps > 0.0) {
         char text[32];
-        snprintf(text, sizeof(text), "%.1f", estimatedFps);
+        snprintf(text, sizeof(text), "FPS: %.1f", estimatedFps);
         e9ui_text_setText(ui->estimateFpsText, text);
-        return;
+    } else {
+        e9ui_text_setText(ui->estimateFpsText, "FPS: ...");
     }
-    e9ui_text_setText(ui->estimateFpsText, "...");
+    if (ui->estimateFpsColorsText) {
+        unsigned distinctColors = libretro_host_getEstimatedVideoDistinctColors();
+        if (distinctColors > 0u) {
+            char text[32];
+            snprintf(text, sizeof(text), "COLORS: %u", distinctColors);
+            e9ui_text_setText(ui->estimateFpsColorsText, text);
+        } else {
+            e9ui_text_setText(ui->estimateFpsColorsText, "COLORS: ...");
+        }
+    }
 }
 
 static void
@@ -5666,7 +5695,8 @@ custom_ui_init(void)
     ui->dmaStatsCheckbox = NULL;
     ui->estimateFpsCheckbox = NULL;
     ui->estimateFpsText = NULL;
-    ui->estimateFpsTextRow = NULL;
+    ui->estimateFpsColorsText = NULL;
+    ui->estimateFpsDetailsRow = NULL;
     ui->dmaStatsHintText = NULL;
     ui->dmaStatsHintTextRow = NULL;
     ui->copperStatsChart = NULL;

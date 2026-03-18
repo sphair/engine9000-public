@@ -170,6 +170,10 @@ typedef struct  {
     int estimateFpsReferenceHeight;
     unsigned estimateFpsReferenceFrameIndex;
     double estimateFpsValue;
+    uint32_t *estimateFpsDistinctColorKeys;
+    uint8_t *estimateFpsDistinctColorUsed;
+    size_t estimateFpsDistinctColorCapacity;
+    unsigned estimateFpsDistinctColorCount;
     retro_set_environment_fn_t setEnvironment;
     retro_set_video_refresh_fn_t setVideoRefresh;
     retro_set_audio_sample_fn_t setAudioSample;
@@ -801,6 +805,100 @@ libretro_host_destroyTexture(void)
 }
 
 static void
+libretro_host_estimateFpsClearDistinctColorState(void)
+{
+    if (libretro_host.estimateFpsDistinctColorKeys) {
+        free(libretro_host.estimateFpsDistinctColorKeys);
+        libretro_host.estimateFpsDistinctColorKeys = NULL;
+    }
+    if (libretro_host.estimateFpsDistinctColorUsed) {
+        free(libretro_host.estimateFpsDistinctColorUsed);
+        libretro_host.estimateFpsDistinctColorUsed = NULL;
+    }
+    libretro_host.estimateFpsDistinctColorCapacity = 0;
+    libretro_host.estimateFpsDistinctColorCount = 0;
+}
+
+static int
+libretro_host_estimateFpsEnsureDistinctColorCapacity(size_t pixelCount)
+{
+    size_t minCapacity = pixelCount > (SIZE_MAX / 2) ? SIZE_MAX : (pixelCount * 2);
+    size_t wantedCapacity = 16;
+
+    while (wantedCapacity < minCapacity && wantedCapacity <= (SIZE_MAX / 2)) {
+        wantedCapacity *= 2;
+    }
+    if (wantedCapacity < minCapacity) {
+        wantedCapacity = minCapacity;
+    }
+    if (wantedCapacity <= libretro_host.estimateFpsDistinctColorCapacity) {
+        return 1;
+    }
+
+    uint32_t *nextKeys = (uint32_t *)realloc(libretro_host.estimateFpsDistinctColorKeys,
+                                             wantedCapacity * sizeof(uint32_t));
+    if (!nextKeys) {
+        return 0;
+    }
+    libretro_host.estimateFpsDistinctColorKeys = nextKeys;
+
+    uint8_t *nextUsed = (uint8_t *)realloc(libretro_host.estimateFpsDistinctColorUsed,
+                                           wantedCapacity * sizeof(uint8_t));
+    if (!nextUsed) {
+        return 0;
+    }
+    libretro_host.estimateFpsDistinctColorUsed = nextUsed;
+    libretro_host.estimateFpsDistinctColorCapacity = wantedCapacity;
+    return 1;
+}
+
+static int
+libretro_host_estimateFpsBeginDistinctColorCount(size_t pixelCount)
+{
+    if (!pixelCount) {
+        libretro_host.estimateFpsDistinctColorCount = 0;
+        return 0;
+    }
+    if (!libretro_host_estimateFpsEnsureDistinctColorCapacity(pixelCount)) {
+        libretro_host.estimateFpsDistinctColorCount = 0;
+        return 0;
+    }
+    memset(libretro_host.estimateFpsDistinctColorUsed,
+           0,
+           libretro_host.estimateFpsDistinctColorCapacity * sizeof(uint8_t));
+    libretro_host.estimateFpsDistinctColorCount = 0;
+    return 1;
+}
+
+static void
+libretro_host_estimateFpsCountDistinctColor(uint32_t color)
+{
+    if (!libretro_host.estimateFpsDistinctColorKeys ||
+        !libretro_host.estimateFpsDistinctColorUsed ||
+        !libretro_host.estimateFpsDistinctColorCapacity) {
+        return;
+    }
+
+    uint32_t rgb = color & 0x00ffffffu;
+    size_t capacity = libretro_host.estimateFpsDistinctColorCapacity;
+    size_t idx = ((size_t)rgb * 2654435761u) % capacity;
+
+    while (libretro_host.estimateFpsDistinctColorUsed[idx]) {
+        if (libretro_host.estimateFpsDistinctColorKeys[idx] == rgb) {
+            return;
+        }
+        idx++;
+        if (idx >= capacity) {
+            idx = 0;
+        }
+    }
+
+    libretro_host.estimateFpsDistinctColorUsed[idx] = 1;
+    libretro_host.estimateFpsDistinctColorKeys[idx] = rgb;
+    libretro_host.estimateFpsDistinctColorCount++;
+}
+
+static void
 libretro_host_clearEstimateFpsState(void)
 {
     if (libretro_host.estimateFpsReferenceFrameData) {
@@ -814,6 +912,7 @@ libretro_host_clearEstimateFpsState(void)
     libretro_host.estimateFpsReferenceHeight = 0;
     libretro_host.estimateFpsReferenceFrameIndex = 0;
     libretro_host.estimateFpsValue = 0.0;
+    libretro_host_estimateFpsClearDistinctColorState();
 }
 
 static int
@@ -988,6 +1087,7 @@ libretro_host_videoCallback(const void *data, unsigned width, unsigned height, s
     if (convertFormat == RETRO_PIXEL_FORMAT_RGB565 ||
         convertFormat == RETRO_PIXEL_FORMAT_0RGB1555) {
         size_t needed = (size_t)width * (size_t)height * 4;
+        int countDistinctColors = 0;
         if (needed > libretro_host.frameCapacity) {
             uint8_t *next = (uint8_t *)realloc(libretro_host.frameData, needed);
             if (!next) {
@@ -995,6 +1095,9 @@ libretro_host_videoCallback(const void *data, unsigned width, unsigned height, s
             }
             libretro_host.frameData = next;
             libretro_host.frameCapacity = needed;
+        }
+        if (libretro_host.estimateFpsEnabled) {
+            countDistinctColors = libretro_host_estimateFpsBeginDistinctColorCount((size_t)width * (size_t)height);
         }
         uint32_t *dst = (uint32_t *)libretro_host.frameData;
         if (convertFormat == RETRO_PIXEL_FORMAT_RGB565) {
@@ -1006,7 +1109,11 @@ libretro_host_videoCallback(const void *data, unsigned width, unsigned height, s
                     uint8_t r = (uint8_t)(((p >> 11) & 0x1F) << 3);
                     uint8_t g = (uint8_t)(((p >> 5) & 0x3F) << 2);
                     uint8_t b = (uint8_t)((p & 0x1F) << 3);
-                    dstRow[x] = 0xFF000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+                    uint32_t color = 0xFF000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+                    dstRow[x] = color;
+                    if (countDistinctColors) {
+                        libretro_host_estimateFpsCountDistinctColor(color);
+                    }
                 }
             }
         } else {
@@ -1018,7 +1125,11 @@ libretro_host_videoCallback(const void *data, unsigned width, unsigned height, s
                     uint8_t r = (uint8_t)(((p >> 10) & 0x1F) << 3);
                     uint8_t g = (uint8_t)(((p >> 5) & 0x1F) << 3);
                     uint8_t b = (uint8_t)((p & 0x1F) << 3);
-                    dstRow[x] = 0xFF000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+                    uint32_t color = 0xFF000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+                    dstRow[x] = color;
+                    if (countDistinctColors) {
+                        libretro_host_estimateFpsCountDistinctColor(color);
+                    }
                 }
             }
         }
@@ -1035,6 +1146,7 @@ libretro_host_videoCallback(const void *data, unsigned width, unsigned height, s
     }
 
     size_t needed = (size_t)height * pitch;
+    int countDistinctColors = 0;
     if (needed > libretro_host.frameCapacity) {
         uint8_t *next = (uint8_t *)realloc(libretro_host.frameData, needed);
         if (!next) {
@@ -1043,12 +1155,18 @@ libretro_host_videoCallback(const void *data, unsigned width, unsigned height, s
         libretro_host.frameData = next;
         libretro_host.frameCapacity = needed;
     }
+    if (libretro_host.estimateFpsEnabled) {
+        countDistinctColors = libretro_host_estimateFpsBeginDistinctColorCount((size_t)width * (size_t)height);
+    }
     memcpy(libretro_host.frameData, data, needed);
     if (libretro_host.pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888 && bytesPerPixel == 4) {
         for (unsigned y = 0; y < height; ++y) {
             uint32_t *row = (uint32_t *)(libretro_host.frameData + (size_t)y * pitch);
             for (unsigned x = 0; x < width; ++x) {
                 row[x] |= 0xFF000000u;
+                if (countDistinctColors) {
+                    libretro_host_estimateFpsCountDistinctColor(row[x]);
+                }
             }
         }
     }
@@ -1776,6 +1894,12 @@ double
 libretro_host_getEstimatedVideoFps(void)
 {
     return libretro_host.estimateFpsValue;
+}
+
+unsigned
+libretro_host_getEstimatedVideoDistinctColors(void)
+{
+    return libretro_host.estimateFpsDistinctColorCount;
 }
 
 void

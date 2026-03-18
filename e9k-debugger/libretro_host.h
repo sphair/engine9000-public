@@ -59,6 +59,9 @@ libretro_host_getEstimateFpsEnabled(void);
 double
 libretro_host_getEstimatedVideoFps(void);
 
+unsigned
+libretro_host_getEstimatedVideoDistinctColors(void);
+
 void
 libretro_host_setJoypadState(unsigned port, unsigned id, int pressed);
 
