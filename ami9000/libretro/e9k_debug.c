@@ -44,6 +44,9 @@ extern bool libretro_frame_end;
 #ifndef E9K_HACK_AMI_SPRITE_VIS
 #define E9K_HACK_AMI_SPRITE_VIS 0
 #endif
+#ifndef E9K_HACK_AMI_PALETTE_VIS
+#define E9K_HACK_AMI_PALETTE_VIS 0
+#endif
 
 #if E9K_DEBUGGER_CUSTOM_LOGGER
 #define E9K_DEBUG_AMI_CUSTOM_LOG_ENTRY_CAP 262144u
@@ -1307,6 +1310,13 @@ e9k_debug_set_debug_option(e9k_debug_option_t option, uint32_t argument, void *u
 			custom_setCustomLoggerEnabled(argument != 0u);
 			break;
 #endif
+		case E9K_DEBUG_OPTION_AMIGA_PALETTE_VIS:
+#if E9K_HACK_AMI_PALETTE_VIS
+			drawing_setPaletteVisEnabled(argument != 0u);
+#else
+			(void)argument;
+#endif
+			break;
 		default:
 			break;
 	}

@@ -72,6 +72,9 @@ happening, all ports should restrict window widths to be multiples of 16 pixels.
 #ifndef E9K_HACK_AMI_SPRITE_VIS
 #define E9K_HACK_AMI_SPRITE_VIS 0
 #endif
+#ifndef E9K_HACK_AMI_PALETTE_VIS
+#define E9K_HACK_AMI_PALETTE_VIS 0
+#endif
 
 //#define XLINECHECK
 
@@ -218,6 +221,10 @@ static union {
 	uae_u8  apixels[MAX_PIXELS_PER_LINE * 2];
 } pixdata;
 
+#if E9K_HACK_AMI_PALETTE_VIS
+static int drawing_paletteVisEnabled = 0;
+#endif
+
 static uae_u8 *refresh_indicator_buffer;
 static uae_u8 *refresh_indicator_changed, *refresh_indicator_changed_prev;
 static int refresh_indicator_height;
@@ -261,6 +268,20 @@ drawing_setSpriteEnabled(int spriteIndex, int enabled)
 	}
 	drawing_spriteRenderPairMask = drawing_buildSpritePairMask(drawing_spriteRenderMask);
 }
+
+#if E9K_HACK_AMI_PALETTE_VIS
+void
+drawing_setPaletteVisEnabled(int enabled)
+{
+	drawing_paletteVisEnabled = enabled ? 1 : 0;
+}
+
+int
+drawing_getPaletteVisEnabled(void)
+{
+	return drawing_paletteVisEnabled;
+}
+#endif
 
 uae_u8 *xlinebuffer, *xlinebuffer_genlock;
 
@@ -4264,6 +4285,81 @@ static void pfield_doline(int lineno)
 
 }
 
+#if E9K_HACK_AMI_PALETTE_VIS
+static uae_u8
+drawing_paletteVisEncodeDualPfColor(int colorIndex, int playfieldIndex)
+{
+	uae_u8 encodedColor = 0u;
+	int outputBit = playfieldIndex;
+	for (int inputBit = 0; inputBit < 4 && outputBit < 8; ++inputBit, outputBit += 2) {
+		if ((colorIndex & (1 << inputBit)) != 0) {
+			encodedColor = (uae_u8)(encodedColor | (uae_u8)(1u << outputBit));
+		}
+	}
+	return encodedColor;
+}
+
+static void
+drawing_applyPaletteVisToScanline(void)
+{
+	if (!drawing_paletteVisEnabled) {
+		return;
+	}
+
+	int sourceStart = src_pixel;
+	int sourceWidth = res_shift_from_window(playfield_end - playfield_start);
+	if (sourceWidth <= 0) {
+		return;
+	}
+	if (sourceStart < 0 || sourceStart >= MAX_PIXELS_PER_LINE * 2) {
+		return;
+	}
+	if (sourceStart + sourceWidth > MAX_PIXELS_PER_LINE * 2) {
+		sourceWidth = (MAX_PIXELS_PER_LINE * 2) - sourceStart;
+		if (sourceWidth <= 0) {
+			return;
+		}
+	}
+
+	if (bpldualpf) {
+		int pf1PlaneCount = (bplplanecnt + 1) / 2;
+		int pf2PlaneCount = bplplanecnt / 2;
+		int pf1ColorCount = 1 << pf1PlaneCount;
+		int pf2ColorCount = 1 << pf2PlaneCount;
+		int columnCount = pf1ColorCount + pf2ColorCount - 1;
+		if (columnCount <= 0) {
+			return;
+		}
+		for (int pixelIndex = 0; pixelIndex < sourceWidth; ++pixelIndex) {
+			int columnIndex = (pixelIndex * columnCount) / sourceWidth;
+			uae_u8 encodedColor;
+			if (columnIndex == 0) {
+				encodedColor = 0u;
+			} else if (columnIndex < pf1ColorCount) {
+				encodedColor = drawing_paletteVisEncodeDualPfColor(columnIndex, 0);
+			} else {
+				int pf2ColorIndex = columnIndex - pf1ColorCount + 1;
+				encodedColor = drawing_paletteVisEncodeDualPfColor(pf2ColorIndex, 1);
+			}
+			pixdata.apixels[sourceStart + pixelIndex] = encodedColor;
+		}
+		return;
+	}
+
+	int colorCount = 1 << bplplanecnt;
+	if (colorCount <= 0) {
+		return;
+	}
+	for (int pixelIndex = 0; pixelIndex < sourceWidth; ++pixelIndex) {
+		int colorIndex = (pixelIndex * colorCount) / sourceWidth;
+		if (colorIndex >= colorCount) {
+			colorIndex = colorCount - 1;
+		}
+		pixdata.apixels[sourceStart + pixelIndex] = (uae_u8)colorIndex;
+	}
+}
+#endif
+
 void init_row_map(void)
 {
 	struct vidbuf_description *vidinfo = &adisplays[0].gfxvidinfo;
@@ -5001,6 +5097,9 @@ static void pfield_draw_line(struct vidbuffer *vb, int lineno, int gfx_ypos, int
 		adjust_drawing_colors(dp_for_drawing->ctable, dp_for_drawing->ham_seen || bplehb || ecsshres, true);
 		pfield_init_linetoscr(false);
 		pfield_doline(lineno);
+#if E9K_HACK_AMI_PALETTE_VIS
+		drawing_applyPaletteVisToScanline();
+#endif
 
 		/* The problem is that we must call decode_ham() BEFORE we do the sprites. */
 		if (dp_for_drawing->ham_seen) {

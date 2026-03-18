@@ -29,6 +29,9 @@
 #ifndef E9K_HACK_AMI_SPRITE_VIS
 #define E9K_HACK_AMI_SPRITE_VIS 0
 #endif
+#ifndef E9K_HACK_AMI_PALETTE_VIS
+#define E9K_HACK_AMI_PALETTE_VIS 0
+#endif
 
 #define CUSTOM_UI_TITLE "ENGINE9000 DEBUGGER - VISUALISERS"
 #define CUSTOM_UI_AMIGA_SPRITE_COUNT 8
@@ -55,6 +58,7 @@ typedef struct custom_ui_state {
     int open;
     int blitterEnabled;
     int copperVisualiserEnabled;
+    int paletteVisualiserEnabled;
     int blitterDebugEnabled;
     int suppressBlitterDebugCallbacks;
 #if E9K_HACK_AMI_SPRITE_VIS
@@ -102,6 +106,7 @@ typedef struct custom_ui_state {
     e9ui_component_t *bitplaneCheckboxes[CUSTOM_UI_AMIGA_BITPLANE_COUNT];
     e9ui_component_t *audiosCheckbox;
     e9ui_component_t *copperVisualiserCheckbox;
+    e9ui_component_t *paletteVisualiserCheckbox;
     e9ui_component_t *blitterDebugCheckbox;
 #if E9K_HACK_AMI_SPRITE_VIS
     e9ui_component_t *spriteVisCheckbox;
@@ -386,6 +391,7 @@ static const SDL_Color custom_ui_dmaColorIdle = { 0x5a, 0x5a, 0x5a, 255 };
 static custom_ui_state_t custom_ui_state = {
     .blitterEnabled = 1,
     .copperVisualiserEnabled = 0,
+    .paletteVisualiserEnabled = 0,
     .blitterDebugEnabled = 0,
 #if E9K_HACK_AMI_SPRITE_VIS
     .spriteVisEnabled = 0,
@@ -3530,6 +3536,15 @@ custom_ui_applyBlitterDebugOption(void)
     (void)libretro_host_debugAmiSetBlitterDebug(ui->blitterDebugEnabled ? 1 : 0);
 }
 
+#if E9K_HACK_AMI_PALETTE_VIS
+static void
+custom_ui_applyPaletteVisOption(void)
+{
+    custom_ui_state_t *ui = &custom_ui_state;
+    custom_ui_applyOption(E9K_DEBUG_OPTION_AMIGA_PALETTE_VIS, ui->paletteVisualiserEnabled ? 1u : 0u);
+}
+#endif
+
 #if E9K_HACK_AMI_SPRITE_VIS
 static void
 custom_ui_applySpriteVisOption(void)
@@ -3657,6 +3672,9 @@ custom_ui_applyAllOptions(void)
     custom_ui_applyBlitterVisBlinkOption();
 #if E9K_HACK_AMI_SPRITE_VIS
     custom_ui_applySpriteVisOption();
+#endif
+#if E9K_HACK_AMI_PALETTE_VIS
+    custom_ui_applyPaletteVisOption();
 #endif
     custom_ui_applyBplcon1DelayScrollOption();
     custom_ui_applyCopperLimitEnabledOption();
@@ -4094,6 +4112,21 @@ custom_ui_copperVisualiserChanged(e9ui_component_t *self, e9ui_context_t *ctx, i
     ui->copperVisualiserEnabled = selected ? 1 : 0;
     emu_ami_setCopperDebugEnabled(ui->copperVisualiserEnabled);
 }
+
+#if E9K_HACK_AMI_PALETTE_VIS
+static void
+custom_ui_paletteVisualiserChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
+{
+    (void)self;
+    (void)ctx;
+    custom_ui_state_t *ui = (custom_ui_state_t*)user;
+    if (!ui) {
+        return;
+    }
+    ui->paletteVisualiserEnabled = selected ? 1 : 0;
+    custom_ui_applyPaletteVisOption();
+}
+#endif
 
 static void
 custom_ui_blitterVisPatternChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
@@ -5053,6 +5086,21 @@ custom_ui_buildRoot(custom_ui_state_t *ui)
     e9ui_stack_addFixed(rightColumn, cbCopperVisualiser);
     e9ui_stack_addFixed(rightColumn, e9ui_vspacer_make(8));
 
+#if E9K_HACK_AMI_PALETTE_VIS
+    e9ui_component_t *cbPaletteVisualiser = e9ui_checkbox_make("Palette Visualiser",
+                                                               ui->paletteVisualiserEnabled,
+                                                               custom_ui_paletteVisualiserChanged,
+                                                               ui);
+    if (!cbPaletteVisualiser) {
+        e9ui_childDestroy(rootStack, &ui->ctx);
+        return NULL;
+    }
+    ui->paletteVisualiserCheckbox = cbPaletteVisualiser;
+    e9ui_checkbox_setLeftMargin(cbPaletteVisualiser, 12);
+    e9ui_stack_addFixed(rightColumn, cbPaletteVisualiser);
+    e9ui_stack_addFixed(rightColumn, e9ui_vspacer_make(8));
+#endif
+
 #if E9K_HACK_AMI_SPRITE_VIS
     e9ui_component_t *cbSpriteVis = e9ui_checkbox_make("Sprite Visualiser",
                                                        ui->spriteVisEnabled,
@@ -5583,6 +5631,7 @@ custom_ui_init(void)
     ui->bplptrBlockAllCheckbox = NULL;
     ui->audiosCheckbox = NULL;
     ui->copperVisualiserCheckbox = NULL;
+    ui->paletteVisualiserCheckbox = NULL;
     ui->copperLimitCheckbox = NULL;
     ui->copperLimitStartRow = NULL;
     ui->copperLimitStartTextbox = NULL;

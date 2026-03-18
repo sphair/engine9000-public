@@ -51,6 +51,7 @@ typedef struct source_pane_state {
     int               overrideActive;
     int               frozenActive;
     uint64_t          frozenPcAddr;
+    uint64_t          frozenAsmAnchorAddr;
     int               frozenAsmStartIndex;
     int               frozenAsmMaxLines;
     char            **frozenAsmLines;
@@ -237,7 +238,7 @@ static int
 source_pane_shouldFreezeAsmWhileRunning(const source_pane_state_t *st);
 
 static int
-source_pane_areAsmViewStepButtonsEnabled(source_pane_mode_t mode);
+source_pane_areAsmViewStepButtonsEnabled(const source_pane_state_t *st);
 
 static int
 source_pane_isCpuAsmLikeMode(source_pane_mode_t mode);
@@ -459,15 +460,12 @@ source_pane_shouldFreezeAsmWhileRunning(const source_pane_state_t *st)
 }
 
 static int
-source_pane_areAsmViewStepButtonsEnabled(source_pane_mode_t mode)
+source_pane_areAsmViewStepButtonsEnabled(const source_pane_state_t *st)
 {
-    if (!source_pane_isAsmLikeMode(mode)) {
+    if (!st || !source_pane_isAsmLikeMode(st->viewMode)) {
         return 0;
     }
-    if (source_pane_isAsmViewLiveUpdateEnabled()) {
-        return 1;
-    }
-    return !machine_getRunning(debugger.machine) ? 1 : 0;
+    return 1;
 }
 
 static int
@@ -4201,6 +4199,7 @@ source_pane_freeFrozenAsm(source_pane_state_t *st)
     st->frozenAsmLines = NULL;
     st->frozenAsmAddrs = NULL;
     st->frozenAsmCount = 0;
+    st->frozenAsmAnchorAddr = 0;
     st->frozenAsmStartIndex = 0;
     st->frozenAsmMaxLines = 0;
 }
@@ -4451,8 +4450,10 @@ source_pane_getAsmWindow(source_pane_state_t *st, int maxLines, uint64_t *out_cu
     *out_curAddr = curAddr;
 
     int startIndex = 0;
+    uint64_t windowAnchorAddr = curAddr;
     if (st->scrollLocked) {
         if (st->scrollAnchorValid) {
+            windowAnchorAddr = st->scrollAnchorAddr;
             int anchorIndex = 0;
             if (dasm_findIndexForAddr(st->scrollAnchorAddr, &anchorIndex)) {
                 startIndex = anchorIndex;
@@ -4488,7 +4489,9 @@ source_pane_getAsmWindow(source_pane_state_t *st, int maxLines, uint64_t *out_cu
     int first = 0;
     int count = 0;
     if (freezeWhileRunning && st->frozenActive && st->frozenAsmLines &&
-        st->frozenAsmStartIndex == startIndex && st->frozenAsmMaxLines == maxLines) {
+        st->frozenAsmAnchorAddr == windowAnchorAddr &&
+        st->frozenAsmStartIndex == startIndex &&
+        st->frozenAsmMaxLines == maxLines) {
         lines = (const char**)st->frozenAsmLines;
         addrs = (const uint64_t*)st->frozenAsmAddrs;
         first = st->frozenAsmStartIndex;
@@ -4527,7 +4530,9 @@ source_pane_getAsmWindow(source_pane_state_t *st, int maxLines, uint64_t *out_cu
         }
 
         if (freezeWhileRunning && st->frozenActive && (st->frozenAsmStartIndex != first ||
-            st->frozenAsmCount != count || st->frozenAsmMaxLines != maxLines)) {
+            st->frozenAsmCount != count ||
+            st->frozenAsmMaxLines != maxLines ||
+            st->frozenAsmAnchorAddr != windowAnchorAddr)) {
             source_pane_freeFrozenAsm(st);
             st->frozenAsmLines = (char**)alloc_calloc((size_t)count, sizeof(*st->frozenAsmLines));
             st->frozenAsmAddrs = (uint64_t*)alloc_calloc((size_t)count, sizeof(*st->frozenAsmAddrs));
@@ -4539,6 +4544,7 @@ source_pane_getAsmWindow(source_pane_state_t *st, int maxLines, uint64_t *out_cu
                 st->frozenAsmCount = count;
                 st->frozenAsmStartIndex = first;
                 st->frozenAsmMaxLines = maxLines;
+                st->frozenAsmAnchorAddr = windowAnchorAddr;
                 lines = (const char**)st->frozenAsmLines;
                 addrs = (const uint64_t*)st->frozenAsmAddrs;
                 first = st->frozenAsmStartIndex;
@@ -5304,7 +5310,7 @@ source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
         }
         source_pane_refreshModeOptions(self, st);
         source_pane_mode_t stepMode = st->viewMode;
-        int stepEnabled = source_pane_areAsmViewStepButtonsEnabled(stepMode);
+        int stepEnabled = source_pane_areAsmViewStepButtonsEnabled(st);
         source_pane_step_buttons_action_ctx_t actionCtx = {
             self,
             ctx,
@@ -5757,7 +5763,7 @@ source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
               searchBox->render(searchBox, ctx);
           }
       }
-      if (st && source_pane_areAsmViewStepButtonsEnabled(mode)) {
+      if (source_pane_areAsmViewStepButtonsEnabled(st)) {
           int topInsetPx = source_pane_overlayTopRowHeight(self, ctx, st);
           e9ui_step_buttons_render(ctx,
                                    self->bounds,
@@ -5888,7 +5894,7 @@ source_pane_handleEventComp(e9ui_component_t *self, e9ui_context_t *ctx, const e
             mode
         };
         int topInsetPx = source_pane_overlayTopRowHeight(self, ctx, st);
-        int stepEnabled = source_pane_areAsmViewStepButtonsEnabled(mode);
+        int stepEnabled = source_pane_areAsmViewStepButtonsEnabled(st);
         if (e9ui_step_buttons_handleEvent(ctx,
                                           ev,
                                           self->bounds,

@@ -12,6 +12,9 @@
 #ifndef E9K_HACK_AMI_SPRITE_VIS
 #define E9K_HACK_AMI_SPRITE_VIS 0
 #endif
+#ifndef E9K_HACK_AMI_PALETTE_VIS
+#define E9K_HACK_AMI_PALETTE_VIS 0
+#endif
 
 #define SMART_UPDATE 1
 
@@ -364,6 +367,11 @@ extern void drawing_spriteVisSetNativeLineContext(int nativeLine);
 extern void drawing_spriteVisMarkNativePixel(int pixelX, int spriteIndex, int attachedPair);
 extern void drawing_spriteVisClearNativeRange(int pixelStart, int pixelCount);
 extern int drawing_spriteVisGetNativePixelSpriteId(int pixelY, int pixelX, uae_u32 *spriteIndex, int *attachedPair);
+#endif
+
+#if E9K_HACK_AMI_PALETTE_VIS
+extern void drawing_setPaletteVisEnabled(int enabled);
+extern int drawing_getPaletteVisEnabled(void);
 #endif
 
 /* Functions in drawing.c.  */
