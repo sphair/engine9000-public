@@ -16,6 +16,7 @@ typedef struct e9ui_text_state {
     int fontStyleScaled;
     SDL_Color color;
     TTF_Font *font;
+    int ownsFont;
 } e9ui_text_state_t;
 
 static int
@@ -44,8 +45,27 @@ text_getFont(e9ui_text_state_t *st, e9ui_context_t *ctx)
         return st->font;
     }
     if (st->font) {
-        TTF_CloseFont(st->font);
+        if (st->ownsFont) {
+            TTF_CloseFont(st->font);
+        }
         st->font = NULL;
+        st->ownsFont = 0;
+    }
+    {
+        TTF_Font *sharedFont = e9ui->theme.text.source;
+        int sharedBase = e9ui->theme.text.fontSize > 0 ? e9ui->theme.text.fontSize : E9UI_THEME_TEXT_FONT_SIZE;
+        int sharedScaled = e9ui_scale_px(ctx, sharedBase);
+        int sharedStyle = e9ui->theme.text.fontStyle;
+        if (sharedScaled <= 0) {
+            sharedScaled = sharedBase > 0 ? sharedBase : 16;
+        }
+        if (sharedFont && scaled == sharedScaled && style == sharedStyle) {
+            st->font = sharedFont;
+            st->fontSizeScaled = scaled;
+            st->fontStyleScaled = style;
+            st->ownsFont = 0;
+            return st->font;
+        }
     }
     const char *asset = e9ui->theme.text.fontAsset ? e9ui->theme.text.fontAsset : E9UI_THEME_TEXT_FONT_ASSET;
     char path[PATH_MAX];
@@ -62,6 +82,7 @@ text_getFont(e9ui_text_state_t *st, e9ui_context_t *ctx)
     }
     st->fontSizeScaled = scaled;
     st->fontStyleScaled = style;
+    st->ownsFont = 1;
     return st->font;
 }
 
@@ -128,10 +149,11 @@ text_dtor(e9ui_component_t *self, e9ui_context_t *ctx)
         alloc_free(st->text);
         st->text = NULL;
     }
-    if (st->font) {
+    if (st->font && st->ownsFont) {
         TTF_CloseFont(st->font);
-        st->font = NULL;
     }
+    st->font = NULL;
+    st->ownsFont = 0;
     alloc_free(st);
     self->state = NULL;
 }
