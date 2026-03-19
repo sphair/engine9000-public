@@ -23,6 +23,8 @@
 #include "debugger.h"
 #include "source.h"
 #include "source_pane.h"
+#include "source_pane_internal.h"
+#include "source_cpr.h"
 #include "dasm.h"
 #include "addr2line.h"
 #include "machine.h"
@@ -36,101 +38,6 @@
 #include "syntax_highlight_asm.h"
 #include "print_eval.h"
 #include "hunk_fileline_cache.h"
-#include "amiga_custom_regs.h"
-
-typedef struct source_pane_state {
-    source_pane_mode_t viewMode; // C vs ASM vs HEX
-    int               scrollLine; // 1-based first line for C view
-    int               scrollIndex; // 0-based first instruction for ASM view
-    int               scrollLocked;
-    uint64_t          scrollAnchorAddr;
-    int               scrollAnchorValid;
-    uint64_t          lastPcAddr;
-    uint64_t          lastResolvedPc;
-    uint64_t          overrideAddr;
-    int               overrideActive;
-    int               frozenActive;
-    uint64_t          frozenPcAddr;
-    uint64_t          frozenAsmAnchorAddr;
-    int               frozenAsmStartIndex;
-    int               frozenAsmMaxLines;
-    char            **frozenAsmLines;
-    uint64_t         *frozenAsmAddrs;
-    int               frozenAsmCount;
-    char              curSrcPath[PATH_MAX];
-    int               curSrcLine;
-    char*             toggleBtnMeta;
-    char*             lockBtnMeta;  
-    int               gutterPending;
-    int               gutterLine;
-    uint32_t          gutterAddr;
-    int               gutterDownX;
-    int               gutterDownY;
-    source_pane_mode_t gutterMode;
-    e9ui_scrollbar_state_t cScrollbar;
-    int               cScrollX;
-    int               cContentPixelWidth;
-    int               bucketSource;
-    int               bucketAddr;
-    char*             fileSelectMeta;
-    char*             searchBoxMeta;
-    char*             asmSymbolSelectMeta;
-    char*             asmAddressMeta;
-    char             *manualSrcPath;
-    int               manualSrcActive;
-    char            **sourceFiles;
-    char            **sourceLabels;
-    e9ui_textbox_option_t *sourceOptions;
-    int               sourceFileCount;
-    int               sourceFileCap;
-    int               sourceFilesLoaded;
-    char              sourceFilesElf[PATH_MAX];
-    char              sourceFilesToolchain[PATH_MAX];
-    char             *functionSelectMeta;
-    char            **sourceFunctionNames;
-    char            **sourceFunctionFiles;
-    char            **sourceFunctionLabels;
-    char            **sourceFunctionValues;
-    int              *sourceFunctionLines;
-    e9ui_textbox_option_t *sourceFunctionOptions;
-    int               sourceFunctionCount;
-    int               sourceFunctionCap;
-    int               sourceFunctionsLoaded;
-    char              sourceFunctionsElf[PATH_MAX];
-    char              sourceFunctionsToolchain[PATH_MAX];
-    char              sourceFunctionsFile[PATH_MAX];
-    char            **asmSymbolNames;
-    char            **asmSymbolLabels;
-    char            **asmSymbolValues;
-    uint64_t         *asmSymbolAddrs;
-    e9ui_textbox_option_t *asmSymbolOptions;
-    int               asmSymbolCount;
-    int               asmSymbolCap;
-    int               asmSymbolsLoaded;
-    char              asmSymbolsElf[PATH_MAX];
-    char              asmSymbolsToolchain[PATH_MAX];
-    int               functionScrollLock;
-    int               searchActive;
-    int               searchMatchValid;
-    int               searchMatchLine;
-    int               searchMatchColumn;
-    int               searchMatchLength;
-    e9ui_component_t *ownerPane;
-    char              hoverExpr[256];
-    char              hoverTip[1024];
-    int               hoverLine;
-    int               hoverCol;
-    uint32_t          hoverPc;
-    uint32_t          hoverTick;
-    int               hoverActive;
-    e9ui_step_buttons_state_t asmStepButtons;
-} source_pane_state_t;
-
-typedef struct source_pane_line_metrics {
-    int maxLines;
-    int lineHeight;
-    int innerHeight;
-} source_pane_line_metrics_t;
 
 /* Set to 0 to restore the old snapshot-while-running behavior for ASM/HEX. */
 static int source_pane_enableLiveAsmViews = 0;
@@ -141,7 +48,7 @@ source_pane_updateSourceLocation(source_pane_state_t *st, int allowWhileRunning)
 static void
 source_pane_followCurrent(source_pane_state_t *st);
 
-static void
+void
 source_pane_freeFrozenAsm(source_pane_state_t *st);
 
 static void
@@ -219,13 +126,13 @@ source_pane_searchOpen(source_pane_state_t *st, e9ui_context_t *ctx);
 static void
 source_pane_adjustScroll(source_pane_state_t *st, source_pane_mode_t mode, int delta);
 
-static source_pane_line_metrics_t
+source_pane_line_metrics_t
 source_pane_computeLineMetrics(e9ui_component_t *self, e9ui_context_t *ctx, TTF_Font *font, int padPx);
 
-static TTF_Font *
+TTF_Font *
 source_pane_resolveFont(const e9ui_context_t *ctx);
 
-static SDL_Rect
+SDL_Rect
 source_pane_getContentArea(e9ui_component_t *self, e9ui_context_t *ctx, int padPx);
 
 static int
@@ -234,7 +141,7 @@ source_pane_isAsmLikeMode(source_pane_mode_t mode);
 static int
 source_pane_isAsmViewLiveUpdateEnabled(void);
 
-static int
+int
 source_pane_shouldFreezeAsmWhileRunning(const source_pane_state_t *st);
 
 static int
@@ -243,24 +150,20 @@ source_pane_areAsmViewStepButtonsEnabled(const source_pane_state_t *st);
 static int
 source_pane_isCpuAsmLikeMode(source_pane_mode_t mode);
 
-static int
-source_pane_isCprModeAvailable(void);
-
-static uint64_t
-source_pane_resolveCprAnchorAddr(uint64_t addr);
-
 static uint64_t
 source_pane_resolveAsmLikeAnchorAddr(source_pane_state_t *st, uint64_t addr);
 
-static uint64_t
-source_pane_getCurrentCprAddr(source_pane_state_t *st);
+void
+source_pane_inlineEditCancel(source_pane_state_t *st, e9ui_context_t *ctx);
 
 static int
-source_pane_getCprWindow(source_pane_state_t *st, int maxLines, uint64_t *out_curAddr,
-                         const char ***out_lines, const uint64_t **out_addrs, int *out_count);
+source_pane_inlineEditCommit(source_pane_state_t *st, e9ui_context_t *ctx);
 
 static void
-source_pane_renderCpr(e9ui_component_t *self, e9ui_context_t *ctx);
+source_pane_inlineEditSubmitted(e9ui_context_t *ctx, void *user);
+
+static int
+source_pane_inlineEditKey(e9ui_context_t *ctx, SDL_Keycode key, SDL_Keymod mods, void *user);
 
 static int
 source_pane_getCScrollbarModel(e9ui_component_t *self,
@@ -441,7 +344,7 @@ source_pane_isAsmViewLiveUpdateEnabled(void)
     return source_pane_enableLiveAsmViews ? 1 : 0;
 }
 
-static int
+int
 source_pane_shouldFreezeAsmWhileRunning(const source_pane_state_t *st)
 {
     if (!st) {
@@ -473,12 +376,6 @@ source_pane_isCpuAsmLikeMode(source_pane_mode_t mode)
 {
     return (mode == source_pane_mode_a ||
             mode == source_pane_mode_h) ? 1 : 0;
-}
-
-static int
-source_pane_isCprModeAvailable(void)
-{
-    return target == target_amiga() ? 1 : 0;
 }
 
 static const char *
@@ -1893,60 +1790,12 @@ source_pane_resolveAsmAnchorAddr(uint64_t addr)
 }
 
 static uint64_t
-source_pane_resolveCprAnchorAddr(uint64_t addr)
-{
-    uint64_t a = addr & 0x00ffffffull;
-    a &= ~3ull;
-    return a;
-}
-
-static uint64_t
 source_pane_resolveAsmLikeAnchorAddr(source_pane_state_t *st, uint64_t addr)
 {
     if (st && st->viewMode == source_pane_mode_cpr) {
-        return source_pane_resolveCprAnchorAddr(addr);
+        return source_cpr_resolveAnchorAddr(addr);
     }
     return source_pane_resolveAsmAnchorAddr(addr);
-}
-
-static int
-source_pane_getCopperListAddr(const char *highName, const char *lowName, uint64_t *outAddr)
-{
-    unsigned long highValue = 0;
-    unsigned long lowValue = 0;
-
-    if (!highName || !lowName || !outAddr) {
-        return 0;
-    }
-    if (!machine_findReg(&debugger.machine, highName, &highValue) ||
-        !machine_findReg(&debugger.machine, lowName, &lowValue)) {
-        return 0;
-    }
-
-    *outAddr = (((uint64_t)highValue & 0x001full) << 16) |
-               ((uint64_t)lowValue & 0x0000fffeull);
-    *outAddr = source_pane_resolveCprAnchorAddr(*outAddr);
-    return 1;
-}
-
-static uint64_t
-source_pane_getCurrentCprAddr(source_pane_state_t *st)
-{
-    uint64_t addr = 0;
-
-    if (st && st->overrideActive) {
-        return source_pane_resolveCprAnchorAddr(st->overrideAddr);
-    }
-    if (source_pane_getCopperListAddr("COP1LCH", "COP1LCL", &addr)) {
-        return addr;
-    }
-    if (source_pane_getCopperListAddr("COP2LCH", "COP2LCL", &addr)) {
-        return addr;
-    }
-    if (st && st->scrollAnchorValid) {
-        return source_pane_resolveCprAnchorAddr(st->scrollAnchorAddr);
-    }
-    return 0;
 }
 
 static int
@@ -2999,7 +2848,7 @@ source_pane_addBreakpointsForLine(const char *path, int lineNo)
 }
 
 
-static source_pane_line_metrics_t
+source_pane_line_metrics_t
 source_pane_computeLineMetrics(e9ui_component_t *self, e9ui_context_t *ctx, TTF_Font *font, int padPx)
 {
     source_pane_line_metrics_t out = {0};
@@ -3025,7 +2874,7 @@ source_pane_computeLineMetrics(e9ui_component_t *self, e9ui_context_t *ctx, TTF_
     return out;
 }
 
-static SDL_Rect
+SDL_Rect
 source_pane_getContentArea(e9ui_component_t *self, e9ui_context_t *ctx, int padPx)
 {
     SDL_Rect area = {0};
@@ -3053,7 +2902,7 @@ source_pane_getContentArea(e9ui_component_t *self, e9ui_context_t *ctx, int padP
     return area;
 }
 
-static TTF_Font *
+TTF_Font *
 source_pane_resolveFont(const e9ui_context_t *ctx)
 {
     if (e9ui->theme.text.source) {
@@ -3105,7 +2954,7 @@ source_pane_popRenderClip(e9ui_context_t *ctx, SDL_bool hadClip, const SDL_Rect 
     }
 }
 
-static void
+void
 source_pane_renderStatusMessage(e9ui_context_t *ctx, TTF_Font *font, SDL_Rect area, int padPx,
                                 SDL_Color color, const char *msg)
 {
@@ -3172,7 +3021,7 @@ source_pane_copySegment(const char *line, int start, int len, char *stackBuf, in
     return 1;
 }
 
-static int
+int
 source_pane_measureSegment(TTF_Font *font, const char *line, int start, int len)
 {
     if (!font || !line || start < 0 || len <= 0) {
@@ -3270,7 +3119,7 @@ source_pane_buildAsmLineSpans(const char *line, source_pane_asm_spans_t *outSpan
     return 1;
 }
 
-static void
+void
 source_pane_renderAsmLineHighlighted(e9ui_context_t *ctx, e9ui_component_t *owner, TTF_Font *font,
                                      const char *line, int highlightOffset, SDL_Color baseColor, int textX, int y,
                                      int lineHeight, int hitW, void *sourceBucket)
@@ -3401,7 +3250,7 @@ source_pane_resolveCurrentHighlightLine(const source_pane_state_t *st, const cha
     return st->curSrcLine;
 }
 
-static int
+int
 source_pane_findCurrentAddrRow(const uint64_t *addrs, int count, uint64_t curAddr)
 {
     if (!addrs || count <= 0) {
@@ -3735,6 +3584,9 @@ source_pane_adjustScroll(source_pane_state_t *st, source_pane_mode_t mode, int d
     if (!st || delta == 0) {
         return;
     }
+    if (st->inlineEditActive) {
+        source_pane_inlineEditCancel(st, NULL);
+    }
     if (mode == source_pane_mode_c) {
         int dest = st->scrollLine + delta;
         if (dest < 1) {
@@ -3747,7 +3599,7 @@ source_pane_adjustScroll(source_pane_state_t *st, source_pane_mode_t mode, int d
         return;
     }
     if (mode == source_pane_mode_cpr) {
-        uint64_t destAddr = source_pane_getCurrentCprAddr(st);
+        uint64_t destAddr = source_cpr_getCurrentAddr(st);
         if (st->scrollLocked && st->scrollAnchorValid) {
             destAddr = st->scrollAnchorAddr;
         }
@@ -3757,7 +3609,7 @@ source_pane_adjustScroll(source_pane_state_t *st, source_pane_mode_t mode, int d
         } else {
             destAddr += (uint64_t)delta * 4ull;
         }
-        destAddr = source_pane_resolveCprAnchorAddr(destAddr);
+        destAddr = source_cpr_resolveAnchorAddr(destAddr);
         st->scrollIndex = (int)(destAddr >> 2);
         st->scrollAnchorAddr = destAddr;
         st->scrollAnchorValid = 1;
@@ -3868,7 +3720,7 @@ source_pane_scrollToEnd(source_pane_state_t *st, source_pane_mode_t mode, int ma
             uint64_t back = (uint64_t)(maxLines - 1) * 4ull;
             destAddr = destAddr > back ? destAddr - back : 0ull;
         }
-        destAddr = source_pane_resolveCprAnchorAddr(destAddr);
+        destAddr = source_cpr_resolveAnchorAddr(destAddr);
         st->scrollIndex = (int)(destAddr >> 2);
         st->scrollAnchorAddr = destAddr;
         st->scrollAnchorValid = 1;
@@ -4183,7 +4035,7 @@ source_pane_searchTextboxKey(e9ui_context_t *ctx, SDL_Keycode key, SDL_Keymod mo
     return 0;
 }
 
-static void
+void
 source_pane_freeFrozenAsm(source_pane_state_t *st)
 {
     if (!st) {
@@ -4348,7 +4200,7 @@ source_pane_refreshModeOptions(e9ui_component_t *comp, source_pane_state_t *st)
         return;
     }
 
-    if (source_pane_isCprModeAvailable()) {
+    if (source_cpr_isModeAvailable()) {
         e9ui_textbox_setOptions(select,
                                 modeOptionsAmiga,
                                 (int)(sizeof(modeOptionsAmiga) / sizeof(modeOptionsAmiga[0])));
@@ -4560,401 +4412,337 @@ source_pane_getAsmWindow(source_pane_state_t *st, int maxLines, uint64_t *out_cu
     return 1;
 }
 
-static void
-source_pane_sanitizeCopperValueTip(char *text)
+static int
+source_pane_parseHexNibble(char c)
 {
-    if (!text) {
-        return;
+    if (c >= '0' && c <= '9') {
+        return c - '0';
     }
-    for (char *p = text; *p; ++p) {
-        if (*p == '\r' || *p == '\n' || *p == '\t') {
-            *p = ' ';
-        }
+    if (c >= 'a' && c <= 'f') {
+        return 10 + (c - 'a');
     }
+    if (c >= 'A' && c <= 'F') {
+        return 10 + (c - 'A');
+    }
+    return -1;
 }
-
-static void
-source_pane_appendCopperDecodeText(char *out, size_t cap, size_t *pos, const char *text)
-{
-    if (!out || cap == 0 || !pos || !text) {
-        return;
-    }
-    while (*text && *pos + 1 < cap) {
-        out[*pos] = *text;
-        (*pos)++;
-        text++;
-    }
-    out[*pos] = '\0';
-}
-
-static void
-source_pane_appendCopperDecodeFormat(char *out, size_t cap, size_t *pos, const char *fmt, ...)
-{
-    va_list args;
-    char buffer[256];
-
-    if (!out || cap == 0 || !pos || !fmt || *pos >= cap - 1) {
-        return;
-    }
-
-    va_start(args, fmt);
-    int written = vsnprintf(buffer, sizeof(buffer), fmt, args);
-    va_end(args);
-    if (written < 0) {
-        return;
-    }
-
-    source_pane_appendCopperDecodeText(out, cap, pos, buffer);
-}
-
-static void
-source_pane_appendCopperWaitCore(uint32_t insn, char *out, size_t cap, size_t *pos)
-{
-    int vp = (int)((insn & 0xff000000u) >> 24);
-    int hp = (int)((insn & 0x00fe0000u) >> 16);
-    int ve = (int)((insn & 0x00007f00u) >> 8);
-    int he = (int)(insn & 0x000000feu);
-    int bfd = (int)((insn & 0x00008000u) >> 15);
-    int vMask = vp & (ve | 0x80);
-    int hMask = hp & he;
-    int didOutput = 0;
-
-    if (vMask > 0) {
-        didOutput = 1;
-        source_pane_appendCopperDecodeText(out, cap, pos, "vpos ");
-        if (ve != 0x7fu) {
-            source_pane_appendCopperDecodeFormat(out, cap, pos, "& 0x%02x ", ve);
-        }
-        source_pane_appendCopperDecodeFormat(out, cap, pos, ">= 0x%02x", vMask);
-    }
-    if (he > 0) {
-        if (vMask > 0) {
-            source_pane_appendCopperDecodeText(out, cap, pos, " and");
-        }
-        source_pane_appendCopperDecodeText(out, cap, pos, " hpos ");
-        if (he != 0xfe) {
-            source_pane_appendCopperDecodeFormat(out, cap, pos, "& 0x%02x ", he);
-        }
-        source_pane_appendCopperDecodeFormat(out, cap, pos, ">= 0x%02x", hMask);
-    } else {
-        if (didOutput) {
-            source_pane_appendCopperDecodeText(out, cap, pos, ", ");
-        }
-        source_pane_appendCopperDecodeText(out, cap, pos, "ignore horizontal");
-    }
-
-    source_pane_appendCopperDecodeFormat(out,
-                                         cap,
-                                         pos,
-                                         " ; VP %02x, VE %02x; HP %02x, HE %02x; BFD %d",
-                                         vp,
-                                         ve,
-                                         hp,
-                                         he,
-                                         bfd);
-}
-
-static void
-source_pane_decodeCopperInstruction(uint16_t w1, uint16_t w2, char *out, size_t cap)
-{
-    size_t pos = 0;
-
-    if (!out || cap == 0) {
-        return;
-    }
-    out[0] = '\0';
-
-    uint32_t insn = ((uint32_t)w1 << 16) | (uint32_t)w2;
-    uint32_t insnType = insn & 0x00010001u;
-    if (insnType == 0x00010000u || insnType == 0x00010001u) {
-        int waitsForBlitterIdle = (w2 & 0x8000u) == 0u;
-        int isWaitForever = (w1 == 0xffffu && w2 == 0xfffeu) ? 1 : 0;
-
-        if (isWaitForever) {
-            strutil_strlcpy(out, cap, insnType == 0x00010001u ? "SKIP FOREVER" : "WAIT FOREVER");
-            return;
-        }
-
-        if (insnType == 0x00010001u) {
-            source_pane_appendCopperDecodeText(out, cap, &pos, "Skip if ");
-        } else {
-            source_pane_appendCopperDecodeText(out, cap, &pos, "WAIT for ");
-        }
-        source_pane_appendCopperWaitCore(insn, out, cap, &pos);
-        if (waitsForBlitterIdle) {
-            source_pane_appendCopperDecodeText(out, cap, &pos, " ; BLITTER MUST BE IDLE");
-        }
-        if (insnType == 0x00010000u && insn == 0xfffffffeu) {
-            source_pane_appendCopperDecodeText(out, cap, &pos, " ; End of Copperlist");
-        }
-        return;
-    }
-
-    uint16_t regOffset = (uint16_t)(w1 & 0x01feu);
-    const char *regName = amiga_custom_regs_nameForOffset(regOffset);
-    if (!regName || !regName[0]) {
-        (void)snprintf(out, cap, "%03X := %04X", (unsigned)regOffset, (unsigned)w2);
-        return;
-    }
-
-    (void)snprintf(out, cap, "%s := %04X", regName, (unsigned)w2);
-
-    const char *valueTip = amiga_custom_regs_valueTooltipForOffset(regOffset, w2);
-    if (!valueTip || !valueTip[0]) {
-        return;
-    }
-
-    char valueTipBuf[256];
-    strutil_strlcpy(valueTipBuf, sizeof(valueTipBuf), valueTip);
-    source_pane_sanitizeCopperValueTip(valueTipBuf);
-    size_t len = strlen(out);
-    if (len < cap) {
-        (void)snprintf(out + len, cap - len, " ; %s", valueTipBuf);
-    }
-}
-
-/*
-static void
-source_pane_appendCopperDecodeText(char *out, size_t cap, size_t *pos, const char *text)
-{
-    if (!out || cap == 0 || !pos || !text) {
-        return;
-    }
-    while (*text && *pos + 1 < cap) {
-        out[*pos] = *text;
-        (*pos)++;
-        text++;
-    }
-    out[*pos] = '\0';
-}
-
-static void
-source_pane_appendCopperDecodeFormat(char *out, size_t cap, size_t *pos, const char *fmt, ...)
-{
-    va_list args;
-    char buffer[256];
-
-    if (!out || cap == 0 || !pos || !fmt || *pos >= cap - 1) {
-        return;
-    }
-
-    va_start(args, fmt);
-    int written = vsnprintf(buffer, sizeof(buffer), fmt, args);
-    va_end(args);
-    if (written < 0) {
-        return;
-    }
-
-    source_pane_appendCopperDecodeText(out, cap, pos, buffer);
-}
-
-static void
-source_pane_disassembleCopperWaitCore(uint32_t insn, char *out, size_t cap, size_t *pos)
-{
-    int vp = (int)((insn & 0xff000000u) >> 24);
-    int hp = (int)((insn & 0x00fe0000u) >> 16);
-    int ve = (int)((insn & 0x00007f00u) >> 8);
-    int he = (int)(insn & 0x000000feu);
-    int bfd = (int)((insn & 0x00008000u) >> 15);
-    int vMask = vp & (ve | 0x80);
-    int hMask = hp & he;
-    int didOutput = 0;
-
-    if (vMask > 0) {
-        didOutput = 1;
-        source_pane_appendCopperDecodeText(out, cap, pos, "vpos ");
-        if (ve != 0x7f) {
-            source_pane_appendCopperDecodeFormat(out, cap, pos, "& 0x%02x ", ve);
-        }
-        source_pane_appendCopperDecodeFormat(out, cap, pos, ">= 0x%02x", vMask);
-    }
-    if (he > 0) {
-        if (vMask > 0) {
-            source_pane_appendCopperDecodeText(out, cap, pos, " and");
-        }
-        source_pane_appendCopperDecodeText(out, cap, pos, " hpos ");
-        if (he != 0xfe) {
-            source_pane_appendCopperDecodeFormat(out, cap, pos, "& 0x%02x ", he);
-        }
-        source_pane_appendCopperDecodeFormat(out, cap, pos, ">= 0x%02x", hMask);
-    } else {
-        if (didOutput) {
-            source_pane_appendCopperDecodeText(out, cap, pos, ", ");
-        }
-        source_pane_appendCopperDecodeText(out, cap, pos, "ignore horizontal");
-    }
-
-    source_pane_appendCopperDecodeFormat(out,
-                                         cap,
-                                         pos,
-                                         " ; VP %02x, VE %02x; HP %02x, HE %02x; BFD %d",
-                                         vp,
-                                         ve,
-                                         hp,
-                                         he,
-                                         bfd);
-}
-
-static void
-source_pane_decodeCopperInstruction(uint16_t w1, uint16_t w2, char *out, size_t cap)
-{
-    uint32_t insn = 0;
-    uint32_t insnType = 0;
-    size_t pos = 0;
-
-    if (!out || cap == 0) {
-        return;
-    }
-    out[0] = '\0';
-
-    insn = ((uint32_t)w1 << 16) | (uint32_t)w2;
-    insnType = insn & 0x00010001u;
-
-    switch (insnType) {
-        case 0x00010000u:
-            source_pane_appendCopperDecodeText(out, cap, &pos, "Wait for ");
-            source_pane_disassembleCopperWaitCore(insn, out, cap, &pos);
-            if (insn == 0xfffffffeu) {
-                source_pane_appendCopperDecodeText(out, cap, &pos, " ; End of Copperlist");
-            }
-            return;
-
-        case 0x00010001u:
-            source_pane_appendCopperDecodeText(out, cap, &pos, "Skip if ");
-            source_pane_disassembleCopperWaitCore(insn, out, cap, &pos);
-            return;
-
-        case 0x00000000u:
-        case 0x00000001u:
-        {
-            uint16_t regOffset = (uint16_t)((insn >> 16) & 0x01feu);
-            const char *regName = amiga_custom_regs_nameForOffset(regOffset);
-            if (regName && regName[0]) {
-                source_pane_appendCopperDecodeFormat(out, cap, &pos, "%s := 0x%04x", regName, (unsigned)w2);
-            } else {
-                source_pane_appendCopperDecodeFormat(out, cap, &pos, "%04x := 0x%04x", (unsigned)regOffset, (unsigned)w2);
-            }
-            return;
-        }
-
-        default:
-            source_pane_appendCopperDecodeFormat(out, cap, &pos, "INVALID %04x %04x", (unsigned)w1, (unsigned)w2);
-            return;
-    }
-}
-*/
 
 static int
-source_pane_getCprWindow(source_pane_state_t *st, int maxLines, uint64_t *out_curAddr,
-                         const char ***out_lines, const uint64_t **out_addrs, int *out_count)
+source_pane_parseInlineHexBytes(const char *text, uint8_t *outBytes, int wantCount)
 {
-    if (out_curAddr) {
-        *out_curAddr = 0;
-    }
-    if (out_lines) {
-        *out_lines = NULL;
-    }
-    if (out_addrs) {
-        *out_addrs = NULL;
-    }
-    if (out_count) {
-        *out_count = 0;
-    }
-    if (!st || maxLines <= 0 || !out_curAddr || !out_lines || !out_addrs || !out_count) {
+    int byteIndex = 0;
+    int hiNibble = -1;
+
+    if (!text || !outBytes || wantCount <= 0) {
         return 0;
     }
 
-    int freezeWhileRunning = source_pane_shouldFreezeAsmWhileRunning(st);
-    if (st->frozenActive && !freezeWhileRunning) {
-        st->frozenActive = 0;
-        source_pane_freeFrozenAsm(st);
-    }
-    if (freezeWhileRunning && !st->frozenActive) {
-        st->frozenPcAddr = source_pane_getCurrentCprAddr(st);
-        st->frozenActive = 1;
-        st->frozenAsmStartIndex = INT_MIN;
-        st->frozenAsmMaxLines = 0;
-        source_pane_freeFrozenAsm(st);
+    for (const char *p = text; *p; ++p) {
+        if (isspace((unsigned char)*p)) {
+            continue;
+        }
+        int nibble = source_pane_parseHexNibble(*p);
+        if (nibble < 0) {
+            return 0;
+        }
+        if (hiNibble < 0) {
+            hiNibble = nibble;
+            continue;
+        }
+        if (byteIndex >= wantCount) {
+            return 0;
+        }
+        outBytes[byteIndex++] = (uint8_t)((hiNibble << 4) | nibble);
+        hiNibble = -1;
     }
 
-    uint64_t curAddr = freezeWhileRunning ? st->frozenPcAddr : source_pane_getCurrentCprAddr(st);
-    curAddr = source_pane_resolveCprAnchorAddr(curAddr);
-    *out_curAddr = curAddr;
+    if (hiNibble >= 0) {
+        return 0;
+    }
+    return byteIndex == wantCount ? 1 : 0;
+}
 
-    uint64_t startAddr = curAddr;
-    if (st->scrollLocked) {
-        if (st->scrollAnchorValid) {
-            startAddr = st->scrollAnchorAddr;
-        } else {
-            startAddr = (uint64_t)(uint32_t)(st->scrollIndex >= 0 ? st->scrollIndex : 0) * 4ull;
+int
+source_pane_parseInlineHexWord(const char *text, uint16_t *outWord)
+{
+    char digits[5];
+    int count = 0;
+
+    if (!text || !outWord) {
+        return 0;
+    }
+
+    for (const char *p = text; *p; ++p) {
+        if (isspace((unsigned char)*p)) {
+            continue;
+        }
+        int nibble = source_pane_parseHexNibble(*p);
+        if (nibble < 0 || count >= 4) {
+            return 0;
+        }
+        digits[count++] = *p;
+    }
+
+    if (count != 4) {
+        return 0;
+    }
+    digits[4] = '\0';
+    *outWord = (uint16_t)strtoul(digits, NULL, 16);
+    return 1;
+}
+
+static void
+source_pane_formatInlineHexBytes(char *dst, size_t cap, const uint8_t *bytes, int count)
+{
+    size_t pos = 0;
+
+    if (!dst || cap == 0) {
+        return;
+    }
+    dst[0] = '\0';
+    if (!bytes || count <= 0) {
+        return;
+    }
+
+    for (int i = 0; i < count && pos + 1 < cap; ++i) {
+        int written = snprintf(dst + pos, cap - pos, i == 0 ? "%02X" : " %02X", (unsigned)bytes[i]);
+        if (written < 0) {
+            break;
+        }
+        pos += (size_t)written;
+        if (pos >= cap) {
+            dst[cap - 1] = '\0';
+            break;
         }
     }
-    startAddr = source_pane_resolveCprAnchorAddr(startAddr);
-    int startIndex = (int)(startAddr >> 2);
+}
 
-    if (freezeWhileRunning &&
-        st->frozenActive &&
-        st->frozenAsmLines &&
-        st->frozenAsmAddrs &&
-        st->frozenAsmStartIndex == startIndex &&
-        st->frozenAsmMaxLines == maxLines) {
-        *out_lines = (const char **)st->frozenAsmLines;
-        *out_addrs = (const uint64_t *)st->frozenAsmAddrs;
-        *out_count = st->frozenAsmCount;
-        return st->frozenAsmCount > 0 ? 1 : 0;
+static e9ui_component_t *
+source_pane_inlineEditComponent(source_pane_state_t *st)
+{
+    if (!st || !st->ownerPane || !st->inlineEditMeta) {
+        return NULL;
+    }
+    return e9ui_child_find(st->ownerPane, st->inlineEditMeta);
+}
+
+void
+source_pane_inlineEditCancel(source_pane_state_t *st, e9ui_context_t *ctx)
+{
+    e9ui_component_t *editor = NULL;
+
+    if (!st) {
+        return;
     }
 
+    editor = source_pane_inlineEditComponent(st);
+    st->inlineEditActive = 0;
+    st->inlineEditKind = source_pane_inline_edit_none;
+    st->inlineEditMode = source_pane_mode_c;
+    st->inlineEditAddr = 0;
+    st->inlineEditByteCount = 0;
+    st->inlineEditWord1 = 0;
+    st->inlineEditWord2 = 0;
+    st->inlineEditRect = (SDL_Rect){0, 0, 0, 0};
+    if (editor) {
+        e9ui_textbox_setOptions(editor, NULL, 0);
+        e9ui_textbox_setText(editor, "");
+        e9ui_setHidden(editor, 1);
+    }
+    if (ctx && e9ui_getFocus(ctx) == editor) {
+        e9ui_setFocus(ctx, st->ownerPane);
+    }
+}
+
+void
+source_pane_inlineEditRefreshAfterWrite(source_pane_state_t *st)
+{
+    if (!st) {
+        return;
+    }
+    st->frozenActive = 0;
     source_pane_freeFrozenAsm(st);
-    st->frozenAsmLines = (char **)alloc_calloc((size_t)maxLines, sizeof(*st->frozenAsmLines));
-    st->frozenAsmAddrs = (uint64_t *)alloc_calloc((size_t)maxLines, sizeof(*st->frozenAsmAddrs));
-    if (!st->frozenAsmLines || !st->frozenAsmAddrs) {
-        source_pane_freeFrozenAsm(st);
+}
+
+static int
+source_pane_writeHexBytes(uint32_t addr, const uint8_t *bytes, int count)
+{
+    int i = 0;
+
+    if (!bytes || count <= 0) {
         return 0;
     }
 
-    for (int i = 0; i < maxLines; ++i) {
-        uint32_t addr = (uint32_t)((startAddr + ((uint64_t)i * 4ull)) & 0x00fffffcu);
-        uint8_t bytes[4];
-        if (!libretro_host_debugReadMemory(addr, bytes, sizeof(bytes))) {
-            break;
+    while (i < count) {
+        if ((i + 1) < count) {
+            uint16_t word = (uint16_t)(((uint16_t)bytes[i] << 8) | (uint16_t)bytes[i + 1]);
+            if (!libretro_host_debugWriteMemory(addr + (uint32_t)i, (uint32_t)word, 2)) {
+                return 0;
+            }
+            i += 2;
+            continue;
         }
-
-        uint16_t w1 = ((uint16_t)bytes[0] << 8) | (uint16_t)bytes[1];
-        uint16_t w2 = ((uint16_t)bytes[2] << 8) | (uint16_t)bytes[3];
-        char decoded[320];
-        char words[32];
-        char lineBuf[384];
-
-        source_pane_decodeCopperInstruction(w1, w2, decoded, sizeof(decoded));
-        (void)snprintf(words, sizeof(words), "%04X %04X  ", (unsigned)w1, (unsigned)w2);
-        strutil_join2Trunc(lineBuf, sizeof(lineBuf), words, decoded);
-
-        st->frozenAsmLines[i] = alloc_strdup(lineBuf);
-        if (!st->frozenAsmLines[i]) {
-            break;
+        if (!libretro_host_debugWriteMemory(addr + (uint32_t)i, (uint32_t)bytes[i], 1)) {
+            return 0;
         }
-        st->frozenAsmAddrs[i] = (uint64_t)addr;
-        st->frozenAsmCount++;
+        i += 1;
     }
+    return 1;
+}
 
-    if (st->frozenAsmCount <= 0) {
-        source_pane_freeFrozenAsm(st);
+static int
+source_pane_verifyHexBytes(uint32_t addr, const uint8_t *bytes, int count)
+{
+    uint8_t check[16];
+
+    if (!bytes || count <= 0 || count > (int)sizeof(check)) {
+        return 0;
+    }
+    memset(check, 0, sizeof(check));
+    if (!libretro_host_debugReadMemory(addr, check, (size_t)count)) {
+        return 0;
+    }
+    return memcmp(check, bytes, (size_t)count) == 0 ? 1 : 0;
+}
+
+static int
+source_pane_inlineEditCommit(source_pane_state_t *st, e9ui_context_t *ctx)
+{
+    e9ui_component_t *editor = NULL;
+    const char *text = NULL;
+    int cprResult = 0;
+
+    if (!st || !st->inlineEditActive) {
+        return 0;
+    }
+    if (machine_getRunning(debugger.machine)) {
+        e9ui_showTransientMessage("PAUSE TO EDIT MEMORY");
         return 0;
     }
 
-    st->frozenAsmStartIndex = startIndex;
-    st->frozenAsmMaxLines = maxLines;
+    editor = source_pane_inlineEditComponent(st);
+    if (!editor) {
+        source_pane_inlineEditCancel(st, ctx);
+        return 0;
+    }
+    text = e9ui_textbox_getText(editor);
 
-    if (!st->scrollLocked) {
-        st->scrollIndex = startIndex;
-    } else if (!st->scrollAnchorValid) {
-        st->scrollAnchorAddr = startAddr;
-        st->scrollAnchorValid = 1;
+    cprResult = source_cpr_commitInlineEdit(st, ctx, editor, text);
+    if (cprResult != 0) {
+        return cprResult > 0 ? 1 : 0;
     }
 
-    *out_lines = (const char **)st->frozenAsmLines;
-    *out_addrs = (const uint64_t *)st->frozenAsmAddrs;
-    *out_count = st->frozenAsmCount;
+    if (st->inlineEditKind == source_pane_inline_edit_hex_bytes) {
+        uint8_t bytes[16];
+        memset(bytes, 0, sizeof(bytes));
+        if (!source_pane_parseInlineHexBytes(text, bytes, st->inlineEditByteCount)) {
+            e9ui_showTransientMessage("INVALID HEX FORMAT");
+            e9ui_textbox_selectAllExternal(editor);
+            return 0;
+        }
+        if (!source_pane_writeHexBytes(st->inlineEditAddr, bytes, st->inlineEditByteCount)) {
+            e9ui_showTransientMessage("WRITE FAILED - NO CORE SUPPORT?");
+            e9ui_textbox_selectAllExternal(editor);
+            return 0;
+        }
+        if (!source_pane_verifyHexBytes(st->inlineEditAddr, bytes, st->inlineEditByteCount)) {
+            e9ui_showTransientMessage("UNABLE TO WRITE DATA - ROM ?");
+            e9ui_textbox_selectAllExternal(editor);
+            return 0;
+        }
+        source_pane_inlineEditRefreshAfterWrite(st);
+        source_pane_inlineEditCancel(st, ctx);
+        return 1;
+    }
+
+    source_pane_inlineEditCancel(st, ctx);
+    return 0;
+}
+
+static void
+source_pane_inlineEditSubmitted(e9ui_context_t *ctx, void *user)
+{
+    source_pane_state_t *st = (source_pane_state_t *)user;
+    (void)source_pane_inlineEditCommit(st, ctx);
+}
+
+static int
+source_pane_inlineEditKey(e9ui_context_t *ctx, SDL_Keycode key, SDL_Keymod mods, void *user)
+{
+    source_pane_state_t *st = (source_pane_state_t *)user;
+    (void)mods;
+
+    if (!st || !st->inlineEditActive) {
+        return 0;
+    }
+    if (key == SDLK_ESCAPE) {
+        source_pane_inlineEditCancel(st, ctx);
+        return 1;
+    }
+    return 0;
+}
+
+int
+source_pane_beginInlineEdit(source_pane_state_t *st, e9ui_context_t *ctx, source_pane_mode_t mode,
+                            source_pane_inline_edit_kind_t kind, uint32_t addr, int byteCount,
+                            uint16_t word1, uint16_t word2, const char *text, SDL_Rect rect)
+{
+    e9ui_component_t *editor = NULL;
+
+    if (!st || !ctx || !text || byteCount <= 0) {
+        return 0;
+    }
+    if (machine_getRunning(debugger.machine)) {
+        e9ui_showTransientMessage("PAUSE TO EDIT MEMORY");
+        return 0;
+    }
+
+    editor = source_pane_inlineEditComponent(st);
+    if (!editor) {
+        return 0;
+    }
+
+    st->inlineEditActive = 1;
+    st->inlineEditKind = kind;
+    st->inlineEditMode = mode;
+    st->inlineEditAddr = addr;
+    st->inlineEditByteCount = byteCount;
+    st->inlineEditWord1 = word1;
+    st->inlineEditWord2 = word2;
+    st->inlineEditRect = rect;
+    if (st->inlineEditRect.w < e9ui_scale_px(ctx, 80)) {
+        st->inlineEditRect.w = e9ui_scale_px(ctx, 80);
+    }
+    if (editor->preferredHeight) {
+        int preferredH = editor->preferredHeight(editor, ctx, st->inlineEditRect.w);
+        if (st->inlineEditRect.h < preferredH) {
+            st->inlineEditRect.h = preferredH;
+        }
+    }
+    if (kind == source_pane_inline_edit_cpr_reg && source_cpr_buildRegisterOptions(st)) {
+        e9ui_textbox_setOptions(editor, st->cprRegisterOptions, st->cprRegisterOptionCount);
+    } else {
+        e9ui_textbox_setOptions(editor, NULL, 0);
+    }
+    e9ui_textbox_setText(editor, text);
+    e9ui_setHidden(editor, 0);
+    if (editor->layout) {
+        editor->layout(editor, ctx, (e9ui_rect_t){
+            st->inlineEditRect.x,
+            st->inlineEditRect.y,
+            st->inlineEditRect.w,
+            st->inlineEditRect.h
+        });
+    } else {
+        editor->bounds = (e9ui_rect_t){
+            st->inlineEditRect.x,
+            st->inlineEditRect.y,
+            st->inlineEditRect.w,
+            st->inlineEditRect.h
+        };
+    }
+    e9ui_setFocus(ctx, editor);
+    e9ui_textbox_selectAllExternal(editor);
     return 1;
 }
 
@@ -5054,6 +4842,121 @@ source_pane_renderAsm(e9ui_component_t *self, e9ui_context_t *ctx)
             break;
         }
     }
+}
+
+static int
+source_pane_beginInlineHexEditAtPoint(e9ui_component_t *self, e9ui_context_t *ctx, source_pane_state_t *st,
+                                      int mx, int my)
+{
+    TTF_Font *useFont = NULL;
+    const int padPx = 10;
+    source_pane_line_metrics_t metrics;
+    int maxLines = 1;
+    int drawMaxLines = 0;
+    const char **lines = NULL;
+    const uint64_t *addrs = NULL;
+    int count = 0;
+    uint64_t curAddr = 0;
+    int hexw = 0;
+    char sample[32];
+    int gutterW = 0;
+    int th = 0;
+    int gutterPad = 0;
+    SDL_Rect contentArea;
+    int textX = 0;
+    int y = 0;
+
+    if (!self || !ctx || !st) {
+        return 0;
+    }
+
+    useFont = source_pane_resolveFont(ctx);
+    if (!useFont) {
+        return 0;
+    }
+
+    metrics = source_pane_computeLineMetrics(self, ctx, useFont, padPx);
+    if (metrics.innerHeight <= 0) {
+        return 0;
+    }
+    maxLines = metrics.maxLines > 0 ? metrics.maxLines : 1;
+    drawMaxLines = maxLines + 1;
+    if (!source_pane_getAsmWindow(st, drawMaxLines, &curAddr, &lines, &addrs, &count)) {
+        return 0;
+    }
+    (void)curAddr;
+    (void)lines;
+
+    hexw = dasm_getAddrHexWidth();
+    if (hexw < 6) {
+        hexw = 6;
+    }
+    if (hexw > 16) {
+        hexw = 16;
+    }
+    for (int i = 0; i < hexw; ++i) {
+        sample[i] = 'F';
+    }
+    sample[hexw] = '\0';
+    TTF_SizeText(useFont, sample, &gutterW, &th);
+    gutterPad = e9ui_scale_px(ctx, 16);
+    contentArea = source_pane_getContentArea(self, ctx, padPx);
+    textX = contentArea.x + padPx + gutterW + gutterPad;
+    y = contentArea.y + padPx;
+
+    for (int i = 0; i < count; ++i) {
+        uint64_t a = addrs[i];
+        size_t wantBytes = 2;
+        uint8_t bytes[16];
+        char editText[64];
+        int fieldW = 0;
+        SDL_Rect rect;
+
+        if (i + 1 < count) {
+            uint64_t diff = addrs[i + 1] - addrs[i];
+            if (diff > 0 && diff <= 64) {
+                wantBytes = (size_t)diff;
+            }
+        } else {
+            char tmp[64];
+            size_t len = 0;
+            if (libretro_host_debugDisassembleQuick((uint32_t)a, tmp, sizeof(tmp), &len) && len > 0 && len <= 64) {
+                wantBytes = len;
+            }
+        }
+        if (wantBytes > 16) {
+            wantBytes = 16;
+        }
+        if (!libretro_host_debugReadMemory((uint32_t)a, bytes, wantBytes)) {
+            y += metrics.lineHeight;
+            continue;
+        }
+
+        source_pane_formatInlineHexBytes(editText, sizeof(editText), bytes, (int)wantBytes);
+        fieldW = source_pane_measureSegment(useFont, editText, 0, (int)strlen(editText));
+        rect = (SDL_Rect){
+            textX - e9ui_scale_px(ctx, 4),
+            y - e9ui_scale_px(ctx, 2),
+            fieldW + e9ui_scale_px(ctx, 12),
+            metrics.lineHeight + e9ui_scale_px(ctx, 4)
+        };
+        if (mx >= rect.x && mx < rect.x + rect.w &&
+            my >= rect.y && my < rect.y + rect.h) {
+            return source_pane_beginInlineEdit(st,
+                                               ctx,
+                                               source_pane_mode_h,
+                                               source_pane_inline_edit_hex_bytes,
+                                               (uint32_t)a,
+                                               (int)wantBytes,
+                                               0,
+                                               0,
+                                               editText,
+                                               rect);
+        }
+        y += metrics.lineHeight;
+    }
+
+    return 0;
 }
 
 static void
@@ -5199,113 +5102,13 @@ source_pane_renderHex(e9ui_component_t *self, e9ui_context_t *ctx)
 }
 
 static void
-source_pane_renderCpr(e9ui_component_t *self, e9ui_context_t *ctx)
-{
-    TTF_Font *useFont = source_pane_resolveFont(ctx);
-    SDL_Rect area = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
-    SDL_Rect contentArea = source_pane_getContentArea(self, ctx, 10);
-    const int padPx = 10;
-    SDL_SetRenderDrawColor(ctx->renderer, 20, 20, 24, 255);
-    SDL_RenderFillRect(ctx->renderer, &area);
-    if (!useFont) {
-        return;
-    }
-    if (!source_pane_isCprModeAvailable()) {
-        SDL_Color icol = (SDL_Color){200, 160, 160, 255};
-        source_pane_renderStatusMessage(ctx, useFont, contentArea, padPx, icol, "CPR mode is only available for Amiga");
-        return;
-    }
-
-    source_pane_state_t *st = (source_pane_state_t *)self->state;
-    source_pane_line_metrics_t metrics = source_pane_computeLineMetrics(self, ctx, useFont, padPx);
-    if (metrics.innerHeight <= 0) {
-        return;
-    }
-    int maxLines = metrics.maxLines;
-    if (maxLines <= 0) {
-        maxLines = 1;
-    }
-    int drawMaxLines = maxLines + 1;
-
-    const char **lines = NULL;
-    const uint64_t *addrs = NULL;
-    int count = 0;
-    uint64_t curAddr = 0;
-    if (!source_pane_getCprWindow(st, drawMaxLines, &curAddr, &lines, &addrs, &count)) {
-        SDL_Color icol = (SDL_Color){200, 160, 160, 255};
-        source_pane_renderStatusMessage(ctx, useFont, contentArea, padPx, icol, "No copper list data available");
-        return;
-    }
-    int curRow = source_pane_findCurrentAddrRow(addrs, count, curAddr);
-
-    int hexw = dasm_getAddrHexWidth();
-    if (hexw < 6) {
-        hexw = 6;
-    }
-    if (hexw > 16) {
-        hexw = 16;
-    }
-    char sample[32];
-    for (int i = 0; i < hexw; ++i) {
-        sample[i] = 'F';
-    }
-    sample[hexw] = '\0';
-    int gutterW = 0;
-    int th = 0;
-    TTF_SizeText(useFont, sample, &gutterW, &th);
-    int gutterPad = e9ui_scale_px(ctx, 16);
-    SDL_SetRenderDrawColor(ctx->renderer, 26, 26, 30, 255);
-    SDL_Rect gutter = { contentArea.x, contentArea.y, padPx + gutterW + gutterPad, contentArea.h };
-    SDL_RenderFillRect(ctx->renderer, &gutter);
-
-    SDL_Color txt = (SDL_Color){220, 220, 220, 255};
-    SDL_Color lno = (SDL_Color){160, 160, 200, 255};
-    int textX = contentArea.x + padPx + gutterW + gutterPad;
-    int hitW = contentArea.x + contentArea.w - textX - padPx;
-    if (hitW < 0) {
-        hitW = 0;
-    }
-
-    int y = contentArea.y + padPx;
-    int clipBottom = contentArea.y + contentArea.h + metrics.lineHeight;
-    for (int i = 0; i < count; ++i) {
-        uint64_t a = addrs[i];
-        const char *ins = lines[i] ? lines[i] : "";
-        if (i == curRow) {
-            SDL_SetRenderDrawColor(ctx->renderer, 40, 72, 138, 255);
-            SDL_Rect hl = { area.x + 2, y - 2, area.w - 4, metrics.lineHeight + 4 };
-            SDL_RenderFillRect(ctx->renderer, &hl);
-        }
-
-        char abuf[32];
-        (void)snprintf(abuf, sizeof(abuf), "%0*llX", hexw, (unsigned long long)a);
-        int nw = 0;
-        int nh = 0;
-        TTF_SizeText(useFont, abuf, &nw, &nh);
-        int lnx = contentArea.x + padPx + (gutterW - nw);
-
-        void *addrBucket = st ? (void *)&st->bucketAddr : (void *)self;
-        void *sourceBucket = st ? (void *)&st->bucketSource : (void *)self;
-        e9ui_text_select_drawText(ctx, self, useFont, abuf, lno, lnx, y,
-                                  metrics.lineHeight, 0, addrBucket, 1, 1);
-        source_pane_renderAsmLineHighlighted(ctx, self, useFont, ins, 10, txt,
-                                             textX, y, metrics.lineHeight, hitW, sourceBucket);
-
-        y += metrics.lineHeight;
-        if (y > clipBottom) {
-            break;
-        }
-    }
-}
-
-static void
 source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
 {
     TTF_Font *useFont = e9ui->theme.text.source ? e9ui->theme.text.source : ctx->font;
     SDL_Rect area = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
     source_pane_state_t *st = (source_pane_state_t*)self->state;
     if (st) {
-        if (st->viewMode == source_pane_mode_cpr && !source_pane_isCprModeAvailable()) {
+        if (st->viewMode == source_pane_mode_cpr && !source_cpr_isModeAvailable()) {
             source_pane_setModeInternal(self, source_pane_mode_h, 0);
         }
         source_pane_refreshModeOptions(self, st);
@@ -5359,7 +5162,7 @@ source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
     }
     if (st && st->viewMode == source_pane_mode_cpr) {
         source_pane_refreshAsmSymbols(self, st);
-        source_pane_renderCpr(self, ctx);
+        source_cpr_render(self, ctx);
         goto done;
     }
     if (st && !freezeWhileRunning) {
@@ -5601,6 +5404,7 @@ source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
       e9ui_component_t* searchBox = st && st->searchBoxMeta ? e9ui_child_find(self, st->searchBoxMeta) : NULL;
       e9ui_component_t* asmSymbolSelect = st && st->asmSymbolSelectMeta ? e9ui_child_find(self, st->asmSymbolSelectMeta) : NULL;
       e9ui_component_t* asmAddress = st && st->asmAddressMeta ? e9ui_child_find(self, st->asmAddressMeta) : NULL;
+      e9ui_component_t* inlineEdit = st && st->inlineEditMeta ? e9ui_child_find(self, st->inlineEditMeta) : NULL;
       source_pane_mode_t mode = source_pane_getMode(self);
       int rowX = self->bounds.x;
       int rowY = self->bounds.y;
@@ -5771,6 +5575,24 @@ source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
                                    1,
                                    &st->asmStepButtons);
       }
+      if (inlineEdit) {
+          int showInlineEdit = st && st->inlineEditActive ? 1 : 0;
+          e9ui_setHidden(inlineEdit, showInlineEdit ? 0 : 1);
+          if (showInlineEdit) {
+              e9ui_rect_t bounds = {
+                  st->inlineEditRect.x,
+                  st->inlineEditRect.y,
+                  st->inlineEditRect.w,
+                  st->inlineEditRect.h
+              };
+              if (inlineEdit->layout) {
+                  inlineEdit->layout(inlineEdit, ctx, bounds);
+              } else {
+                  inlineEdit->bounds = bounds;
+              }
+              inlineEdit->render(inlineEdit, ctx);
+          }
+      }
     }
     source_pane_popRenderClip(ctx, hadClip, &prevClip);
 }
@@ -5778,14 +5600,32 @@ source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
 static int
 source_pane_handleEventComp(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event_t *ev)
 {
+    e9ui_component_t *inlineEdit = NULL;
+
     if (!self || !ev) {
         return 0;
     }
     source_pane_state_t *st = (source_pane_state_t*)self->state;
-    if (st && st->viewMode == source_pane_mode_cpr && !source_pane_isCprModeAvailable()) {
+    if (st && st->viewMode == source_pane_mode_cpr && !source_cpr_isModeAvailable()) {
         source_pane_setModeInternal(self, source_pane_mode_h, 0);
     }
     source_pane_mode_t mode = st ? st->viewMode : source_pane_mode_c;
+    inlineEdit = source_pane_inlineEditComponent(st);
+    if (st && st->inlineEditActive && ctx && inlineEdit &&
+        e9ui_getFocus(ctx) != inlineEdit &&
+        e9ui_getFocus(ctx) != self) {
+        source_pane_inlineEditCancel(st, ctx);
+    }
+    if (st && st->inlineEditActive && inlineEdit &&
+        ev->type == SDL_MOUSEBUTTONDOWN &&
+        ev->button.button == SDL_BUTTON_LEFT &&
+        !source_pane_pointInBounds(inlineEdit, ev->button.x, ev->button.y) &&
+        source_pane_pointInBounds(self, ev->button.x, ev->button.y)) {
+        if (source_pane_inlineEditCommit(st, ctx)) {
+            return 1;
+        }
+        return 1;
+    }
     if (st) {
         int mx = 0;
         int my = 0;
@@ -5805,14 +5645,15 @@ source_pane_handleEventComp(e9ui_component_t *self, e9ui_context_t *ctx, const e
         }
         if (hasPoint) {
             e9ui_component_t *searchBox = st->searchBoxMeta ? e9ui_child_find(self, st->searchBoxMeta) : NULL;
-            e9ui_component_t *controls[7] = {
+            e9ui_component_t *controls[8] = {
                 st->lockBtnMeta ? e9ui_child_find(self, st->lockBtnMeta) : NULL,
                 st->toggleBtnMeta ? e9ui_child_find(self, st->toggleBtnMeta) : NULL,
                 st->fileSelectMeta ? e9ui_child_find(self, st->fileSelectMeta) : NULL,
                 st->functionSelectMeta ? e9ui_child_find(self, st->functionSelectMeta) : NULL,
                 st->searchBoxMeta ? e9ui_child_find(self, st->searchBoxMeta) : NULL,
                 st->asmSymbolSelectMeta ? e9ui_child_find(self, st->asmSymbolSelectMeta) : NULL,
-                st->asmAddressMeta ? e9ui_child_find(self, st->asmAddressMeta) : NULL
+                st->asmAddressMeta ? e9ui_child_find(self, st->asmAddressMeta) : NULL,
+                inlineEdit
             };
             for (int i = 0; i < (int)(sizeof(controls) / sizeof(controls[0])); ++i) {
                 if (!controls[i] || e9ui_getHidden(controls[i])) {
@@ -6049,6 +5890,24 @@ source_pane_handleEventComp(e9ui_component_t *self, e9ui_context_t *ctx, const e
         if (!source_pane_pointInBounds(self, mx, my)) {
             return 0;
         }
+        if (st && !st->inlineEditActive && ev->button.clicks >= 2) {
+            if (mode == source_pane_mode_h &&
+                source_pane_beginInlineHexEditAtPoint(self, ctx, st, mx, my)) {
+                return 1;
+            }
+            if (mode == source_pane_mode_cpr &&
+                source_cpr_beginInlineRegisterEditAtPoint(self, ctx, st, mx, my)) {
+                return 1;
+            }
+            if (mode == source_pane_mode_cpr &&
+                source_cpr_beginInlineValueEditAtPoint(self, ctx, st, mx, my)) {
+                return 1;
+            }
+            if (mode == source_pane_mode_cpr &&
+                source_cpr_beginInlineWordsEditAtPoint(self, ctx, st, mx, my)) {
+                return 1;
+            }
+        }
         TTF_Font *useFont = source_pane_resolveFont(ctx);
         if (!useFont) {
             return 0;
@@ -6265,6 +6124,9 @@ source_pane_lockToggle(e9ui_context_t *ctx, void *user)
     source_pane_state_t *st = (source_pane_state_t*)user;
     if (!st) {
         return;
+    }
+    if (st->inlineEditActive) {
+        source_pane_inlineEditCancel(st, NULL);
     }
     int wasLocked = st->scrollLocked ? 1 : 0;
     st->scrollLocked = st->scrollLocked ? 0 : 1;
@@ -6546,6 +6408,11 @@ source_pane_dtor(e9ui_component_t *self, e9ui_context_t *ctx)
     source_pane_clearSourceFiles(st);
     source_pane_clearSourceFunctions(st);
     source_pane_clearAsmSymbols(st);
+    if (st->cprRegisterOptions) {
+        alloc_free(st->cprRegisterOptions);
+        st->cprRegisterOptions = NULL;
+    }
+    st->cprRegisterOptionCount = 0;
     alloc_free(st->manualSrcPath);
     st->manualSrcPath = NULL;
     // Child metadata keys are owned/freed by e9ui child container teardown.
@@ -6555,6 +6422,7 @@ source_pane_dtor(e9ui_component_t *self, e9ui_context_t *ctx)
     st->searchBoxMeta = NULL;
     st->asmSymbolSelectMeta = NULL;
     st->asmAddressMeta = NULL;
+    st->inlineEditMeta = NULL;
     st->functionSelectMeta = NULL;
 }
 
@@ -6636,6 +6504,14 @@ source_pane_make(void)
       st->asmAddressMeta = alloc_strdup("asm_address");
       e9ui_child_add(c, asmAddress, st->asmAddressMeta);
   }
+  e9ui_component_t *inlineEdit = e9ui_textbox_make(64, source_pane_inlineEditSubmitted, NULL, st);
+  if (inlineEdit) {
+      e9ui_textbox_setPlaceholder(inlineEdit, "hex");
+      e9ui_textbox_setKeyHandler(inlineEdit, source_pane_inlineEditKey, st);
+      st->inlineEditMeta = alloc_strdup("inline_edit");
+      e9ui_child_add(c, inlineEdit, st->inlineEditMeta);
+      e9ui_setHidden(inlineEdit, 1);
+  }
 
   source_pane_refreshModeOptions(c, st);
   
@@ -6656,7 +6532,7 @@ source_pane_setModeInternal(e9ui_component_t *comp, source_pane_mode_t mode, int
         mode != source_pane_mode_cpr) {
         mode = source_pane_mode_a;
     }
-    if (mode == source_pane_mode_cpr && !source_pane_isCprModeAvailable()) {
+    if (mode == source_pane_mode_cpr && !source_cpr_isModeAvailable()) {
         mode = source_pane_mode_h;
     }
     if (enforceElfValid && !debugger.elfValid && mode == source_pane_mode_c) {
@@ -6673,6 +6549,7 @@ source_pane_setModeInternal(e9ui_component_t *comp, source_pane_mode_t mode, int
     st->viewMode = mode;
     st->gutterPending = 0;
     st->scrollAnchorValid = 0;
+    source_pane_inlineEditCancel(st, NULL);
     source_pane_clearHover(comp, st);
     source_pane_clearFunctionScrollLock(st);
     if (mode != source_pane_mode_c) {
@@ -6728,6 +6605,7 @@ void source_pane_markNeedsRefresh(e9ui_component_t *comp)
         return;
     }
     source_pane_state_t *st = (source_pane_state_t*)comp->state;
+    source_pane_inlineEditCancel(st, NULL);
     if (!st->scrollLocked) {
         st->scrollLine = 1;
         st->scrollIndex = 0;
@@ -6774,7 +6652,7 @@ source_pane_centerOnAddress(e9ui_component_t *comp, e9ui_context_t *ctx, uint32_
     }
 
     if (!st->scrollLocked && st->viewMode == source_pane_mode_cpr) {
-        uint64_t startAddr = source_pane_resolveCprAnchorAddr((uint64_t)addr);
+        uint64_t startAddr = source_cpr_resolveAnchorAddr((uint64_t)addr);
         if (maxLines > 1) {
             uint64_t back = (uint64_t)(maxLines / 2) * 4ull;
             if (startAddr > back) {
