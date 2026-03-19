@@ -162,6 +162,9 @@ source_pane_inlineEditCommit(source_pane_state_t *st, e9ui_context_t *ctx);
 static void
 source_pane_inlineEditSubmitted(e9ui_context_t *ctx, void *user);
 
+static void
+source_pane_inlineEditOptionSelected(e9ui_context_t *ctx, e9ui_component_t *comp, const char *value, void *user);
+
 static int
 source_pane_inlineEditKey(e9ui_context_t *ctx, SDL_Keycode key, SDL_Keymod mods, void *user);
 
@@ -4666,6 +4669,19 @@ source_pane_inlineEditSubmitted(e9ui_context_t *ctx, void *user)
     (void)source_pane_inlineEditCommit(st, ctx);
 }
 
+static void
+source_pane_inlineEditOptionSelected(e9ui_context_t *ctx, e9ui_component_t *comp, const char *value, void *user)
+{
+    source_pane_state_t *st = (source_pane_state_t *)user;
+    (void)comp;
+    (void)value;
+
+    if (!st || !st->inlineEditActive || st->inlineEditKind != source_pane_inline_edit_cpr_reg) {
+        return;
+    }
+    (void)source_pane_inlineEditCommit(st, ctx);
+}
+
 static int
 source_pane_inlineEditKey(e9ui_context_t *ctx, SDL_Keycode key, SDL_Keymod mods, void *user)
 {
@@ -6508,6 +6524,7 @@ source_pane_make(void)
   if (inlineEdit) {
       e9ui_textbox_setPlaceholder(inlineEdit, "hex");
       e9ui_textbox_setKeyHandler(inlineEdit, source_pane_inlineEditKey, st);
+      e9ui_textbox_setOnOptionSelected(inlineEdit, source_pane_inlineEditOptionSelected, st);
       st->inlineEditMeta = alloc_strdup("inline_edit");
       e9ui_child_add(c, inlineEdit, st->inlineEditMeta);
       e9ui_setHidden(inlineEdit, 1);
