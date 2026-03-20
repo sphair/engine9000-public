@@ -1512,6 +1512,45 @@ target_amiga_memoryGetLimits(uint32_t *outMinAddr, uint32_t *outMaxAddr)
 static int
 target_amiga_memoryTrackGetRanges(target_memory_range_t *outRanges, size_t cap, size_t *outCount)
 {
+    const struct retro_memory_descriptor *descriptors = NULL;
+    size_t descriptorCount = libretro_host_getMemoryMapDescriptors(&descriptors);
+    size_t write = 0;
+
+    if (descriptorCount > 0 && descriptors) {
+        for (size_t i = 0; i < descriptorCount; ++i) {
+            const struct retro_memory_descriptor *desc = &descriptors[i];
+            uint64_t start = 0;
+            uint64_t len = 0;
+
+            if (!(desc->flags & RETRO_MEMDESC_SYSTEM_RAM) ||
+                !desc->ptr ||
+                desc->len == 0 ||
+                desc->select != 0 ||
+                desc->disconnect != 0) {
+                continue;
+            }
+
+            start = (uint64_t)desc->start;
+            len = (uint64_t)desc->len;
+            if (start > UINT32_MAX || len > UINT32_MAX || (start + len - 1u) > UINT32_MAX) {
+                continue;
+            }
+
+            if (outRanges && write < cap) {
+                outRanges[write].baseAddr = (uint32_t)start;
+                outRanges[write].size = (uint32_t)len;
+            }
+            ++write;
+        }
+    }
+
+    if (write > 0) {
+        if (outCount) {
+            *outCount = write;
+        }
+        return 1;
+    }
+
     if (outCount) {
         *outCount = 2;
     }

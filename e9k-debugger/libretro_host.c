@@ -287,6 +287,8 @@ typedef struct  {
     size_t optionDisplayCap;
     retro_core_options_update_display_callback_t updateDisplayCb;
     unsigned videoFrameCount;
+    struct retro_memory_descriptor *memoryDescriptors;
+    size_t memoryDescriptorCount;
 } libretro_host_t;
 
 static libretro_host_t libretro_host;
@@ -301,6 +303,55 @@ libretro_host_applyOptionOverrides(void);
 
 static bool
 libretro_host_setOptionsV2(const struct retro_core_options_v2 *opts);
+
+static void
+libretro_host_clearMemoryMap(void)
+{
+    if (libretro_host.memoryDescriptors) {
+        for (size_t i = 0; i < libretro_host.memoryDescriptorCount; ++i) {
+            free((void *)libretro_host.memoryDescriptors[i].addrspace);
+            libretro_host.memoryDescriptors[i].addrspace = NULL;
+        }
+        free(libretro_host.memoryDescriptors);
+        libretro_host.memoryDescriptors = NULL;
+    }
+    libretro_host.memoryDescriptorCount = 0;
+}
+
+static bool
+libretro_host_copyMemoryMap(const struct retro_memory_map *map)
+{
+    struct retro_memory_descriptor *copy = NULL;
+
+    libretro_host_clearMemoryMap();
+    if (!map || !map->descriptors || map->num_descriptors == 0) {
+        return true;
+    }
+
+    copy = calloc(map->num_descriptors, sizeof(*copy));
+    if (!copy) {
+        return false;
+    }
+
+    for (unsigned i = 0; i < map->num_descriptors; ++i) {
+        copy[i] = map->descriptors[i];
+        if (map->descriptors[i].addrspace) {
+            copy[i].addrspace = strdup(map->descriptors[i].addrspace);
+            if (!copy[i].addrspace) {
+                for (unsigned j = 0; j <= i; ++j) {
+                    free((void *)copy[j].addrspace);
+                    copy[j].addrspace = NULL;
+                }
+                free(copy);
+                return false;
+            }
+        }
+    }
+
+    libretro_host.memoryDescriptors = copy;
+    libretro_host.memoryDescriptorCount = map->num_descriptors;
+    return true;
+}
 
 static bool
 libretro_host_serializeWithRetry(uint8_t **ioBuffer, size_t *ioSize, size_t payloadOffset, size_t initialPayloadSize, size_t *outPayloadSize)
@@ -1474,6 +1525,11 @@ libretro_host_environment(unsigned cmd, void *data)
         return true;
     case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
         return true;
+    case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+        if (!data) {
+            return false;
+        }
+        return libretro_host_copyMemoryMap((const struct retro_memory_map *)data);
     case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK:
         if (!data) {
             return false;
@@ -1582,6 +1638,7 @@ libretro_host_clearState(void)
         libretro_host.stateData = NULL;
         libretro_host.stateSize = 0;
     }
+    libretro_host_clearMemoryMap();
     libretro_host_clearOptions();
     libretro_host_clearOptionOverrides();
     libretro_host_clearOptionsV2();
@@ -1776,6 +1833,7 @@ libretro_host_shutdown(void)
         libretro_host.stateData = NULL;
         libretro_host.stateSize = 0;
     }
+    libretro_host_clearMemoryMap();
     libretro_host_clearOptions();
     libretro_host.running = false;
     libretro_host.gameLoaded = false;
@@ -2359,6 +2417,15 @@ libretro_host_debugReadMemory(uint32_t addr, void *out, size_t cap)
     }
     size_t read = libretro_host.debugReadMemory(addr, (uint8_t *)out, cap);
     return read == cap;
+}
+
+size_t
+libretro_host_getMemoryMapDescriptors(const struct retro_memory_descriptor **outDescriptors)
+{
+    if (outDescriptors) {
+        *outDescriptors = libretro_host.memoryDescriptors;
+    }
+    return libretro_host.memoryDescriptorCount;
 }
 
 bool

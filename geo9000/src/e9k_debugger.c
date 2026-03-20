@@ -525,7 +525,7 @@ e9k_debugger_readMemory(uint32_t addr, uint8_t *out, size_t cap)
     }
     s_wps_suspend++;
     for (size_t i = 0; i < cap; ++i) {
-        out[i] = (uint8_t)m68k_read_memory_8((unsigned)(addr + i));
+        out[i] = geo_m68k_debug_peek_8(addr + (uint32_t)i);
     }
     s_wps_suspend--;
     return cap;

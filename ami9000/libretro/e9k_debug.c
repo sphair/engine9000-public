@@ -965,16 +965,27 @@ e9k_debug_read_regs(uint32_t *out, size_t cap)
 E9K_DEBUG_EXPORT size_t
 e9k_debug_read_memory(uint32_t addr, uint8_t *out, size_t cap)
 {
+	size_t readCount = 0;
+
 	if (!out || cap == 0) {
 		return 0;
 	}
 	e9k_debug_watchpointSuspend++;
 	uaecptr base = (uaecptr)addr;
 	for (size_t i = 0; i < cap; ++i) {
+#if E9K_HACK_DEBUGGER_HOST
+		int value = debug_peek_memory_8(munge24(base + (uaecptr)i));
+		if (value < 0) {
+			break;
+		}
+		out[i] = (uint8_t)value;
+#else
 		out[i] = (uint8_t)get_byte_debug(munge24(base + (uaecptr)i));
+#endif
+		readCount = i + 1;
 	}
 	e9k_debug_watchpointSuspend--;
-	return cap;
+	return readCount;
 }
 
 E9K_DEBUG_EXPORT int

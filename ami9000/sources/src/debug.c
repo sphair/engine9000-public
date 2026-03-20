@@ -44,6 +44,10 @@
 #define E9K_HACK_DEBUGGER_RUNTIME 0
 #endif
 
+#ifndef E9K_HACK_DEBUGGER_HOST
+#define E9K_HACK_DEBUGGER_HOST 0
+#endif
+
 extern int diwfirstword_total;
 extern int diwlastword_total;
 
@@ -6883,6 +6887,19 @@ int debug_peek_memory_16 (uaecptr addr)
 	}
 	return -1;
 }
+#if E9K_HACK_DEBUGGER_HOST
+int debug_peek_memory_8 (uaecptr addr)
+{
+	addrbank *ad;
+	
+	ad = &get_mem_bank (addr);
+	if (ad->flags & (ABFLAG_RAM | ABFLAG_ROM | ABFLAG_ROMIN | ABFLAG_SAFE))
+		return ad->bget (addr);
+	if (ad == &custom_bank)
+		return ar_custom[addr & 0x1ff];
+	return -1;
+}
+#endif
 int debug_read_memory_16 (uaecptr addr)
 {
 	addrbank *ad;

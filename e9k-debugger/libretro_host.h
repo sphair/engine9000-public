@@ -168,6 +168,9 @@ libretro_host_debugReadCallstack(uint32_t *out, size_t cap, size_t *out_count);
 bool
 libretro_host_debugReadMemory(uint32_t addr, void *out, size_t cap);
 
+size_t
+libretro_host_getMemoryMapDescriptors(const struct retro_memory_descriptor **outDescriptors);
+
 bool
 libretro_host_debugWriteMemory(uint32_t addr, uint32_t value, size_t size);
 

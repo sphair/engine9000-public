@@ -33,6 +33,10 @@
 #define E9K_HACK_COPPER_DEBUG_EXPORT 0
 #endif
 
+#ifndef E9K_HACK_DEBUGGER_HOST
+#define E9K_HACK_DEBUGGER_HOST 0
+#endif
+
 #define	MAX_HIST 500
 #define MAX_LINEWIDTH 10000
 
@@ -74,6 +78,9 @@ extern void debug_parser (const TCHAR *cmd, TCHAR *out, uae_u32 outsize);
 extern void mmu_disasm (uaecptr pc, int lines);
 extern int debug_read_memory_16 (uaecptr addr);
 extern int debug_peek_memory_16 (uaecptr addr);
+#if E9K_HACK_DEBUGGER_HOST
+extern int debug_peek_memory_8 (uaecptr addr);
+#endif
 extern int debug_read_memory_8 (uaecptr addr);
 extern int debug_write_memory_16 (uaecptr addr, uae_u16 v);
 extern int debug_write_memory_8 (uaecptr addr, uae_u8 v);

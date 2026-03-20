@@ -930,6 +930,69 @@ out:
     return result;
 }
 
+uint8_t geo_m68k_debug_peek_8(uint32_t address) {
+    address &= 0x00ffffffu;
+    if (address < 0x000080) { // Vector Table
+        return vectable ?
+            geo_m68k_read_fixed_8(address) : read08(romdata->b, address);
+    }
+    else if (address < 0x100000) { // Fixed 1M Program ROM Bank
+        return geo_m68k_read_fixed_8(address);
+    }
+    else if (address < 0x200000) { // RAM - Mirrored every 64K
+        return read08(ram, address & 0xffff);
+    }
+    else if (address < 0x300000) { // Switchable 1M Program ROM Bank
+        return geo_m68k_read_banksw_8(address);
+    }
+    else if (address < 0x400000) { // Memory Mapped Registers
+        switch (address) {
+            case 0x300000: { // REG_P1CNT
+                return geo_input_cb[0](0);
+            }
+            case 0x300001: { // REG_DIPSW
+                return geo_input_sys_cb[3]();
+            }
+            case 0x300081: { // REG_SYSTYPE
+                return geo_input_sys_cb[2]() & ~0x40;
+            }
+            case 0x320000: { // REG_SOUND
+                return ngsys.sound_reply;
+            }
+            case 0x320001: { // REG_STATUS_A
+                return geo_input_sys_cb[0]() | (geo_rtc_rd() << 6);
+            }
+            case 0x340000: { // REG_P2CNT
+                return geo_input_cb[1](1);
+            }
+            case 0x380000: { // REG_STATUS_B
+                return geo_input_sys_cb[1]() |
+                    (geo_get_system() == SYSTEM_AES ? 0x00 : 0x80);
+            }
+            default: {
+                return 0xff;
+            }
+        }
+    }
+    else if (address < 0x800000) { // Palette RAM - Mirrored every 8K
+        return geo_lspc_palram_rd08(address);
+    }
+    else if (address < 0xc00000) { // Memory Card
+        if (address & 0x01) {
+            return ngsys.memcard[(address >> 1) & 0x7ff];
+        }
+        return 0xff;
+    }
+    else if (address < 0xd00000) { // BIOS ROM
+        return read08(romdata->b, address & 0x1ffff);
+    }
+    else if (address < 0xe00000) { // Backup RAM - Mirrored every 64K
+        return read08(ngsys.nvram, address & 0xffff);
+    }
+
+    return 0xff;
+}
+
 unsigned m68k_read_memory_16(unsigned address) {
     unsigned result = 0xffff;
     uint32_t addr24 = (uint32_t)(address & 0x00ffffffu);

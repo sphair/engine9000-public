@@ -77,6 +77,8 @@ void geo_m68k_state_save(uint8_t*);
 const void* geo_m68k_ram_ptr(void);
 const void* geo_m68k_dynfix_ptr(void);
 
+uint8_t geo_m68k_debug_peek_8(uint32_t address);
+
 unsigned
 m68k_read_memory_8(unsigned address);
 
