@@ -306,12 +306,12 @@ config_loadConfigFile(const char *path)
                 debugger.coreOptionsShowHelp = atoi(value) ? 1 : 0;
             } else if (strcmp(prop, "core_system") == 0) {
                 int coreSystem = atoi(value);
-#if !E9K_ENABLE_MEGADRIVE
-                if (coreSystem == TARGET_MEGADRIVE) {
-                    coreSystem = TARGET_NEOGEO;
+                if (!target_getByIndex(coreSystem)) {
+                    coreSystem = target_firstEnabledIndex();
                 }
-#endif
-                target_setTargetIndex(coreSystem);
+                if (coreSystem >= 0) {
+                    target_setTargetIndex(coreSystem);
+                }
             } else if (strcmp(prop, "transition") == 0) {
                 e9k_transition_mode_t mode = e9k_transition_none;
                 if (transition_parseMode(value, &mode)) {

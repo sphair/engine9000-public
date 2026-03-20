@@ -9,10 +9,17 @@
 #include "debugger.h"
 #include "target.h"
 #include <SDL.h>
+#include <string.h>
 
 target_iface_t* target_targets[3];
 target_iface_t* target;
 static size_t target_targetCount = 0;
+
+static size_t
+target_slotCount(void)
+{
+    return sizeof(target_targets) / sizeof(target_targets[0]);
+}
 
 static void
 target_applyConfigDefaultsFor(target_iface_t *iface)
@@ -25,12 +32,19 @@ target_applyConfigDefaultsFor(target_iface_t *iface)
 void
 target_ctor(void)
 {
+    memset(target_targets, 0, sizeof(target_targets));
+    target_targetCount = 0;
+#if E9K_ENABLE_AMIGA
     target_targets[TARGET_AMIGA] = target_amiga();
+    target_targetCount++;
+#endif
+#if E9K_ENABLE_NEOGEO
     target_targets[TARGET_NEOGEO] = target_neogeo();
-    target_targetCount = 2;
+    target_targetCount++;
+#endif
 #if E9K_ENABLE_MEGADRIVE
     target_targets[TARGET_MEGADRIVE] = target_megadrive();
-    target_targetCount = 3;
+    target_targetCount++;
 #endif
 
     target_setConfigDefaults();
@@ -39,7 +53,7 @@ target_ctor(void)
 void
 target_releaseUiResources(void)
 {
-    for (size_t i = 0; i < target_targetCount; i++) {
+    for (size_t i = 0; i < target_slotCount(); ++i) {
         target_iface_t *iface = target_targets[i];
         if (!iface) {
             continue;
@@ -69,7 +83,28 @@ target_setConfigDefaults(void)
 target_iface_t *
 target_getByIndex(int index)
 {
-    if (index < 0 || index >= (int)target_targetCount) {
+    if (index < 0 || index >= (int)target_slotCount()) {
+        return NULL;
+    }
+    return target_targets[index];
+}
+
+int
+target_firstEnabledIndex(void)
+{
+    for (size_t i = 0; i < target_slotCount(); ++i) {
+        if (target_targets[i]) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+target_iface_t *
+target_firstEnabled(void)
+{
+    int index = target_firstEnabledIndex();
+    if (index < 0) {
         return NULL;
     }
     return target_targets[index];
@@ -81,7 +116,7 @@ target_coreOptionsIsSyntheticOptionKey(const char *key)
     if (!key || !*key) {
         return 0;
     }
-    for (size_t i = 0; i < target_targetCount; ++i) {
+    for (size_t i = 0; i < target_slotCount(); ++i) {
         target_iface_t *iface = target_targets[i];
         if (!iface || !iface->coreOptionsIsSyntheticOptionKey) {
             continue;
@@ -96,8 +131,8 @@ target_coreOptionsIsSyntheticOptionKey(const char *key)
 void
 target_settingsClearAllOptions(void)
 {
-    for (size_t i = 0; i < target_targetCount; i++) {
-        if (target_targets[i]->settingsClearOptions) {
+    for (size_t i = 0; i < target_slotCount(); ++i) {
+        if (target_targets[i] && target_targets[i]->settingsClearOptions) {
             target_targets[i]->settingsClearOptions();
         }
     }
@@ -113,7 +148,7 @@ target_setTarget(target_iface_t* newTarget)
 void
 target_setTargetIndex(int index)
 {
-  if (index >= 0 && index < (int)target_targetCount) {
+  if (index >= 0 && index < (int)target_slotCount() && target_targets[index]) {
     target = target_targets[index];
     debugger.config.target = target;
     return;
@@ -125,15 +160,31 @@ target_setTargetIndex(int index)
 void
 target_nextTarget(void)
 {
-  size_t i;
-  for (i = 0; i < target_targetCount; i++) {
+  if (target_targetCount == 0) {
+    debug_printf("target_nextTarget: no enabled targets\n");
+    return;
+  }
+
+  size_t currentIndex = 0;
+  int foundCurrent = 0;
+  for (size_t i = 0; i < target_slotCount(); ++i) {
     if (target == target_targets[i]) {
+      currentIndex = i;
+      foundCurrent = 1;
       break;
     }
   }
 
-  i++;
-  i = i % target_targetCount;
-  target = target_targets[i];
-  debugger.config.target = target;
+  for (size_t step = 1; step <= target_slotCount(); ++step) {
+    size_t nextIndex = (foundCurrent ? currentIndex : 0) + step;
+    nextIndex %= target_slotCount();
+    if (!target_targets[nextIndex]) {
+      continue;
+    }
+    target = target_targets[nextIndex];
+    debugger.config.target = target;
+    return;
+  }
+
+  debug_printf("target_nextTarget: failed to find enabled target\n");
 }

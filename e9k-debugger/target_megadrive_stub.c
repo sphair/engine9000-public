@@ -9,6 +9,9 @@
 #include "target.h"
 #include "debugger.h"
 #include "debug.h"
+#include "emu_mega.h"
+#include "mega_sprite_debug.h"
+#include "megadrive_core_options.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -347,4 +350,116 @@ target_iface_t *
 target_megadrive(void)
 {
     return &target_megadrive_stubTarget;
+}
+
+void
+emu_mega_setSpriteState(const e9k_debug_mega_sprite_state_t *state, int ready)
+{
+    (void)state;
+    (void)ready;
+}
+
+const emu_system_iface_t emu_mega_iface = {0};
+
+void
+mega_sprite_debug_toggle(void)
+{
+}
+
+int
+mega_sprite_debug_is_open(void)
+{
+    return 0;
+}
+
+void
+mega_sprite_debug_render(const e9k_debug_mega_sprite_state_t *st)
+{
+    (void)st;
+}
+
+int
+mega_sprite_debug_handleKeydown(const SDL_KeyboardEvent *kev)
+{
+    (void)kev;
+    return 0;
+}
+
+void
+mega_sprite_debug_setMainWindowFocused(int focused)
+{
+    (void)focused;
+}
+
+void
+mega_sprite_debug_persistConfig(FILE *file)
+{
+    (void)file;
+}
+
+int
+mega_sprite_debug_loadConfigProperty(const char *prop, const char *value)
+{
+    (void)prop;
+    (void)value;
+    return 0;
+}
+
+int
+megadrive_coreOptionsDirty(void)
+{
+    return 0;
+}
+
+void
+megadrive_coreOptionsClear(void)
+{
+}
+
+const char *
+megadrive_coreOptionsGetValue(const char *key)
+{
+    (void)key;
+    return NULL;
+}
+
+void
+megadrive_coreOptionsSetValue(const char *key, const char *value)
+{
+    (void)key;
+    (void)value;
+}
+
+int
+megadrive_coreOptionsBuildPath(char *out, size_t cap, const char *saveDir, const char *romPath)
+{
+    (void)out;
+    (void)cap;
+    (void)saveDir;
+    (void)romPath;
+    return 0;
+}
+
+int
+megadrive_coreOptionsLoadFromFile(const char *saveDir, const char *romPath)
+{
+    (void)saveDir;
+    (void)romPath;
+    return 0;
+}
+
+int
+megadrive_coreOptionsWriteToFile(const char *saveDir, const char *romPath)
+{
+    (void)saveDir;
+    (void)romPath;
+    return 0;
+}
+
+int
+megadrive_coreOptionsApplyFileToHost(const char *saveDir, const char *romPath)
+{
+    (void)saveDir;
+    (void)romPath;
+    return 0;
 }

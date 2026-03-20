@@ -8,7 +8,6 @@
 
 #pragma once
 
-#include "amiga_uae_options.h"
 #include "e9ui.h"
 #include "core_config.h"
 

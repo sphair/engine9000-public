@@ -11,7 +11,9 @@
 #include "emu_geo.h"
 #include "rom_config.h"
 #include "debugger_input_bindings.h"
+#if E9K_ENABLE_AMIGA
 #include "amiga_uae_options.h"
+#endif
 #include "neogeo_core_options.h"
 #include "core_options.h"
 #include "libretro_host.h"
@@ -602,8 +604,9 @@ target_neogeo_settingsFolderChanged(void)
 static void
 target_neogeo_settingsCoreChanged(void)
 {
-    //TODO ??
+#if E9K_ENABLE_AMIGA
     amiga_uaeClearPuaeOptions();
+#endif
     char romPath[PATH_MAX];
     if (target_neogeo_effectiveRomPath(&debugger.settingsEdit.neogeo, romPath, sizeof(romPath))) {
         neogeo_coreOptionsLoadFromFile(debugger.settingsEdit.neogeo.libretro.saveDir, romPath);

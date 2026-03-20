@@ -1,6 +1,11 @@
 #!/bin/sh
 
-HEADER="header.txt"
+HEADER="${1:-./tools/header.txt}"
+
+if [ "$#" -gt 1 ]; then
+  echo "Usage: $0 [header-file]"
+  exit 1
+fi
 
 if [ ! -f "$HEADER" ]; then
   echo "Error: $HEADER not found"

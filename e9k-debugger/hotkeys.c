@@ -31,7 +31,6 @@
 #include "config.h"
 #include "source_pane.h"
 #include "hex_convert.h"
-#include "emu_ami.h"
 #include "strutil.h"
 
 static int hotkeys_enabled = 1;

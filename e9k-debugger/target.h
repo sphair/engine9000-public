@@ -120,6 +120,12 @@ target_iface_t *
 target_getByIndex(int index);
 
 int
+target_firstEnabledIndex(void);
+
+target_iface_t *
+target_firstEnabled(void);
+
+int
 target_coreOptionsIsSyntheticOptionKey(const char *key);
 
 target_iface_t *target_amiga(void);

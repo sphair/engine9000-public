@@ -50,9 +50,7 @@
 #include "romset.h"
 #include "ui.h"
 #include "emu_geo.h"
-#include "emu_ami.h"
 #include "debugger_platform.h"
-#include "amiga_uae_options.h"
 #include "neogeo_core_options.h"
 #include "breakpoints.h"
 #include "mega_sprite_debug.h"
@@ -487,15 +485,27 @@ static void
 debugger_captureBootSaveDirs(void)
 {
     // TODO
-    target_iface_t* amiga = target_amiga();  
-    debugger_copyPath(amiga->bootSaveDir, sizeof(amiga->bootSaveDir), debugger.config.amiga.libretro.saveDir);
-    debugger_copyPath(amiga->bootSystemDir, sizeof(amiga->bootSystemDir), debugger.config.amiga.libretro.systemDir);
-    target_iface_t* neogeo = target_neogeo();      
-    debugger_copyPath(neogeo->bootSaveDir, sizeof(neogeo->bootSaveDir), debugger.config.neogeo.libretro.saveDir);
-    debugger_copyPath(neogeo->bootSystemDir, sizeof(neogeo->bootSystemDir), debugger.config.neogeo.libretro.systemDir);
-    target_iface_t* megadrive = target_megadrive();
-    debugger_copyPath(megadrive->bootSaveDir, sizeof(megadrive->bootSaveDir), debugger.config.megadrive.libretro.saveDir);
-    debugger_copyPath(megadrive->bootSystemDir, sizeof(megadrive->bootSystemDir), debugger.config.megadrive.libretro.systemDir);
+#if E9K_ENABLE_AMIGA
+    target_iface_t *amiga = target_getByIndex(TARGET_AMIGA);
+    if (amiga) {
+        debugger_copyPath(amiga->bootSaveDir, sizeof(amiga->bootSaveDir), debugger.config.amiga.libretro.saveDir);
+        debugger_copyPath(amiga->bootSystemDir, sizeof(amiga->bootSystemDir), debugger.config.amiga.libretro.systemDir);
+    }
+#endif
+#if E9K_ENABLE_NEOGEO
+    target_iface_t *neogeo = target_getByIndex(TARGET_NEOGEO);
+    if (neogeo) {
+        debugger_copyPath(neogeo->bootSaveDir, sizeof(neogeo->bootSaveDir), debugger.config.neogeo.libretro.saveDir);
+        debugger_copyPath(neogeo->bootSystemDir, sizeof(neogeo->bootSystemDir), debugger.config.neogeo.libretro.systemDir);
+    }
+#endif
+#if E9K_ENABLE_MEGADRIVE
+    target_iface_t *megadrive = target_getByIndex(TARGET_MEGADRIVE);
+    if (megadrive) {
+        debugger_copyPath(megadrive->bootSaveDir, sizeof(megadrive->bootSaveDir), debugger.config.megadrive.libretro.saveDir);
+        debugger_copyPath(megadrive->bootSystemDir, sizeof(megadrive->bootSystemDir), debugger.config.megadrive.libretro.systemDir);
+    }
+#endif
 }
 
 void
@@ -635,11 +645,14 @@ debugger_cleanup(void)
 static void
 debugger_ctor(void)
 {
+  int defaultTargetIndex = target_firstEnabledIndex();
   memset(e9ui, 0, sizeof(*e9ui));
   memset(&debugger, 0, sizeof(debugger));
   srand((unsigned)time(NULL));
   debugger_setArgv0();
-  target_setTargetIndex(TARGET_AMIGA);
+  if (defaultTargetIndex >= 0) {
+    target_setTargetIndex(defaultTargetIndex);
+  }
   debugger.opts.redirectStdout = E9K_DEBUG_PRINTF_STDOUT_DEFAULT;
   debugger.opts.redirectStderr = E9K_DEBUG_ERROR_STDERR_DEFAULT;
   debugger.opts.redirectGdbStdout = E9K_DEBUG_GDB_STDOUT_DEFAULT;
@@ -698,7 +711,7 @@ debugger_ctor(void)
   debugger.cliAudioVolume = -1;
   debugger.cliResetCfg = 0;
   debugger.cliCoreSystemOverride = 0;
-  debugger.cliTargetIndex = TARGET_AMIGA;
+  debugger.cliTargetIndex = defaultTargetIndex >= 0 ? defaultTargetIndex : TARGET_AMIGA;
 #if E9K_ENABLE_GL_COMPOSITE
   e9ui->glCompositeEnabled = 1;
 #else

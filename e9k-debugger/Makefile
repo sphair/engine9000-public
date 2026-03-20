@@ -2,6 +2,8 @@ CC ?= cc
 PKG_CONFIG ?= pkg-config
 W64_CC ?= x86_64-w64-mingw32-gcc
 
+E9K_ENABLE_AMIGA ?= 1
+E9K_ENABLE_NEOGEO ?= 1
 E9K_ENABLE_MEGADRIVE ?= 1
 E9K_ENABLE_GL_COMPOSITE ?= 1
 
@@ -43,7 +45,9 @@ endif
 ifneq ($(UNAME_S),Darwin)
 CFLAGS += -DUI_TEST_DISABLED
 endif
+CFLAGS += -DE9K_ENABLE_AMIGA=$(E9K_ENABLE_AMIGA)
 CFLAGS += -DE9K_ENABLE_MEGADRIVE=$(E9K_ENABLE_MEGADRIVE)
+CFLAGS += -DE9K_ENABLE_NEOGEO=$(E9K_ENABLE_NEOGEO)
 CFLAGS += -DE9K_ENABLE_GL_COMPOSITE=$(E9K_ENABLE_GL_COMPOSITE)
 CFLAGS += -DE9K_HACK_AMI_SPRITE_VIS=1
 CFLAGS += -DE9K_HACK_AMI_PALETTE_VIS=1
@@ -83,7 +87,9 @@ W64_CFLAGS = $(LTO_FLAGS) -O2 -Wall -Wextra -std=c99 -MMD -MP
 W64_CFLAGS += $(BASE_INCLUDES)
 W64_CFLAGS +=  -D_THREAD_SAFE
 W64_CFLAGS += -DUI_TEST_DISABLED
+W64_CFLAGS += -DE9K_ENABLE_AMIGA=$(E9K_ENABLE_AMIGA)
 W64_CFLAGS += -DE9K_ENABLE_MEGADRIVE=$(E9K_ENABLE_MEGADRIVE)
+W64_CFLAGS += -DE9K_ENABLE_NEOGEO=$(E9K_ENABLE_NEOGEO)
 W64_CFLAGS += -DE9K_ENABLE_GL_COMPOSITE=$(E9K_ENABLE_GL_COMPOSITE)
 W64_CFLAGS += -DE9K_HACK_AMI_SPRITE_VIS=1
 W64_CFLAGS += -DE9K_HACK_AMI_PALETTE_VIS=1
@@ -119,14 +125,24 @@ PLATFORM_LINUX_SRCS = platform/posix/clipboard.c
 PLATFORM_W64_SRCS = platform/w64/addr2line.c platform/w64/analyse.c platform/w64/profile_view.c platform/w64/signal.c platform/w64/debugger_platform.c platform/w64/clipboard.c
 PLATFORM_MACOS_SRCS = platform/macos/clipboard.m platform/macos/tinyfiledialogs.m
 
-SRCS = main.c source_pane.c source_cpr.c source.c hunk_fileline_cache.c dasm.c dasm_geo.c dasm_ami.c elfutil.c console_cmd.c print_eval.c print_debuginfo_readelf.c print_debuginfo_readelf_frames.c print_debuginfo_objdump_stabs.c prompt.c console.c registers.c memory.c stack.c breakpoints.c trainer.c linebuf.c debug_font.c debug.c machine.c base_map.c profile.c profile_list.c profile_hotspot.c profile_checkpoints.c input_record.c hotkeys.c smoke_test.c ui_test.c snapshot.c rom_config.c romset.c settings.c settings_amiga.c target.c target_amiga.c target_neogeo.c core_options.c core_config.c amiga_uae_options.c amiga_custom_regs.c amiga_custom_regs_tooltip.c neogeo_core_options.c megadrive_core_options.c debugger_input_bindings.c cli.c runtime.c config.c ui.c debugger.c help.c emu.c emu_geo.c emu_ami.c emu_mega.c sprite_debug.c mega_sprite_debug.c range_bar.c system_badge.c libretro_host.c clipboard.c state_wrap.c state_buffer.c tinyfiledialogs.c transition.c transition_doom.c transition_slide.c transition_explode.c transition_flip.c transition_rbar.c crt.c shader_ui.c custom_ui.c custom_log.c custom_amiga.c memory_track_ui.c aux_window.c shader_base.c shader_advanced.c shader_bloom.c train.c protect.c status_bar.c hex_convert.c inline_edit_pause.c
+SRCS = main.c source_pane.c source.c hunk_fileline_cache.c dasm.c dasm_geo.c dasm_ami.c elfutil.c console_cmd.c print_eval.c print_debuginfo_readelf.c print_debuginfo_readelf_frames.c print_debuginfo_objdump_stabs.c prompt.c console.c registers.c memory.c stack.c breakpoints.c trainer.c linebuf.c debug_font.c debug.c machine.c base_map.c profile.c profile_list.c profile_hotspot.c profile_checkpoints.c input_record.c hotkeys.c smoke_test.c ui_test.c snapshot.c rom_config.c romset.c settings.c target.c core_options.c core_config.c debugger_input_bindings.c cli.c runtime.c config.c ui.c debugger.c help.c emu.c range_bar.c system_badge.c libretro_host.c clipboard.c state_wrap.c state_buffer.c tinyfiledialogs.c transition.c transition_doom.c transition_slide.c transition_explode.c transition_flip.c transition_rbar.c crt.c shader_ui.c memory_track_ui.c aux_window.c shader_base.c shader_advanced.c shader_bloom.c train.c protect.c status_bar.c hex_convert.c inline_edit_pause.c
+ifeq ($(E9K_ENABLE_AMIGA),1)
+SRCS += source_cpr.c settings_amiga.c amiga_uae_options.c amiga_custom_regs.c amiga_custom_regs_tooltip.c emu_ami.c custom_ui.c custom_log.c custom_amiga.c target_amiga.c
+else
+SRCS += target_amiga_stub.c
+endif
+ifeq ($(E9K_ENABLE_NEOGEO),1)
+SRCS += neogeo_core_options.c target_neogeo.c emu_geo.c sprite_debug.c
+else
+SRCS += target_neogeo_stub.c
+endif
 ifeq ($(E9K_ENABLE_GL_COMPOSITE),1)
 SRCS += gl_composite.c
 else
 SRCS += gl_composite_stub.c
 endif
 ifeq ($(E9K_ENABLE_MEGADRIVE),1)
-SRCS += target_megadrive.c
+SRCS += megadrive_core_options.c emu_mega.c mega_sprite_debug.c target_megadrive.c
 else
 SRCS += target_megadrive_stub.c
 endif

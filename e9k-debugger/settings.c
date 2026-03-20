@@ -129,6 +129,9 @@ settings_romRecentsTargetIndexForIface(const target_iface_t *system)
     if (!system) {
         return -1;
     }
+    if (!target_getByIndex(system->coreIndex)) {
+        return -1;
+    }
     if (system->coreIndex < TARGET_AMIGA || system->coreIndex > TARGET_MEGADRIVE) {
         return -1;
     }
@@ -145,15 +148,21 @@ settings_romRecentsCurrentTargetIndex(void)
 static const char *
 settings_romRecentsTargetKeyName(int targetIndex)
 {
+#if E9K_ENABLE_AMIGA
     if (targetIndex == TARGET_AMIGA) {
         return "amiga";
     }
+#endif
+#if E9K_ENABLE_NEOGEO
     if (targetIndex == TARGET_NEOGEO) {
         return "neogeo";
     }
+#endif
+#if E9K_ENABLE_MEGADRIVE
     if (targetIndex == TARGET_MEGADRIVE) {
         return "megadrive";
     }
+#endif
     return NULL;
 }
 
@@ -163,15 +172,21 @@ settings_romRecentsTargetIndexFromKey(const char *name)
     if (!name) {
         return -1;
     }
+#if E9K_ENABLE_AMIGA
     if (strcmp(name, "amiga") == 0) {
         return TARGET_AMIGA;
     }
+#endif
+#if E9K_ENABLE_NEOGEO
     if (strcmp(name, "neogeo") == 0) {
         return TARGET_NEOGEO;
     }
+#endif
+#if E9K_ENABLE_MEGADRIVE
     if (strcmp(name, "megadrive") == 0) {
         return TARGET_MEGADRIVE;
     }
+#endif
     return -1;
 }
 
@@ -262,13 +277,21 @@ settings_romRecentsAddFromSettingsSave(target_iface_t *selectedTarget)
     }
 
     const char *romPath = NULL;
+#if E9K_ENABLE_AMIGA
     if (targetIndex == TARGET_AMIGA) {
         romPath = debugger.settingsEdit.amiga.libretro.romPath;
-    } else if (targetIndex == TARGET_NEOGEO) {
+    } else
+#endif
+#if E9K_ENABLE_NEOGEO
+    if (targetIndex == TARGET_NEOGEO) {
         romPath = debugger.settingsEdit.neogeo.libretro.romPath;
-    } else if (targetIndex == TARGET_MEGADRIVE) {
+    } else
+#endif
+#if E9K_ENABLE_MEGADRIVE
+    if (targetIndex == TARGET_MEGADRIVE) {
         romPath = debugger.settingsEdit.megadrive.libretro.romPath;
     }
+#endif
 
     settings_romRecentsAddTargetPath(targetIndex, romPath);
 }
@@ -1153,7 +1176,11 @@ settings_coreSystemSync(settings_coresystem_state_t *st, target_iface_t* system,
 
     system->settingsCoreChanged();
 
+#if E9K_ENABLE_AMIGA
     int amigaSelected = (system == target_amiga());
+#else
+    int amigaSelected = 0;
+#endif
     int neogeoSelected = (system == target_neogeo());
 #if E9K_ENABLE_MEGADRIVE
     int megadriveSelected = (system == target_megadrive());
@@ -1180,6 +1207,7 @@ settings_coreSystemSync(settings_coresystem_state_t *st, target_iface_t* system,
     settings_updateSaveLabel();
 }
 
+#if E9K_ENABLE_NEOGEO
 static void
 settings_coreSystemNeoGeoChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
 {
@@ -1191,10 +1219,12 @@ settings_coreSystemNeoGeoChanged(e9ui_component_t *self, e9ui_context_t *ctx, in
     if (selected) {
         settings_coreSystemSync(st, target_neogeo(), ctx);
     } else if (st->target == target_neogeo()) {
-        settings_coreSystemSync(st, target_amiga(), ctx);
+        settings_coreSystemSync(st, target_neogeo(), ctx);
     }
 }
+#endif
 
+#if E9K_ENABLE_AMIGA
 static void
 settings_coreSystemAmigaChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
 {
@@ -1206,9 +1236,10 @@ settings_coreSystemAmigaChanged(e9ui_component_t *self, e9ui_context_t *ctx, int
     if (selected) {
         settings_coreSystemSync(st, target_amiga(), ctx);
     } else if (st->target == target_amiga()) {
-        settings_coreSystemSync(st, target_neogeo(), ctx);
+        settings_coreSystemSync(st, target_amiga(), ctx);
     }
 }
+#endif
 
 #if E9K_ENABLE_MEGADRIVE
 static void
@@ -1222,7 +1253,7 @@ settings_coreSystemMegaDriveChanged(e9ui_component_t *self, e9ui_context_t *ctx,
     if (selected) {
         settings_coreSystemSync(st, target_megadrive(), ctx);
     } else if (st->target == target_megadrive()) {
-        settings_coreSystemSync(st, target_amiga(), ctx);
+        settings_coreSystemSync(st, target_megadrive(), ctx);
     }
 }
 #endif
@@ -1261,24 +1292,33 @@ settings_buildModalBody(e9ui_context_t *ctx)
     int contentWidth = e9ui_scale_px(ctx, 640);
     int formWidth = e9ui_scale_px(ctx, 600);
     target_iface_t *selectedTarget = debugger.settingsEdit.target ? debugger.settingsEdit.target : target;
-#if !E9K_ENABLE_MEGADRIVE
-    if (selectedTarget == target_megadrive()) {
-        selectedTarget = target_amiga();
+    if (selectedTarget && !target_getByIndex(selectedTarget->coreIndex)) {
+        selectedTarget = NULL;
     }
-#endif
+    if (!selectedTarget) {
+        selectedTarget = target_firstEnabled();
+    }
+#if E9K_ENABLE_AMIGA
     int amigaSelected = (selectedTarget == target_amiga()) ? 1 : 0;
-    int neogeoSelected = (selectedTarget == target_neogeo()) ? 1 : 0;
-    int megadriveSelected = 0;
-#if E9K_ENABLE_MEGADRIVE
-    megadriveSelected = (selectedTarget == target_megadrive()) ? 1 : 0;
 #endif
-    if (!amigaSelected && !neogeoSelected && !megadriveSelected) {
-        amigaSelected = 1;
-    }
+#if E9K_ENABLE_NEOGEO
+    int neogeoSelected = (selectedTarget == target_neogeo()) ? 1 : 0;
+#endif
+#if E9K_ENABLE_MEGADRIVE
+    int megadriveSelected = (selectedTarget == target_megadrive()) ? 1 : 0;
+#endif
 
     settings_coresystem_state_t *coreState = (settings_coresystem_state_t *)alloc_calloc(1, sizeof(*coreState));
+#if E9K_ENABLE_NEOGEO
     e9ui_component_t *cbNeogeo = e9ui_checkbox_make("NEO GEO", neogeoSelected, settings_coreSystemNeoGeoChanged, coreState);
+#else
+    e9ui_component_t *cbNeogeo = NULL;
+#endif
+#if E9K_ENABLE_AMIGA
     e9ui_component_t *cbAmiga = e9ui_checkbox_make("AMIGA", amigaSelected, settings_coreSystemAmigaChanged, coreState);
+#else
+    e9ui_component_t *cbAmiga = NULL;
+#endif
     e9ui_component_t *cbMegaDrive = NULL;
 #if E9K_ENABLE_MEGADRIVE
     cbMegaDrive = e9ui_checkbox_make("MEGA DRIVE", megadriveSelected, settings_coreSystemMegaDriveChanged, coreState);
@@ -1505,18 +1545,22 @@ settings_buildModalBody(e9ui_context_t *ctx)
 
     int selectedBodyHeight = settings_componentPreferredHeight(targetModal.body, ctx, contentWidth);
     int maxBodyHeight = selectedBodyHeight;
+#if E9K_ENABLE_AMIGA
     {
         int h = settings_measureTargetBodyHeight(target_amiga(), ctx, contentWidth);
         if (h > maxBodyHeight) {
             maxBodyHeight = h;
         }
     }
+#endif
+#if E9K_ENABLE_NEOGEO
     {
         int h = settings_measureTargetBodyHeight(target_neogeo(), ctx, contentWidth);
         if (h > maxBodyHeight) {
             maxBodyHeight = h;
         }
     }
+#endif
 #if E9K_ENABLE_MEGADRIVE
     {
         int h = settings_measureTargetBodyHeight(target_megadrive(), ctx, contentWidth);

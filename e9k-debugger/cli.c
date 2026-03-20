@@ -77,12 +77,14 @@ cli_getTargetCoreSystem(int argc, char **argv)
 {
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--amiga") == 0) {
-	  return target_amiga();
+            return target_amiga();
+#if E9K_ENABLE_NEOGEO
         } else if (strcmp(argv[i], "--neogeo") == 0) {
-	  return target_neogeo();
+            return target_neogeo();
+#endif
         }
     }
-    return target_amiga();
+    return target_firstEnabled();
 }
 
 
@@ -106,6 +108,22 @@ cli_getArgv0(void)
 void
 cli_parseArgs(int argc, char **argv)
 {
+#if !E9K_ENABLE_AMIGA
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--amiga") == 0) {
+            cli_setError("amiga: disabled in this build");
+            return;
+        }
+    }
+#endif
+#if !E9K_ENABLE_NEOGEO
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--neogeo") == 0) {
+            cli_setError("neogeo: disabled in this build");
+            return;
+        }
+    }
+#endif
     const target_iface_t* targetSystem = cli_getTargetCoreSystem(argc, argv);
     e9k_libretro_config_t *targetLibretro = targetSystem ? targetSystem->getLibretroCliConfig() : NULL;
     if (!targetLibretro) {
@@ -535,14 +553,24 @@ cli_parseArgs(int argc, char **argv)
             continue;
         }
         if (strcmp(argv[i], "--amiga") == 0) {
+#if E9K_ENABLE_AMIGA
             debugger.cliCoreSystemOverride = 1;
-            debugger.cliTargetIndex = TARGET_AMIGA;;
+            debugger.cliTargetIndex = TARGET_AMIGA;
             continue;
+#else
+            cli_setError("amiga: disabled in this build");
+            return;
+#endif
         }
         if (strcmp(argv[i], "--neogeo") == 0) {
+#if E9K_ENABLE_NEOGEO
             debugger.cliCoreSystemOverride = 1;
 	    debugger.cliTargetIndex = TARGET_NEOGEO;
             continue;
+#else
+            cli_setError("neogeo: disabled in this build");
+            return;
+#endif
         }
         if (strcmp(argv[i], "--headless") == 0) {
             debugger.cliHeadless = 1;
@@ -620,17 +648,21 @@ cli_printUsage(const char *argv0)
     printf("  --no-opengl                  Disable OpenGL composite renderer\n");
     printf("  --no-rolling-record          Disable rolling state recording\n");
     printf("\n");
+#if E9K_ENABLE_NEOGEO
     printf("Neo Geo options (use with --neogeo):\n");
     printf("  --neogeo                     Start in Neo Geo system mode\n");    
     printf("  --elf PATH                   ELF file path\n");
     printf("  --rom PATH                   Neo Geo ROM (.neo) path\n");
     printf("  --rom-folder PATH            ROM folder (generates a .neo)\n");
     printf("\n");
+#endif
+#if E9K_ENABLE_AMIGA
     printf("Amiga options (use with --amiga):\n");
-    printf("  --amiga                      Start in Amiga system mode\n");    
+    printf("  --amiga                      Start in Amiga system mode\n");
     printf("  --hunk PATH                  Amiga debug binary (hunk) path\n");
     printf("  --uae PATH                   Amiga UAE config (.uae) path\n");
     printf("\n");
+#endif
     printf("You can also use --option=VALUE forms for the PATH/MS options.\n");
 }
 
