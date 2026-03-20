@@ -299,11 +299,13 @@ else ifneq (,$(findstring armv,$(platform)))
 # Windows
 else
    CFLAGS += -Wstringop-overflow=0 -Wno-discarded-qualifiers
+   CFLAGS += -flto
    PLATFLAGS += -DWIN32
    TARGET := $(TARGET_NAME)_libretro.dll
    fpic := -fPIC
    SHARED := -shared -static-libgcc -Wl,--version-script=$(LINK_T) -Wl,--no-undefined -Wl,--gc-sections
    LDFLAGS += -lm
+   LDFLAGS += -flto
 endif
 
 # Common
