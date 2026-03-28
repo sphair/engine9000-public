@@ -243,6 +243,9 @@ libretro_host_debugAmiReadBlitterVisPoints(e9k_debug_ami_blitter_vis_point_t *ou
 bool
 libretro_host_debugAmiReadBlitterVisStats(e9k_debug_ami_blitter_vis_stats_t *out);
 
+size_t
+libretro_host_debugAmiReadBlitterVisWordTags(uint32_t addr, uint32_t *out, size_t cap);
+
 #if E9K_HACK_AMI_SPRITE_VIS
 bool
 libretro_host_debugAmiSetSpriteVis(int enabled);
@@ -268,6 +271,9 @@ libretro_host_debugAmiVideoLineToCoreLine(int video_line, int *out_core_line);
 
 bool
 libretro_host_debugAmiCoreLineToVideoLine(int core_line, int *out_video_line);
+
+const e9k_debug_ami_video_line_state_t *
+libretro_host_debugAmiGetVideoLineStates(void);
 
 bool
 libretro_host_debugAmiSetFloppyPath(int drive, const char *path);

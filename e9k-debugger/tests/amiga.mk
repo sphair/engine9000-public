@@ -17,6 +17,9 @@ AMIGA_REMAKE=remake-test-amigacustom \
 
 # makers
 
+make-test-amigamemview: all tests/amiga/smoke/smoke.adf
+	./e9k-debugger --amiga --uae=./tests/amiga/smoke/smoke.uae --make-test tests/results/amiga/memview
+
 make-test-amigalocals: all tests/amiga/locals/locals.adf
 	./e9k-debugger --amiga --source-dir=./tests/amiga/locals/ --uae=./tests/amiga/locals/locals.uae --hunk=./tests/amiga/locals/locals --make-test tests/results/amiga/locals
 
@@ -45,6 +48,10 @@ make-test-amigasavestate: all tests/amiga/smoke/smoke.adf
 
 
 # remakers
+
+remake-test-amigamemview: all tests/amiga/smoke/smoke.adf
+	@printf "AMIGA MEMVIEW ($@) ..."
+	./e9k-debugger --amiga --volume=0 --uae=./tests/amiga/smoke/smoke.uae --remake-test tests/results/amiga/memview
 
 remake-test-amigalocals: all tests/amiga/locals/locals.adf
 	@printf "AMIGA LOCALS ($@) ..."
@@ -90,6 +97,11 @@ test-amigaconfig: all
 test-amigalocals: all tests/amiga/locals/locals.adf
 	@printf "AMIGA LOCALS ($@) ..."
 	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/locals/ --uae=./tests/amiga/locals/locals.uae --hunk=./tests/amiga/locals/locals --test tests/results/amiga/locals >> test.log 2>&1
+	@echo " PASSED ✅"
+
+test-amigamemview: all tests/amiga/smoke/smoke.adf
+	@printf "AMIGA MEMVIEW ($@) ..."
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --uae=./tests/amiga/smoke/smoke.uae --test tests/results/amiga/memview >> test.log 2>&1
 	@echo " PASSED ✅"
 
 test-amigavasm: all tests/amiga/vasm/vasm.adf

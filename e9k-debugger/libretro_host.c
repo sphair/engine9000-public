@@ -103,6 +103,7 @@ typedef void (*e9k_debug_ami_set_blitter_debug_fn_t)(int enabled);
 typedef int (*e9k_debug_ami_get_blitter_debug_fn_t)(void);
 typedef size_t (*e9k_debug_ami_blitter_vis_read_points_fn_t)(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height);
 typedef size_t (*e9k_debug_ami_blitter_vis_read_stats_fn_t)(e9k_debug_ami_blitter_vis_stats_t *out, size_t cap);
+typedef size_t (*e9k_debug_ami_blitter_vis_read_word_tags_fn_t)(uint32_t addr, uint32_t *out, size_t cap);
 #if E9K_HACK_AMI_SPRITE_VIS
 typedef void (*e9k_debug_ami_set_sprite_vis_fn_t)(int enabled);
 typedef int (*e9k_debug_ami_get_sprite_vis_fn_t)(void);
@@ -113,6 +114,7 @@ typedef const e9k_debug_ami_copper_debug_frame_view_t *(*e9k_debug_ami_copper_de
 typedef int (*e9k_debug_ami_get_video_line_count_fn_t)(void);
 typedef int (*e9k_debug_ami_video_line_to_core_line_fn_t)(int videoLine);
 typedef int (*e9k_debug_ami_core_line_to_video_line_fn_t)(int coreLine);
+typedef const e9k_debug_ami_video_line_state_t *(*e9k_debug_ami_get_video_line_states_fn_t)(void);
 typedef bool (*e9k_debug_ami_set_floppy_path_fn_t)(int drive, const char *path);
 typedef void (*e9k_debug_set_breakpoint_callback_fn_t)(void (*cb)(uint32_t addr));
 typedef void (*e9k_debug_set_source_location_resolver_fn_t)(int (*resolver)(uint32_t pc24, uint64_t *out_location, void *user), void *user);
@@ -255,6 +257,7 @@ typedef struct  {
     e9k_debug_ami_get_blitter_debug_fn_t debugAmiGetBlitterDebug;
     e9k_debug_ami_blitter_vis_read_points_fn_t debugAmiBlitterVisReadPoints;
     e9k_debug_ami_blitter_vis_read_stats_fn_t debugAmiBlitterVisReadStats;
+    e9k_debug_ami_blitter_vis_read_word_tags_fn_t debugAmiBlitterVisReadWordTags;
 #if E9K_HACK_AMI_SPRITE_VIS
     e9k_debug_ami_set_sprite_vis_fn_t debugAmiSetSpriteVis;
     e9k_debug_ami_get_sprite_vis_fn_t debugAmiGetSpriteVis;
@@ -265,6 +268,7 @@ typedef struct  {
     e9k_debug_ami_get_video_line_count_fn_t debugAmiGetVideoLineCount;
     e9k_debug_ami_video_line_to_core_line_fn_t debugAmiVideoLineToCoreLine;
     e9k_debug_ami_core_line_to_video_line_fn_t debugAmiCoreLineToVideoLine;
+    e9k_debug_ami_get_video_line_states_fn_t debugAmiGetVideoLineStates;
     e9k_debug_ami_set_floppy_path_fn_t debugAmiSetFloppyPath;
     uint8_t *stateData;
     size_t stateSize;
@@ -2922,6 +2926,23 @@ libretro_host_debugAmiReadBlitterVisStats(e9k_debug_ami_blitter_vis_stats_t *out
     return libretro_host.debugAmiBlitterVisReadStats(out, sizeof(*out)) == sizeof(*out);
 }
 
+size_t
+libretro_host_debugAmiReadBlitterVisWordTags(uint32_t addr, uint32_t *out, size_t cap)
+{
+    if (!out || cap == 0u) {
+        return 0u;
+    }
+    memset(out, 0, cap * sizeof(*out));
+    if (!libretro_host.debugAmiBlitterVisReadWordTags) {
+        libretro_host.debugAmiBlitterVisReadWordTags = (e9k_debug_ami_blitter_vis_read_word_tags_fn_t)
+            libretro_host_loadSymbol("e9k_debug_ami_blitter_vis_read_word_tags");
+    }
+    if (!libretro_host.debugAmiBlitterVisReadWordTags) {
+        return 0u;
+    }
+    return libretro_host.debugAmiBlitterVisReadWordTags(addr, out, cap);
+}
+
 #if E9K_HACK_AMI_SPRITE_VIS
 bool
 libretro_host_debugAmiSetSpriteVis(int enabled)
@@ -3069,6 +3090,19 @@ libretro_host_debugAmiCoreLineToVideoLine(int core_line, int *out_video_line)
         *out_video_line = video_line;
     }
     return true;
+}
+
+const e9k_debug_ami_video_line_state_t *
+libretro_host_debugAmiGetVideoLineStates(void)
+{
+    if (!libretro_host.debugAmiGetVideoLineStates) {
+        libretro_host.debugAmiGetVideoLineStates = (e9k_debug_ami_get_video_line_states_fn_t)
+            libretro_host_loadSymbol("e9k_debug_ami_get_video_line_states");
+    }
+    if (!libretro_host.debugAmiGetVideoLineStates) {
+        return NULL;
+    }
+    return libretro_host.debugAmiGetVideoLineStates();
 }
 
 bool

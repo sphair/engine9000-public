@@ -209,6 +209,14 @@ typedef void (*e9k_debug_ami_custom_log_frame_callback_t)(const e9k_debug_ami_cu
                                                           uint64_t frameNo,
                                                           void *user);
 
+#define E9K_DEBUG_AMI_VIDEO_LINE_INVALID_PTR 0xffffffffu
+
+typedef struct e9k_debug_ami_video_line_state {
+    uint32_t ptr[8];
+    uint8_t bplres;
+    uint8_t reserved[3];
+} e9k_debug_ami_video_line_state_t;
+
 typedef struct e9k_debug_ami_custom_reg_state {
     uint16_t value;
     uint32_t pc;

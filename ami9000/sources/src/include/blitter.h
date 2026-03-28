@@ -9,7 +9,12 @@
 #ifndef UAE_BLITTER_H
 #define UAE_BLITTER_H
 
+#include <stddef.h>
 #include "uae/types.h"
+
+#ifndef E9K_HACK_MEMVIS
+#define E9K_HACK_MEMVIS 0
+#endif
 
 struct bltinfo {
     int blitzero;
@@ -73,6 +78,10 @@ extern uint32_t blitter_getDebugFrameCounter(void);
 extern int blitter_getDebugShowLivePhase(void);
 extern uint32_t blitter_getDebugFetchQueriesThisFrame(void);
 extern uint32_t blitter_getDebugFetchHitsThisFrame(void);
+#if E9K_HACK_MEMVIS
+extern void blitter_debugSnapshotFrame(void);
+extern size_t blitter_debugReadSnapshotBlitIds(uaecptr addr, uint32_t *out, size_t wordCount);
+#endif
 extern int blitter_getDebugVideoOverrideValue(uaecptr addr, uae_u16 *value);
 extern int blitter_getDebugVideoFetchInfo(uaecptr addr, uae_u16 *value, uint32_t *blitId, int *useOverride);
 #endif

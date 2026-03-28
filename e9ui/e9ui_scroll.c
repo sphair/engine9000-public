@@ -122,33 +122,6 @@ scroll_render(e9ui_component_t *self, e9ui_context_t *ctx)
 }
 
 static int
-scroll_componentTreeHasMousePress(e9ui_component_t *comp)
-{
-    if (!comp || e9ui_getHidden(comp)) {
-        return 0;
-    }
-    if (comp->mousePressed) {
-        return 1;
-    }
-
-    e9ui_child_iterator iter;
-    if (!e9ui_child_iterateChildren(comp, &iter)) {
-        return 0;
-    }
-    for (e9ui_child_iterator *it = e9ui_child_interateNext(&iter);
-         it;
-         it = e9ui_child_interateNext(&iter)) {
-        if (!it->child) {
-            continue;
-        }
-        if (scroll_componentTreeHasMousePress(it->child)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-static int
 scroll_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event_t *ev)
 {
     if (!self || !ctx || !ev) {
@@ -209,29 +182,6 @@ scroll_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event
                 return 1;
             }
         }
-    }
-    if (st->child && st->child->handleEvent) {
-        if (ev->type == SDL_MOUSEBUTTONDOWN ||
-            ev->type == SDL_MOUSEBUTTONUP ||
-            ev->type == SDL_MOUSEMOTION) {
-            int pointerX = 0;
-            int pointerY = 0;
-            if (ev->type == SDL_MOUSEMOTION) {
-                pointerX = ev->motion.x;
-                pointerY = ev->motion.y;
-            } else {
-                pointerX = ev->button.x;
-                pointerY = ev->button.y;
-            }
-            int inside = pointerX >= self->bounds.x &&
-                         pointerX < self->bounds.x + self->bounds.w &&
-                         pointerY >= self->bounds.y &&
-                         pointerY < self->bounds.y + self->bounds.h;
-            if (!inside && !scroll_componentTreeHasMousePress(st->child)) {
-                return 0;
-            }
-        }
-        return st->child->handleEvent(st->child, ctx, ev);
     }
     return 0;
 }

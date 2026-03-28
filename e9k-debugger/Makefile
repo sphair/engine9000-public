@@ -127,7 +127,7 @@ PLATFORM_MACOS_SRCS = platform/macos/clipboard.m platform/macos/tinyfiledialogs.
 
 SRCS = main.c source_pane.c source.c hunk_fileline_cache.c dasm.c dasm_geo.c dasm_ami.c elfutil.c console_cmd.c print_eval.c print_debuginfo_readelf.c print_debuginfo_readelf_frames.c print_debuginfo_objdump_stabs.c prompt.c console.c registers.c memory.c stack.c breakpoints.c trainer.c linebuf.c debug_font.c debug.c machine.c base_map.c profile.c profile_list.c profile_hotspot.c profile_checkpoints.c input_record.c hotkeys.c smoke_test.c ui_test.c snapshot.c rom_config.c romset.c settings.c target.c core_options.c core_config.c debugger_input_bindings.c cli.c runtime.c config.c ui.c debugger.c help.c emu.c range_bar.c system_badge.c libretro_host.c clipboard.c state_wrap.c state_buffer.c tinyfiledialogs.c transition.c transition_doom.c transition_slide.c transition_explode.c transition_flip.c transition_rbar.c crt.c shader_ui.c memory_track_ui.c aux_window.c shader_base.c shader_advanced.c shader_bloom.c train.c protect.c status_bar.c hex_convert.c inline_edit_pause.c
 ifeq ($(E9K_ENABLE_AMIGA),1)
-SRCS += source_cpr.c settings_amiga.c amiga_uae_options.c amiga_custom_regs.c amiga_custom_regs_tooltip.c emu_ami.c custom_ui.c custom_log.c custom_amiga.c target_amiga.c
+SRCS += source_cpr.c settings_amiga.c amiga_uae_options.c amiga_custom_regs.c amiga_custom_regs_tooltip.c emu_ami.c custom_ui.c custom_log.c custom_amiga.c amiga_memview.c target_amiga.c
 else
 SRCS += target_amiga_stub.c
 endif

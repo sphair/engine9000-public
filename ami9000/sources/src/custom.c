@@ -55,6 +55,10 @@
 #define E9K_HACK_DEBUGGER_RUNTIME 0
 #endif
 
+#ifndef E9K_HACK_MEMVIS
+#define E9K_HACK_MEMVIS 0
+#endif
+
 #if !defined(E9K_DEBUGGER_CUSTOM_LOGGER)
 #define E9K_DEBUGGER_CUSTOM_LOGGER 0
 #endif
@@ -467,6 +471,10 @@ static uae_u8 cycle_line_slot_last;
 static uae_s16 bpl1mod, bpl2mod, bpl1mod_prev, bpl2mod_prev;
 static int bpl1mod_hpos, bpl2mod_hpos;
 static uaecptr prevbpl[2][MAXVPOS][MAX_PLANES];
+#if E9K_HACK_MEMVIS
+static uae_u32 firstbpl[MAXVPOS][MAX_PLANES];
+static bool firstbpl_seen[MAX_PLANES];
+#endif
 static uaecptr bplpt[MAX_PLANES], bplptx[MAX_PLANES];
 
 static struct color_entry current_colors;
@@ -483,6 +491,38 @@ static int line_cyclebased, diw_change;
 static int bpl_shifter;
 
 static void SET_LINE_CYCLEBASED(int hpos);
+
+#if E9K_HACK_MEMVIS
+static void
+custom_resetFirstBitplaneLine(int line)
+{
+	if (line < 0 || line >= MAXVPOS) {
+		return;
+	}
+	for (int i = 0; i < MAX_PLANES; ++i) {
+		firstbpl[line][i] = 0xffffffffu;
+		firstbpl_seen[i] = false;
+	}
+}
+
+int
+custom_readFirstBitplanePointers(int line, uae_u32 *out, int cap)
+{
+	if (!out || cap <= 0) {
+		return 0;
+	}
+	if (line < 0 || line >= MAXVPOS) {
+		return 0;
+	}
+
+	int count = cap < MAX_PLANES ? cap : MAX_PLANES;
+
+	for (int i = 0; i < count; ++i) {
+		out[i] = firstbpl[line][i];
+	}
+	return count;
+}
+#endif
 
 /* The display and data fetch windows */
 
@@ -3448,6 +3488,12 @@ static bool fetch(int nr, int fm, int hpos, bool addmodulo)
 
 		// normal BPL cycle
 		cycle_line_slot[hpos] = CYCLE_BITPLANE;
+#if E9K_HACK_MEMVIS
+		if (vpos >= 0 && vpos < MAXVPOS && nr >= 0 && nr < MAX_PLANES && !firstbpl_seen[nr]) {
+			firstbpl[vpos][nr] = (uae_u32)(p & 0x00ffffffu);
+			firstbpl_seen[nr] = true;
+		}
+#endif
 
 		bplpt[nr] += fetchmode_bytes;
 		bplptx[nr] += fetchmode_bytes;
@@ -14022,6 +14068,9 @@ static void hsync_handler_pre(bool onvsync)
 		vpos = 0;
 		vsync_counter++;
 	}
+#if E9K_HACK_MEMVIS
+	custom_resetFirstBitplaneLine(vpos);
+#endif
 	check_line_enabled();
 
 	hpos_hsync_extra = maxhpos;
@@ -15397,6 +15446,10 @@ void custom_reset(bool hardreset, bool keyboardreset)
 	vs_state_on = false;
 	dmal_htotal_mask = 0xffff;
 	memset(custom_storage, 0, sizeof(custom_storage));
+#if E9K_HACK_MEMVIS
+	memset(firstbpl, 0xff, sizeof(firstbpl));
+	memset(firstbpl_seen, 0, sizeof(firstbpl_seen));
+#endif
 	toscr_res_old = -1;
 	toscr_nbits = 0;
 	update_denise_vars();

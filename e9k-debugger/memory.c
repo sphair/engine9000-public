@@ -1237,7 +1237,7 @@ memory_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event
             e9ui_scrollbar_clamp(viewW, 1, st->contentPixelWidth, 1, &st->scrollX, &scrollY);
         }
         if (wheelY != 0) {
-            memory_scrollRows(st, -wheelY * 3);
+            memory_scrollRows(st, wheelY * 3);
         }
         if (wheelX != 0 || wheelY != 0) {
             return 1;

@@ -7,6 +7,7 @@
  */
 
 #include "target.h"
+#include "amiga_memview.h"
 #include "custom_amiga.h"
 #include "custom_log.h"
 #include "custom_ui.h"
@@ -348,6 +349,53 @@ custom_amiga_persistConfig(FILE *file)
 
 int
 custom_amiga_loadConfigProperty(const char *prop, const char *value)
+{
+    (void)prop;
+    (void)value;
+    return 0;
+}
+
+int
+amiga_memview_init(void)
+{
+    return 0;
+}
+
+void
+amiga_memview_shutdown(void)
+{
+}
+
+void
+amiga_memview_toggle(void)
+{
+}
+
+int
+amiga_memview_isOpen(void)
+{
+    return 0;
+}
+
+void
+amiga_memview_setMainWindowFocused(int focused)
+{
+    (void)focused;
+}
+
+void
+amiga_memview_render(void)
+{
+}
+
+void
+amiga_memview_persistConfig(FILE *file)
+{
+    (void)file;
+}
+
+int
+amiga_memview_loadConfigProperty(const char *prop, const char *value)
 {
     (void)prop;
     (void)value;

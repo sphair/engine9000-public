@@ -7,6 +7,7 @@
  */
 
 #include "config.h"
+#include "amiga_memview.h"
 #include "crt.h"
 #include "custom_amiga.h"
 #include "custom_log.h"
@@ -170,6 +171,7 @@ config_persistConfig(FILE *f)
     custom_ui_persistConfig(f);
     custom_log_persistConfig(f);
     custom_amiga_persistConfig(f);
+    amiga_memview_persistConfig(f);
     shader_ui_persistConfig(f);
     hex_convert_persistConfig(f);
     settings_persistConfig(f);
@@ -350,6 +352,11 @@ config_loadConfigFile(const char *path)
         if (strncmp(key, "comp.custom_amiga.", 18) == 0) {
             const char *prop = key + 18;
             custom_amiga_loadConfigProperty(prop, value);
+            continue;
+        }
+        if (strncmp(key, "comp.amiga_memview.", 19) == 0) {
+            const char *prop = key + 19;
+            amiga_memview_loadConfigProperty(prop, value);
             continue;
         }
         if (strncmp(key, "comp.shader_ui.", 15) == 0) {

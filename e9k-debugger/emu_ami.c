@@ -17,6 +17,7 @@
 #include "debug.h"
 #include "e9ui.h"
 #include "range_bar.h"
+#include "amiga_memview.h"
 #include "custom_amiga.h"
 #include "custom_log.h"
 #include "custom_ui.h"
@@ -110,6 +111,7 @@ typedef struct emu_ami_blitter_vis_cache {
     emu_ami_blitter_vis_line_stat_t *lineList;
     size_t lineListCap;
     uint32_t overlayFrameCounter;
+    uint32_t hoveredBlitId;
     int hasRetainedOverlay;
     int hasLatestStats;
     e9k_debug_ami_blitter_vis_stats_t latestStats;
@@ -172,6 +174,15 @@ static int emu_ami_legendReservedHeight = 0;
 static uint32_t
 emu_ami_blitterVisColorFromId(uint32_t blitId);
 
+static uint32_t
+emu_ami_blitterVisHoveredIdAtPoint(const SDL_Rect *dst,
+                                   int mouseX,
+                                   int mouseY,
+                                   uint32_t srcWidth,
+                                   uint32_t srcHeight,
+                                   int overlayMode,
+                                   size_t fetchedCount);
+
 #if E9K_HACK_AMI_SPRITE_VIS
 static uint32_t
 emu_ami_spriteVisColorFromIndex(uint32_t spriteIndex);
@@ -212,6 +223,18 @@ emu_ami_getBlitterVisLatestStats(e9k_debug_ami_blitter_vis_stats_t *outStats)
     }
     *outStats = emu_ami_blitterVisCache.latestStats;
     return 1;
+}
+
+uint32_t
+emu_ami_getBlitterVisHoveredBlitId(void)
+{
+    return emu_ami_blitterVisCache.hoveredBlitId;
+}
+
+uint32_t
+emu_ami_getBlitterVisColor(uint32_t blitId)
+{
+    return emu_ami_blitterVisColorFromId(blitId);
 }
 
 static int
@@ -928,6 +951,49 @@ emu_ami_blitterVisColorFromId(uint32_t blitId)
     uint8_t g = (uint8_t)(64u + ((h >> 8) & 0x7fu));
     uint8_t b = (uint8_t)(64u + ((h >> 16) & 0x7fu));
     return (uint32_t)(0xb0u << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+static uint32_t
+emu_ami_blitterVisHoveredIdAtPoint(const SDL_Rect *dst,
+                                   int mouseX,
+                                   int mouseY,
+                                   uint32_t srcWidth,
+                                   uint32_t srcHeight,
+                                   int overlayMode,
+                                   size_t fetchedCount)
+{
+    if (!dst || dst->w <= 0 || dst->h <= 0 || srcWidth == 0u || srcHeight == 0u) {
+        return 0u;
+    }
+    if (mouseX < dst->x || mouseX >= dst->x + dst->w || mouseY < dst->y || mouseY >= dst->y + dst->h) {
+        return 0u;
+    }
+
+    int localX = mouseX - dst->x;
+    int localY = mouseY - dst->y;
+    uint32_t srcX = (uint32_t)(((uint64_t)localX * srcWidth) / (uint32_t)dst->w);
+    uint32_t srcY = (uint32_t)(((uint64_t)localY * srcHeight) / (uint32_t)dst->h);
+    if (srcX >= srcWidth) {
+        srcX = srcWidth - 1u;
+    }
+    if (srcY >= srcHeight) {
+        srcY = srcHeight - 1u;
+    }
+
+    if (overlayMode &&
+        emu_ami_blitterVisCache.retainedBlitIds &&
+        emu_ami_blitterVisCache.retainedCap >= ((size_t)srcWidth * (size_t)srcHeight)) {
+        size_t pixelIndex = (size_t)srcY * (size_t)srcWidth + (size_t)srcX;
+        return emu_ami_blitterVisCache.retainedBlitIds[pixelIndex];
+    }
+
+    for (size_t i = 0u; i < fetchedCount; ++i) {
+        if ((uint32_t)emu_ami_blitterVisCache.points[i].x == srcX &&
+            (uint32_t)emu_ami_blitterVisCache.points[i].y == srcY) {
+            return emu_ami_blitterVisCache.points[i].blitId;
+        }
+    }
+    return 0u;
 }
 
 #if E9K_HACK_AMI_SPRITE_VIS
@@ -1718,6 +1784,7 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
 
     int enabled = 0;
     if (!libretro_host_debugAmiGetBlitterDebug(&enabled) || !enabled) {
+        emu_ami_blitterVisCache.hoveredBlitId = 0u;
         return;
     }
 
@@ -1765,6 +1832,7 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
         decayFrames = (uint32_t)uiDecay;
     }
     if (!srcWidth || !srcHeight) {
+        emu_ami_blitterVisCache.hoveredBlitId = 0u;
         if (emu_ami_blitterVisCache.hasRetainedOverlay && emu_ami_blitterVisCache.texture) {
             SDL_SetTextureBlendMode(emu_ami_blitterVisCache.texture, SDL_BLENDMODE_BLEND);
             SDL_RenderCopy(ctx->renderer, emu_ami_blitterVisCache.texture, NULL, dst);
@@ -1787,6 +1855,7 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
     }
 
     if (!srcWidth || !srcHeight) {
+        emu_ami_blitterVisCache.hoveredBlitId = 0u;
         if (emu_ami_blitterVisCache.hasRetainedOverlay && emu_ami_blitterVisCache.texture) {
             SDL_SetTextureBlendMode(emu_ami_blitterVisCache.texture, SDL_BLENDMODE_BLEND);
             SDL_RenderCopy(ctx->renderer, emu_ami_blitterVisCache.texture, NULL, dst);
@@ -1797,6 +1866,7 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
     int textureWidth = (int)srcWidth;
     int textureHeight = (int)srcHeight;
     if (textureWidth <= 0 || textureHeight <= 0) {
+        emu_ami_blitterVisCache.hoveredBlitId = 0u;
         return;
     }
 
@@ -1970,6 +2040,8 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
                       emu_ami_blitterVisCache.pixels,
                       textureWidth * (int)sizeof(*emu_ami_blitterVisCache.pixels));
     emu_ami_blitterVisCache.hasRetainedOverlay = hasVisiblePixels ? 1 : 0;
+    emu_ami_blitterVisCache.hoveredBlitId =
+        emu_ami_blitterVisHoveredIdAtPoint(dst, ctx->mouseX, ctx->mouseY, srcWidth, srcHeight, overlayMode, fetchedCount);
     SDL_SetTextureBlendMode(emu_ami_blitterVisCache.texture, SDL_BLENDMODE_BLEND);
     SDL_RenderCopy(ctx->renderer, emu_ami_blitterVisCache.texture, NULL, dst);
 }
@@ -3518,6 +3590,18 @@ emu_ami_toggleCustomAmiga(e9ui_context_t *ctx, void *user)
 }
 
 static void
+emu_ami_toggleMemview(e9ui_context_t *ctx, void *user)
+{
+    (void)ctx;
+    (void)user;
+    if (amiga_memview_isOpen()) {
+        amiga_memview_shutdown();
+    } else {
+        (void)amiga_memview_init();
+    }
+}
+
+static void
 emu_ami_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
 {
     emu_ami_tryBindCustomLogFrameCallback();
@@ -3543,6 +3627,18 @@ emu_ami_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
             e9ui_child_add(button_stack, btnCustom, customBtnMeta);
         } else {
             e9ui_child_add(comp, btnCustom, customBtnMeta);
+        }
+    }
+
+    e9ui_component_t *btnMemview = e9ui_button_make("RAM", emu_ami_toggleMemview, comp);
+    if (btnMemview) {
+        e9ui_button_setMini(btnMemview, 1);
+        e9ui_setFocusTarget(btnMemview, comp);
+        void *memviewBtnMeta = alloc_strdup("amiga_memview");
+        if (button_stack) {
+            e9ui_child_add(button_stack, btnMemview, memviewBtnMeta);
+        } else {
+            e9ui_child_add(comp, btnMemview, memviewBtnMeta);
         }
     }
 

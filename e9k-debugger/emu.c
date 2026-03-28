@@ -57,6 +57,7 @@ typedef struct geo9000_state {
     char *zoomInBtnMeta;
     char *buttonStackMeta;
     size_t rangeBarCount;
+    uint32_t suppressedMouseButtons;
     char *rangeBarMeta[EMU_RANGE_BAR_MAX];
     emu_range_bar_binding_t rangeBarBindings[EMU_RANGE_BAR_MAX];
     emu_zoom_binding_t zoomOutBinding;
@@ -81,6 +82,15 @@ typedef enum emu_overlay_button_mode {
 
 static int emu_mouseCaptured = 0;
 static char emu_mouseCaptureMessage[160];
+
+static int
+emu_mouseButtonMask(Uint8 button)
+{
+    if (button >= 32u) {
+        return 0;
+    }
+    return (int)(1u << button);
+}
 
 static int
 emu_mouseCaptureEnabledForCurrentTarget(void)
@@ -704,6 +714,24 @@ emu_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event_t 
         if (!emu_pointInBounds(self, mx, my)) {
             return 0;
         }
+        if (ev->type == SDL_MOUSEBUTTONUP && state) {
+            int suppressMask = emu_mouseButtonMask(ev->button.button);
+
+            if (suppressMask && (state->suppressedMouseButtons & (uint32_t)suppressMask)) {
+                state->suppressedMouseButtons &= ~(uint32_t)suppressMask;
+                return 1;
+            }
+        }
+        if (ev->type == SDL_MOUSEBUTTONDOWN && ctx && e9ui_getFocus(ctx) != self) {
+            if (state) {
+                int suppressMask = emu_mouseButtonMask(ev->button.button);
+
+                if (suppressMask) {
+                    state->suppressedMouseButtons |= (uint32_t)suppressMask;
+                }
+            }
+            return 1;
+        }
         if (target && target->emu && target->emu->handleOverlayEvent &&
             (ev->type == SDL_MOUSEBUTTONDOWN || ev->type == SDL_MOUSEBUTTONUP)) {
             SDL_Rect dst;
@@ -713,9 +741,6 @@ emu_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event_t 
         }
         if (ev->type == SDL_MOUSEBUTTONDOWN) {
             (void)emu_mouseCaptureEnable(ctx);
-        }
-        if (ev->type == SDL_MOUSEBUTTONDOWN && ctx && e9ui_getFocus(ctx) != self) {
-            return 1;
         }
         unsigned port = libretro_host_getMousePort();
         if (target->mousePort >= 0) {
@@ -1106,6 +1131,7 @@ emu_hostHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_even
 {
     emu_state_t *state = NULL;
     e9ui_component_t *stack = NULL;
+    (void)ctx;
 
     if (!self || !ev) {
         return 0;
@@ -1119,9 +1145,6 @@ emu_hostHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_even
         if (stack && emu_pointInBounds(stack, mx, my)) {
             return 0;
         }
-    }
-    if (state && state->scrollComp && state->scrollComp->handleEvent) {
-        return state->scrollComp->handleEvent(state->scrollComp, ctx, ev);
     }
     return 0;
 }

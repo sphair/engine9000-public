@@ -19,6 +19,10 @@
 #define E9K_HACK_DEBUGGER_HOST 0
 #endif
 
+#ifndef E9K_HACK_MEMVIS
+#define E9K_HACK_MEMVIS 0
+#endif
+
 #ifndef E9K_HACK_AMI_SPRITE_VIS
 #define E9K_HACK_AMI_SPRITE_VIS 0
 #endif
@@ -138,6 +142,9 @@ e9k_debug_ami_video_line_to_core_line(int videoLine);
 
 int
 e9k_debug_ami_core_line_to_video_line(int coreLine);
+
+const e9k_debug_ami_video_line_state_t *
+e9k_debug_ami_get_video_line_states(void);
 
 bool
 e9k_debug_ami_set_floppy_path(int drive, const char *path);

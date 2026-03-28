@@ -138,6 +138,7 @@ static uint64_t e9k_debug_protectEnabledMask = 0;
 
 static int e9k_debug_checkpointEnabled = 0;
 static e9k_debug_checkpoint_t e9k_debug_checkpoints[E9K_CHECKPOINT_COUNT];
+static e9k_debug_ami_video_line_state_t e9k_debug_amiVideoLineStates[MAXVPOS];
 
 static int e9k_debug_profilerEnabled = 0;
 
@@ -1684,6 +1685,22 @@ e9k_debug_ami_blitter_vis_read_stats(e9k_debug_ami_blitter_vis_stats_t *out, siz
 #endif
 }
 
+E9K_DEBUG_EXPORT size_t
+e9k_debug_ami_blitter_vis_read_word_tags(uint32_t addr, uint32_t *out, size_t cap)
+{
+#if E9K_HACK_BLITTER_VIS && E9K_HACK_MEMVIS
+	if (!out || cap == 0u) {
+		return 0u;
+	}
+	return blitter_debugReadSnapshotBlitIds((uaecptr)(addr & 0x00fffffeu), out, cap);
+#else
+	(void)addr;
+	(void)out;
+	(void)cap;
+	return 0u;
+#endif
+}
+
 static e9k_debug_ami_dma_debug_frame_view_t e9k_debug_dmaDebugFrameViews[2];
 static e9k_debug_ami_copper_debug_frame_view_t e9k_debug_copperDebugFrameViews[2];
 
@@ -1867,6 +1884,40 @@ e9k_debug_ami_core_line_to_video_line(int coreLine)
 	return bestVideoLine;
 }
 
+static void
+e9k_debug_amiFillVideoLineState(int coreLine, e9k_debug_ami_video_line_state_t *out)
+{
+	if (!out || coreLine < 0 || coreLine >= MAXVPOS) {
+		return;
+	}
+
+	memset(out, 0, sizeof(*out));
+	for (int i = 0; i < 8; ++i) {
+		out->ptr[i] = E9K_DEBUG_AMI_VIDEO_LINE_INVALID_PTR;
+	}
+
+	struct decision *decision = &line_decisions[coreLine];
+#if E9K_HACK_MEMVIS
+	(void)custom_readFirstBitplanePointers(coreLine, (uae_u32 *)out->ptr, 8);
+#endif
+	out->bplres = decision->bplres;
+}
+
+static void
+e9k_debug_amiSyncVideoLineStates(void)
+{
+	for (int coreLine = 0; coreLine < MAXVPOS; ++coreLine) {
+		e9k_debug_amiFillVideoLineState(coreLine, &e9k_debug_amiVideoLineStates[coreLine]);
+	}
+}
+
+E9K_DEBUG_EXPORT const e9k_debug_ami_video_line_state_t *
+e9k_debug_ami_get_video_line_states(void)
+{
+	e9k_debug_amiSyncVideoLineStates();
+	return e9k_debug_amiVideoLineStates;
+}
+
 void
 e9k_debug_ami_on_video_presented(void)
 {
@@ -1875,6 +1926,9 @@ e9k_debug_ami_on_video_presented(void)
 	int collectMode = ((blitter_getDebugVisMode() & E9K_DEBUG_BLITTER_VIS_MODE_COLLECT) != 0) ? 1 : 0;
 	if (blitter_getDebugWriteEnabled()) {
 		drawing_blitterVisSnapshotFrame();
+#if E9K_HACK_MEMVIS
+		blitter_debugSnapshotFrame();
+#endif
 		if (collectMode) {
 			blitter_debugRetireCollectedWrites();
 			drawing_blitterVisClearFrame();

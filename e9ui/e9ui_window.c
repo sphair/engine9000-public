@@ -19,10 +19,13 @@ typedef struct e9ui_window_overlay_state
     e9ui_window_t *owner;
     e9ui_rect_t rect;
     e9ui_rect_t dragStartRect;
+    e9ui_rect_t restoreRect;
     char title[128];
     e9ui_component_t *body;
     SDL_Rect closeRect;
     int dragging;
+    int dragStartMouseX;
+    int dragStartMouseY;
     int dragOffsetX;
     int dragOffsetY;
     int resizing;
@@ -31,6 +34,8 @@ typedef struct e9ui_window_overlay_state
     int resizeStartMouseY;
     int minWidthPx;
     int minHeightPx;
+    int maximized;
+    int restoreRectValid;
     e9ui_window_close_cb_t onClose;
     void *onCloseUser;
 } e9ui_window_overlay_state_t;
@@ -62,6 +67,12 @@ static SDL_Texture *e9ui_window_overlayCloseIcon = NULL;
 static int e9ui_window_overlayCloseIconW = 0;
 static int e9ui_window_overlayCloseIconH = 0;
 
+static void
+e9ui_window_overlaySyncMaximizedRect(e9ui_window_overlay_state_t *st, const e9ui_context_t *ctx);
+
+static void
+e9ui_window_overlayToggleMaximized(e9ui_window_overlay_state_t *st, const e9ui_context_t *ctx);
+
 enum
 {
     E9UI_WINDOW_OVERLAY_RESIZE_LEFT   = 1 << 0,
@@ -69,6 +80,17 @@ enum
     E9UI_WINDOW_OVERLAY_RESIZE_TOP    = 1 << 2,
     E9UI_WINDOW_OVERLAY_RESIZE_BOTTOM = 1 << 3
 };
+
+static int
+e9ui_window_overlayManualChangeThresholdPx(const e9ui_context_t *ctx)
+{
+    int px = e9ui_scale_px(ctx, 4);
+
+    if (px < 1) {
+        px = 1;
+    }
+    return px;
+}
 
 static void
 e9ui_window_overlayEnsureCursors(void)
@@ -293,6 +315,7 @@ e9ui_window_overlayLayout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_rect
         return;
     }
     e9ui_window_overlay_state_t *st = (e9ui_window_overlay_state_t *)self->state;
+    e9ui_window_overlaySyncMaximizedRect(st, ctx);
     self->bounds = st->rect;
     int titleH = e9ui_window_overlayTitlebarHeight(ctx);
     int frameInset = e9ui_scale_px(ctx, 4);
@@ -557,6 +580,49 @@ e9ui_window_overlayClampRectToBounds(e9ui_rect_t *rect, const e9ui_context_t *ct
 }
 
 static void
+e9ui_window_overlaySyncMaximizedRect(e9ui_window_overlay_state_t *st, const e9ui_context_t *ctx)
+{
+    if (!st || !ctx || !st->maximized) {
+        return;
+    }
+    int minW = e9ui_scale_px(ctx, (st->minWidthPx > 0) ? st->minWidthPx : 360);
+    int minH = e9ui_scale_px(ctx, (st->minHeightPx > 0) ? st->minHeightPx : 320);
+    st->rect = (e9ui_rect_t){ 0, 0, ctx->winW, ctx->winH };
+    e9ui_window_overlayClampRectToBounds(&st->rect, ctx, minW, minH);
+}
+
+static void
+e9ui_window_overlayToggleMaximized(e9ui_window_overlay_state_t *st, const e9ui_context_t *ctx)
+{
+    if (!st || !ctx) {
+        return;
+    }
+    int minW = e9ui_scale_px(ctx, (st->minWidthPx > 0) ? st->minWidthPx : 360);
+    int minH = e9ui_scale_px(ctx, (st->minHeightPx > 0) ? st->minHeightPx : 320);
+    if (st->maximized) {
+        st->maximized = 0;
+        if (st->restoreRectValid) {
+            st->rect = st->restoreRect;
+        }
+        e9ui_window_overlayClampRectToBounds(&st->rect, ctx, minW, minH);
+        return;
+    }
+    st->restoreRect = st->rect;
+    st->restoreRectValid = 1;
+    st->maximized = 1;
+    e9ui_window_overlaySyncMaximizedRect(st, ctx);
+}
+
+static void
+e9ui_window_overlayExitMaximizedForManualChange(e9ui_window_overlay_state_t *st)
+{
+    if (!st || !st->maximized) {
+        return;
+    }
+    st->maximized = 0;
+}
+
+static void
 e9ui_window_overlayApplyResizeDrag(e9ui_window_overlay_state_t *st, const e9ui_context_t *ctx, int mouseX, int mouseY)
 {
     if (!st || !ctx || !st->resizing || !st->resizeMask) {
@@ -719,6 +785,15 @@ e9ui_window_overlayHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, cons
             }
             return 1;
         }
+        if (e9ui_window_overlayPointInRect(&titleRect, mx, my) && ev->button.clicks >= 2) {
+            st->dragging = 0;
+            st->resizing = 0;
+            st->resizeMask = 0;
+            e9ui_cursorRelease(ctx, self);
+            e9ui_window_overlayToggleMaximized(st, ctx);
+            e9ui_window_overlayUpdateCursor(self, st, ctx, mx, my);
+            return 1;
+        }
         int resizeMask = e9ui_window_overlayResizeMaskAt(st, ctx, mx, my);
         if (resizeMask) {
             st->resizing = 1;
@@ -733,6 +808,8 @@ e9ui_window_overlayHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, cons
         if (e9ui_window_overlayPointInRect(&titleRect, mx, my)) {
             st->dragging = 1;
             st->dragStartRect = st->rect;
+            st->dragStartMouseX = mx;
+            st->dragStartMouseY = my;
             st->dragOffsetX = mx - st->rect.x;
             st->dragOffsetY = my - st->rect.y;
             e9ui_window_overlayUpdateCursor(self, st, ctx, mx, my);
@@ -780,10 +857,30 @@ e9ui_window_overlayHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, cons
         }
     }
     if (ev->type == SDL_MOUSEMOTION && st->resizing) {
+        if (st->maximized) {
+            int dx = ev->motion.x - st->resizeStartMouseX;
+            int dy = ev->motion.y - st->resizeStartMouseY;
+            int threshold = e9ui_window_overlayManualChangeThresholdPx(ctx);
+
+            if (abs(dx) < threshold && abs(dy) < threshold) {
+                return 1;
+            }
+        }
+        e9ui_window_overlayExitMaximizedForManualChange(st);
         e9ui_window_overlayApplyResizeDrag(st, ctx, ev->motion.x, ev->motion.y);
         return 1;
     }
     if (ev->type == SDL_MOUSEMOTION && st->dragging) {
+        if (st->maximized) {
+            int dx = ev->motion.x - st->dragStartMouseX;
+            int dy = ev->motion.y - st->dragStartMouseY;
+            int threshold = e9ui_window_overlayManualChangeThresholdPx(ctx);
+
+            if (abs(dx) < threshold && abs(dy) < threshold) {
+                return 1;
+            }
+        }
+        e9ui_window_overlayExitMaximizedForManualChange(st);
         int nextX = ev->motion.x - st->dragOffsetX;
         int nextY = ev->motion.y - st->dragOffsetY;
         st->rect.x = nextX;

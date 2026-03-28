@@ -42,6 +42,12 @@ emu_ami_rangeBarSync(size_t index, e9ui_component_t *bar);
 int
 emu_ami_getBlitterVisLatestStats(e9k_debug_ami_blitter_vis_stats_t *outStats);
 
+uint32_t
+emu_ami_getBlitterVisHoveredBlitId(void);
+
+uint32_t
+emu_ami_getBlitterVisColor(uint32_t blitId);
+
 int
 emu_ami_getCopperDebugEnabled(void);
 
