@@ -828,6 +828,9 @@ debugger_main(int argc, char **argv)
   }  
   debugger_libretroSelectConfig();
   rom_config_loadSettingsForSelectedRom();
+  cli_applyOverrides();
+  debugger_libretroSelectConfig();
+  rom_config_syncActiveFromCurrentSystem();
   debugger_refreshElfValid();
   if (debugger.elfValid && debugger_analyseInitFailed) {
     debug_error("profile: aggregator init failed");

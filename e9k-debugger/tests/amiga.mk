@@ -4,8 +4,8 @@ AMIGA_TESTS=test-amigacustom \
 	    test-amigacoreoptions \
             test-amigasavestate \
             test-amigaconfig \
-            test-amigalocals 
-#test-amigasmoke \
+            test-amigalocals \
+	    test-amigasmoke 
 
 AMIGA_REMAKE=remake-test-amigacustom \
 	     remake-test-amigalog \
@@ -33,9 +33,9 @@ make-test-amigalog: all tests/amiga/custom/custom.adf
 	./e9k-debugger --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --make-test tests/results/amiga/log
 
 make-test-amigaconfig: all
-	@-rm -f blah.uae
+	@-rm -f blank.uae
 	./e9k-debugger --amiga --make-test tests/results/amiga/config
-	@-rm -f blah.uae
+	@-rm -f blank.uae
 
 make-test-amigacoreoptions: all tests/amiga/example/example.adf
 	./e9k-debugger --amiga --source-dir=./tests/amiga/example/ --uae=./tests/amiga/example/example.uae --hunk=./tests/amiga/example/example --make-test tests/results/amiga/amigacoreoptions
@@ -71,9 +71,9 @@ remake-test-amigalog: all tests/amiga/custom/custom.adf
 
 remake-test-amigaconfig: all 
 	@printf "AMIGA CONFIG ($@) ..."
-	@-rm -f blah.uae
+	@-rm -f blank.uae
 	./e9k-debugger --amiga --volume=0 --remake-test tests/results/amiga/config
-	@-rm -f blah.uae
+	@-rm -f blank.uae
 
 remake-test-amigacoreoptions: all tests/amiga/example/example.adf
 	@printf "AMIGA CORE OPTIONS ($@) ..."
@@ -88,9 +88,9 @@ remake-test-amigasavestate: all tests/amiga/smoke/smoke.adf
 
 test-amigaconfig: all
 	@printf "AMIGA CONFIG ($@) ..."
-	@-rm -f blah.uae
+	@-rm -f blank.uae
 	@./e9k-debugger $(HEADLESS) --amiga --test tests/results/amiga/config >> test.log 2>&1
-	@-rm -f blah.uae
+	@-rm -f blank.uae
 	@echo " PASSED ✅"
 
 
