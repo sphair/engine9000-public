@@ -35,7 +35,6 @@ amiga_custom_ui_state_t amiga_custom_ui_state = {
     .blitterDebugEnabled = 0,
     .spriteVisEnabled = 0,
     .blitterVisMode = AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_COLLECT,
-    .blitterVisBlink = 1,
     .blitterVisDecay = 5,
     .dmaStatsEnabled = 0,
     .estimateFpsEnabled = 0,
@@ -102,7 +101,6 @@ amiga_custom_ui_applyAllOptions(void)
     amiga_custom_ui_blitter_applyOption();
     amiga_custom_ui_blitter_applyVisDecayOption();
     amiga_custom_ui_blitter_applyVisModeOption();
-    amiga_custom_ui_blitter_applyVisBlinkOption();
     amiga_custom_ui_sprite_applyVisOption();
     amiga_custom_ui_bitplane_applyPaletteVisOption();
     amiga_custom_ui_bitplane_applyBplcon1DelayScrollOption();
@@ -467,28 +465,6 @@ amiga_custom_ui_buildRoot(amiga_custom_ui_state_t *ui)
     e9ui_stack_addFixed(rightColumn, blitterVisDecaySeekRow);
     e9ui_stack_addFixed(rightColumn, e9ui_vspacer_make(8));
 
-    e9ui_component_t *cbBlitterVisBlink = e9ui_checkbox_make("Core Blink",
-                                                             ui->blitterVisBlink,
-                                                             amiga_custom_ui_blitter_visBlinkChanged,
-                                                             ui);
-    ui->blitterVisBlinkCheckbox = cbBlitterVisBlink;
-    e9ui_checkbox_setLeftMargin(cbBlitterVisBlink, 28);
-
-    e9ui_component_t *cbBlitterVisPattern = e9ui_checkbox_make("Core Pattern",
-                                                               (ui->blitterVisMode & AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_PATTERN) != 0,
-                                                               amiga_custom_ui_blitter_visPatternChanged,
-                                                               ui);
-    ui->blitterVisPatternCheckbox = cbBlitterVisPattern;
-    e9ui_checkbox_setLeftMargin(cbBlitterVisPattern, 28);
-
-    e9ui_component_t *cbBlitterVisMode = e9ui_checkbox_make("Core Solid",
-                                                            (ui->blitterVisMode & AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_SOLID) != 0,
-                                                            amiga_custom_ui_blitter_visModeChanged,
-                                                            ui);
-
-    ui->blitterVisModeCheckbox = cbBlitterVisMode;
-    e9ui_checkbox_setLeftMargin(cbBlitterVisMode, 28);
-
     amiga_custom_ui_blitter_syncDebugSuboptions(ui);
 
     e9ui_component_t *blitterVisStatsChart = amiga_custom_ui_blitter_statsChartMake();
@@ -814,7 +790,6 @@ amiga_custom_ui_init(void)
     ui->warnedMissingOption = 0;
     ui->suppressBlitterDebugCallbacks = 0;
     ui->suppressSpriteVisCallbacks = 0;
-    ui->suppressBlitterVisModeCallbacks = 0;
     ui->suppressSpriteCallbacks = 0;
     ui->suppressBitplaneCallbacks = 0;
     ui->suppressAudioCallbacks = 0;
@@ -840,10 +815,7 @@ amiga_custom_ui_init(void)
     ui->bplptrLineLimitEndTextboxHadFocus = 0;
     ui->blitterDebugCheckbox = NULL;
     ui->spriteVisCheckbox = NULL;
-    ui->blitterVisPatternCheckbox = NULL;
-    ui->blitterVisModeCheckbox = NULL;
     ui->blitterVisCollectCheckbox = NULL;
-    ui->blitterVisBlinkCheckbox = NULL;
     ui->blitterVisDecayRow = NULL;
     ui->blitterVisDecayTextbox = NULL;
     ui->blitterVisDecaySeekRow = NULL;

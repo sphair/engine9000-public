@@ -24,6 +24,10 @@
 #include "savestate.h"
 #include "debug.h"
 
+#ifndef E9K_HACK_BLITTER_CONTROL
+#define E9K_HACK_BLITTER_CONTROL 0
+#endif
+
 #ifndef E9K_HACK_BLITTER_VIS
 #define E9K_HACK_BLITTER_VIS 0
 #endif
@@ -111,32 +115,28 @@ uae_u32 blit_masktable[BLITTER_MAX_WORDS];
 static int blit_cyclecounter, blit_waitcyclecounter;
 static int blit_maxcyclecounter, blit_slowdown, blit_totalcyclecounter;
 static int blit_misscyclecounter;
+#if E9K_HACK_BLITTER_CONTROL
 static int blitter_destinationWriteEnabled = 1;
+#endif
 #if E9K_HACK_BLITTER_VIS
-#define BLITTER_DEBUG_VIS_MODE_SOLID 0x1
 #define BLITTER_DEBUG_VIS_MODE_COLLECT 0x2
-#define BLITTER_DEBUG_VIS_MODE_PATTERN 0x4
-#define BLITTER_DEBUG_VIS_MODE_STYLE_MASK (BLITTER_DEBUG_VIS_MODE_SOLID | BLITTER_DEBUG_VIS_MODE_PATTERN)
-#define BLITTER_DEBUG_VIS_MODE_MASK (BLITTER_DEBUG_VIS_MODE_STYLE_MASK | BLITTER_DEBUG_VIS_MODE_COLLECT)
+#define BLITTER_DEBUG_VIS_MODE_MASK BLITTER_DEBUG_VIS_MODE_COLLECT
 #define BLITTER_DEBUG_VIS_DECAY_MAX 64u
 static int blitter_debugWriteEnabled = 0;
 static uint32_t blitter_debugFrameCounter = 0;
-static uint8_t blitter_debugShowLivePhase = 0;
 static uint32_t *blitter_debugFrames = NULL;
 static uint32_t *blitter_debugEpoch = NULL;
 static uae_u8 *blitter_debugCollected = NULL;
 #if E9K_HACK_MEMVIS
 static uint32_t *blitter_debugSnapshotEpoch = NULL;
 static uint32_t *blitter_debugSnapshotBlitIds = NULL;
+static uint32_t blitter_debugSnapshotEpochCounter = 1;
 #endif
 static uint32_t *blitter_debugActiveWords = NULL;
 static uint32_t blitter_debugActiveCount = 0;
 static uint32_t blitter_debugActiveCapacity = 0;
 static uint32_t blitter_debugMapWordCount = 0;
 static uint32_t blitter_debugEpochCounter = 1;
-#if E9K_HACK_MEMVIS
-static uint32_t blitter_debugSnapshotEpochCounter = 1;
-#endif
 static uint32_t blitter_debugPatternRngState = 0x1a2b3c4du;
 static uae_u16 *blitter_debugPatterns = NULL;
 static uint32_t *blitter_debugBlitIds = NULL;
@@ -151,7 +151,6 @@ static uint32_t blitter_debugCurrentBlitId = 1u;
 static uint32_t blitter_debugNextBlitId = 1u;
 static uint32_t blitter_debugVisDecayFrames = 5u;
 static int blitter_debugVisMode = BLITTER_DEBUG_VIS_MODE_COLLECT;
-static int blitter_debugVisBlink = 1;
 #endif
 
 #ifdef CPUEMU_13
@@ -551,6 +550,7 @@ blitter_debugFreeStorage(void)
 	blitter_debugSnapshotEpoch = NULL;
 	xfree(blitter_debugSnapshotBlitIds);
 	blitter_debugSnapshotBlitIds = NULL;
+	blitter_debugSnapshotEpochCounter = 1;	
 #endif
 	xfree(blitter_debugPatterns);
 	blitter_debugPatterns = NULL;
@@ -562,9 +562,6 @@ blitter_debugFreeStorage(void)
 	blitter_debugActiveCapacity = 0;
 	blitter_debugMapWordCount = 0;
 	blitter_debugEpochCounter = 1;
-#if E9K_HACK_MEMVIS
-	blitter_debugSnapshotEpochCounter = 1;
-#endif
 	blitter_debugPatternRngState = 0x1a2b3c4du;
 	blitter_debugCurrentBlitPattern = 0xffffu;
 	blitter_debugCurrentBlitId = 1u;
@@ -709,7 +706,6 @@ blitter_debugClearWrites(void)
 		blitter_debugEpochCounter = 1;
 	}
 	}
-	blitter_debugShowLivePhase = 0;
 	blitter_debugPatternRngState = 0x1a2b3c4du;
 	blitter_debugCurrentBlitPattern = 0xffffu;
 	blitter_debugCurrentBlitId = 1u;
@@ -744,11 +740,13 @@ blitter_debugRestoreAllWritesAndClear(void)
 }
 #endif
 
+#if E9K_HACK_BLITTER_CONTROL
 void
 blitter_setDestinationWriteEnabled(int enabled)
 {
 	blitter_destinationWriteEnabled = enabled ? 1 : 0;
 }
+#endif
 
 #if E9K_HACK_BLITTER_VIS
 void
@@ -759,7 +757,6 @@ blitter_setDebugWriteEnabled(int enabled)
 	if (!wasEnabled && blitter_debugWriteEnabled) {
 		// Deterministic startup when enabling debug mode.
 		blitter_debugClearWrites();
-		blitter_debugShowLivePhase = 1;
 	}
 	if (wasEnabled && !blitter_debugWriteEnabled) {
 		blitter_debugRestoreAllWritesAndClear();
@@ -788,24 +785,6 @@ blitter_getDebugVisDecayFrames(void)
 }
 
 static int
-blitter_debugVisModeUsesSolid(void)
-{
-	return (blitter_debugVisMode & BLITTER_DEBUG_VIS_MODE_SOLID) != 0;
-}
-
-static int
-blitter_debugVisModeUsesPattern(void)
-{
-	return (blitter_debugVisMode & BLITTER_DEBUG_VIS_MODE_PATTERN) != 0;
-}
-
-static int
-blitter_debugVisModeHasStyle(void)
-{
-	return (blitter_debugVisMode & BLITTER_DEBUG_VIS_MODE_STYLE_MASK) != 0;
-}
-
-static int
 blitter_debugVisModeHasCollect(void)
 {
 	return (blitter_debugVisMode & BLITTER_DEBUG_VIS_MODE_COLLECT) != 0;
@@ -818,9 +797,6 @@ blitter_setDebugVisMode(int mode)
 		mode = 0;
 	}
 	mode &= BLITTER_DEBUG_VIS_MODE_MASK;
-	if ((mode & BLITTER_DEBUG_VIS_MODE_STYLE_MASK) == BLITTER_DEBUG_VIS_MODE_STYLE_MASK) {
-		mode &= ~BLITTER_DEBUG_VIS_MODE_PATTERN;
-	}
 	blitter_debugVisMode = mode;
 }
 
@@ -828,21 +804,6 @@ int
 blitter_getDebugVisMode(void)
 {
 	return blitter_debugVisMode;
-}
-
-void
-blitter_setDebugVisBlink(int blink)
-{
-	blitter_debugVisBlink = blink ? 1 : 0;
-	if (!blitter_debugVisBlink) {
-		blitter_debugShowLivePhase = 0;
-	}
-}
-
-int
-blitter_getDebugVisBlink(void)
-{
-	return blitter_debugVisBlink;
 }
 
 uint32_t
@@ -893,12 +854,6 @@ blitter_getDebugFrameCounter(void)
 	return blitter_debugFrameCounter;
 }
 
-int
-blitter_getDebugShowLivePhase(void)
-{
-	return blitter_debugShowLivePhase ? 1 : 0;
-}
-
 uint32_t
 blitter_getDebugFetchQueriesThisFrame(void)
 {
@@ -921,11 +876,6 @@ blitter_debugFrameTick(void)
 	blitter_debugBlitsThisFrame = 0;
 	blitter_debugFetchQueriesThisFrame = 0;
 	blitter_debugFetchHitsThisFrame = 0;
-	if (blitter_debugVisBlink) {
-		blitter_debugShowLivePhase = blitter_debugShowLivePhase ? 0 : 1;
-	} else {
-		blitter_debugShowLivePhase = 0;
-	}
 }
 
 #if E9K_HACK_MEMVIS
@@ -1031,7 +981,6 @@ int
 blitter_getDebugVideoFetchInfo(uaecptr addr, uae_u16 *value, uint32_t *blitId, int *useOverride)
 {
 	int hasCollect = 0;
-	int hasStyle = 0;
 
 	if (useOverride) {
 		*useOverride = 0;
@@ -1047,8 +996,7 @@ blitter_getDebugVideoFetchInfo(uaecptr addr, uae_u16 *value, uint32_t *blitId, i
 		return 0;
 	}
 	hasCollect = blitter_debugVisModeHasCollect();
-	hasStyle = blitter_debugVisModeHasStyle();
-	if (!hasCollect && !hasStyle) {
+	if (!hasCollect) {
 		return 0;
 	}
 	blitter_debugFetchQueriesThisFrame++;
@@ -1067,21 +1015,6 @@ blitter_getDebugVideoFetchInfo(uaecptr addr, uae_u16 *value, uint32_t *blitId, i
 
 	if (blitId) {
 		*blitId = blitter_debugBlitIds[wordIndex];
-	}
-
-	if (hasStyle && !hasCollect && blitter_debugVisBlink && blitter_debugShowLivePhase) {
-		return 0;
-	}
-
-	if (value && hasStyle) {
-		if (blitter_debugVisModeUsesSolid()) {
-			*value = 0xffffu;
-		} else if (blitter_debugVisModeUsesPattern()) {
-			*value = blitter_debugPatterns[wordIndex];
-		}
-	}
-	if (useOverride) {
-		*useOverride = hasStyle ? 1 : 0;
 	}
 	return 1;
 }
@@ -1157,9 +1090,11 @@ blitter_chipmem_wput_indirect(uaecptr addr, uae_u32 w)
 		chipmem_wput_indirect(addr, w);
 	}
 #else
-	if (blitter_destinationWriteEnabled) {
+#if E9K_HACK_BLITTER_CONTROL	
+	if (blitter_destinationWriteEnabled)
+#endif
 		chipmem_wput_indirect(addr, w);
-	}
+	
 #endif
 	regs.chipset_latch_rw = w;
 }

@@ -116,10 +116,7 @@ extern uint8_t video_config_allow_hz_change;
 #define LORES_TO_SHRES_SHIFT 2
 
 #if E9K_HACK_BLITTER_VIS
-#define CUSTOM_BLITTER_VIS_MODE_SOLID 0x1
 #define CUSTOM_BLITTER_VIS_MODE_COLLECT 0x2
-#define CUSTOM_BLITTER_VIS_MODE_PATTERN 0x4
-#define CUSTOM_BLITTER_VIS_MODE_STYLE_MASK (CUSTOM_BLITTER_VIS_MODE_SOLID | CUSTOM_BLITTER_VIS_MODE_PATTERN)
 #define CUSTOM_BLITTER_VIS_FETCH_MIN_TRACK_CAP 16384u
 #endif
 
@@ -3014,12 +3011,7 @@ static uae_u16 fetch16(uaecptr p, int nr, int pixelStart)
 	#if E9K_HACK_BLITTER_VIS
 		int prevSite = custom_blitterVisMarkSite;
 		custom_blitterVisMarkSite = CUSTOM_BLITTER_VIS_MARK_SITE_FETCH;
-		uae_u32 vv;
-		if ((blitter_getDebugVisMode() & CUSTOM_BLITTER_VIS_MODE_COLLECT) != 0) {
-			vv = chipmem_lget_indirect(p & ~3);
-		} else {
-			vv = custom_getRenderLong(p & ~3, -1, 0);
-		}
+		uae_u32 vv = chipmem_lget_indirect(p & ~3);
 		(void)custom_getRenderWord(p, pixelStart, 16);
 		custom_blitterVisMarkSite = prevSite;
 	#else
@@ -4951,16 +4943,11 @@ custom_getRenderWord(uaecptr addr, int pixelStart, int pixelCount)
 {
 	uae_u16 value = 0;
 	uae_u32 blitId = 0;
-	int useOverride = 0;
 	int collectMode = (blitter_getDebugVisMode() & CUSTOM_BLITTER_VIS_MODE_COLLECT) != 0;
-	int styleMode = (blitter_getDebugVisMode() & CUSTOM_BLITTER_VIS_MODE_STYLE_MASK) != 0;
-	if (blitter_getDebugVideoFetchInfo(addr, &value, &blitId, &useOverride)) {
-		if ((collectMode || styleMode) && blitId && pixelCount > 0) {
+	if (blitter_getDebugVideoFetchInfo(addr, &value, &blitId, NULL)) {
+		if (collectMode && blitId && pixelCount > 0) {
 			custom_blitterVisLogFetchMinDrop(addr, pixelStart, pixelCount, blitId);
 			drawing_blitterVisMarkSourceRange(next_lineno, pixelStart, pixelCount, blitId);
-		}
-		if (useOverride) {
-			return value;
 		}
 	}
 	return chipmem_wget_indirect(addr);

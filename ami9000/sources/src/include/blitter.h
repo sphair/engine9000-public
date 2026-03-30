@@ -65,8 +65,6 @@ extern void blitter_setDebugVisDecayFrames(uint32_t frameCount);
 extern uint32_t blitter_getDebugVisDecayFrames(void);
 extern void blitter_setDebugVisMode(int mode);
 extern int blitter_getDebugVisMode(void);
-extern void blitter_setDebugVisBlink(int blink);
-extern int blitter_getDebugVisBlink(void);
 extern uint32_t blitter_getDebugActiveCount(void);
 extern uint32_t blitter_getDebugBlitsThisFrame(void);
 extern uint32_t blitter_getDebugBlitsLastFrame(void);
@@ -75,7 +73,6 @@ extern uint32_t blitter_getDebugWritesLastFrame(void);
 extern uint32_t blitter_getDebugWriteBytesThisFrame(void);
 extern uint32_t blitter_getDebugWriteBytesLastFrame(void);
 extern uint32_t blitter_getDebugFrameCounter(void);
-extern int blitter_getDebugShowLivePhase(void);
 extern uint32_t blitter_getDebugFetchQueriesThisFrame(void);
 extern uint32_t blitter_getDebugFetchHitsThisFrame(void);
 #if E9K_HACK_MEMVIS

@@ -23,10 +23,7 @@
 #define AMIGA_CUSTOM_UI_AMIGA_BITPLANE_COUNT 8
 #define AMIGA_CUSTOM_UI_AMIGA_AUDIO_CHANNEL_COUNT 4
 #define AMIGA_CUSTOM_UI_AMIGA_BPLPTR_COUNT 6
-#define AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_SOLID 0x1
 #define AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_COLLECT 0x2
-#define AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_PATTERN 0x4
-#define AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_STYLE_MASK (AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_SOLID | AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_PATTERN)
 #define AMIGA_CUSTOM_UI_BLITTER_VIS_DECAY_MAX 64
 #define AMIGA_CUSTOM_UI_COPPER_LINE_MAX 2047
 #define AMIGA_CUSTOM_UI_DMA_RECORD_CPU 2u
@@ -49,8 +46,6 @@ typedef struct amiga_custom_ui_state {
     int spriteVisEnabled;
     int suppressSpriteVisCallbacks;
     int blitterVisMode;
-    int suppressBlitterVisModeCallbacks;
-    int blitterVisBlink;
     int blitterVisDecay;
     int dmaStatsEnabled;
     int estimateFpsEnabled;
@@ -86,10 +81,7 @@ typedef struct amiga_custom_ui_state {
     e9ui_component_t *paletteVisualiserCheckbox;
     e9ui_component_t *blitterDebugCheckbox;
     e9ui_component_t *spriteVisCheckbox;
-    e9ui_component_t *blitterVisPatternCheckbox;
-    e9ui_component_t *blitterVisModeCheckbox;
     e9ui_component_t *blitterVisCollectCheckbox;
-    e9ui_component_t *blitterVisBlinkCheckbox;
     e9ui_component_t *blitterVisDecayRow;
     e9ui_component_t *blitterVisDecayTextbox;
     e9ui_component_t *blitterVisDecaySeekRow;
@@ -451,9 +443,6 @@ void
 amiga_custom_ui_blitter_applyVisModeOption(void);
 
 void
-amiga_custom_ui_blitter_applyVisBlinkOption(void);
-
-void
 amiga_custom_ui_blitter_applyDebugOption(void);
 
 void
@@ -475,16 +464,7 @@ void
 amiga_custom_ui_bitplane_paletteVisualiserChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user);
 
 void
-amiga_custom_ui_blitter_visPatternChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user);
-
-void
-amiga_custom_ui_blitter_visModeChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user);
-
-void
 amiga_custom_ui_blitter_visCollectChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user);
-
-void
-amiga_custom_ui_blitter_visBlinkChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user);
 
 void
 amiga_custom_ui_blitter_visDecayChanged(e9ui_context_t *ctx, e9ui_component_t *comp,

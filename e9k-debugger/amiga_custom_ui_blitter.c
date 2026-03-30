@@ -460,14 +460,6 @@ amiga_custom_ui_blitter_applyVisModeOption(void)
 
 
 void
-amiga_custom_ui_blitter_applyVisBlinkOption(void)
-{
-    amiga_custom_ui_state_t *ui = &amiga_custom_ui_state;
-    amiga_custom_ui_common_applyOption(E9K_DEBUG_OPTION_AMIGA_BLITTER_VIS_BLINK, ui->blitterVisBlink ? 1u : 0u);
-}
-
-
-void
 amiga_custom_ui_blitter_applyDebugOption(void)
 {
     amiga_custom_ui_state_t *ui = &amiga_custom_ui_state;
@@ -487,9 +479,6 @@ amiga_custom_ui_blitter_syncDebugSuboptions(amiga_custom_ui_state_t *ui)
     amiga_custom_ui_common_setComponentDisabled(ui->blitterVisDecayTextbox, disabled);
     amiga_custom_ui_common_setComponentDisabled(ui->blitterVisDecaySeekRow, disabled);
     amiga_custom_ui_common_setComponentDisabled(ui->blitterVisDecaySeekBar, disabled);
-    amiga_custom_ui_common_setComponentDisabled(ui->blitterVisBlinkCheckbox, disabled);
-    amiga_custom_ui_common_setComponentDisabled(ui->blitterVisPatternCheckbox, disabled);
-    amiga_custom_ui_common_setComponentDisabled(ui->blitterVisModeCheckbox, disabled);
 }
 
 
@@ -546,66 +535,6 @@ amiga_custom_ui_blitter_debugChanged(e9ui_component_t *self, e9ui_context_t *ctx
 
 
 void
-amiga_custom_ui_blitter_visPatternChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
-{
-    (void)self;
-    (void)ctx;
-    amiga_custom_ui_state_t *ui = (amiga_custom_ui_state_t*)user;
-    if (!ui) {
-        return;
-    }
-    if (!ui->blitterDebugEnabled) {
-        return;
-    }
-    if (ui->suppressBlitterVisModeCallbacks) {
-        return;
-    }
-    if (selected) {
-        ui->blitterVisMode |= AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_PATTERN;
-        ui->blitterVisMode &= ~AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_SOLID;
-        if (ui->blitterVisModeCheckbox) {
-            ui->suppressBlitterVisModeCallbacks = 1;
-            e9ui_checkbox_setSelected(ui->blitterVisModeCheckbox, 0, &ui->ctx);
-            ui->suppressBlitterVisModeCallbacks = 0;
-        }
-    } else {
-        ui->blitterVisMode &= ~AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_PATTERN;
-    }
-    amiga_custom_ui_blitter_applyVisModeOption();
-}
-
-
-void
-amiga_custom_ui_blitter_visModeChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
-{
-    (void)self;
-    (void)ctx;
-    amiga_custom_ui_state_t *ui = (amiga_custom_ui_state_t*)user;
-    if (!ui) {
-        return;
-    }
-    if (!ui->blitterDebugEnabled) {
-        return;
-    }
-    if (ui->suppressBlitterVisModeCallbacks) {
-        return;
-    }
-    if (selected) {
-        ui->blitterVisMode |= AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_SOLID;
-        ui->blitterVisMode &= ~AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_PATTERN;
-        if (ui->blitterVisPatternCheckbox) {
-            ui->suppressBlitterVisModeCallbacks = 1;
-            e9ui_checkbox_setSelected(ui->blitterVisPatternCheckbox, 0, &ui->ctx);
-            ui->suppressBlitterVisModeCallbacks = 0;
-        }
-    } else {
-        ui->blitterVisMode &= ~AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_SOLID;
-    }
-    amiga_custom_ui_blitter_applyVisModeOption();
-}
-
-
-void
 amiga_custom_ui_blitter_visCollectChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
 {
     (void)self;
@@ -617,32 +546,12 @@ amiga_custom_ui_blitter_visCollectChanged(e9ui_component_t *self, e9ui_context_t
     if (!ui->blitterDebugEnabled) {
         return;
     }
-    if (ui->suppressBlitterVisModeCallbacks) {
-        return;
-    }
     if (selected) {
         ui->blitterVisMode |= AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_COLLECT;
     } else {
         ui->blitterVisMode &= ~AMIGA_CUSTOM_UI_BLITTER_VIS_MODE_COLLECT;
     }
     amiga_custom_ui_blitter_applyVisModeOption();
-}
-
-
-void
-amiga_custom_ui_blitter_visBlinkChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
-{
-    (void)self;
-    (void)ctx;
-    amiga_custom_ui_state_t *ui = (amiga_custom_ui_state_t*)user;
-    if (!ui) {
-        return;
-    }
-    if (!ui->blitterDebugEnabled) {
-        return;
-    }
-    ui->blitterVisBlink = selected ? 1 : 0;
-    amiga_custom_ui_blitter_applyVisBlinkOption();
 }
 
 

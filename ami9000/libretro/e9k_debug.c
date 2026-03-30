@@ -1365,13 +1365,6 @@ e9k_debug_set_debug_option(e9k_debug_option_t option, uint32_t argument, void *u
 			(void)argument;
 #endif
 			break;
-		case E9K_DEBUG_OPTION_AMIGA_BLITTER_VIS_BLINK:
-#if E9K_HACK_BLITTER_VIS
-			blitter_setDebugVisBlink(argument != 0u);
-#else
-			(void)argument;
-#endif
-			break;
 		case E9K_DEBUG_OPTION_AMIGA_COPPER_LINE_LIMIT_ENABLED:
 			custom_setCopperLineLimitEnabled(argument != 0u);
 			break;
@@ -1665,8 +1658,6 @@ e9k_debug_ami_blitter_vis_read_stats(e9k_debug_ami_blitter_vis_stats_t *out, siz
 	maxWriteBytesEstimateFrame = custom_blitterVisGetMaxWriteBytesLastFrame();
 	out->enabled = blitter_getDebugWriteEnabled() ? 1u : 0u;
 	out->mode = (uint32_t)blitter_getDebugVisMode();
-	out->blink = blitter_getDebugVisBlink() ? 1u : 0u;
-	out->livePhase = blitter_getDebugShowLivePhase() ? 1u : 0u;
 	out->activeCount = blitter_getDebugActiveCount();
 	out->blitsThisFrame = blitter_getDebugBlitsLastFrame();
 	out->writesThisFrame = blitter_getDebugWritesLastFrame();
