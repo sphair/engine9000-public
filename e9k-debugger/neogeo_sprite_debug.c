@@ -543,6 +543,10 @@ neogeo_sprite_debug_toggle(void)
         s_dbg.hist_grad_ready = 0;
         s_dbg.cached_valid = 0;
         s_dbg.last_hash = 0;
+        if (s_dbg.windowState.windowHost) {
+            e9ui_windowDestroy(s_dbg.windowState.windowHost);
+            s_dbg.windowState.windowHost = NULL;
+        }
         s_dbg.overlayBodyHost = NULL;
         s_dbg.hist_x0_anchor = -1;
         s_dbg.windowState.open = 0;
