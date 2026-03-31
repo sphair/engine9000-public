@@ -511,11 +511,28 @@ ui_refreshOnPause(void)
 void
 ui_centerSourceOnAddress(uint32_t addr)
 {
-    for (size_t i = 0; i < sizeof(ui_source_panes)/sizeof(ui_source_panes[0]); ++i) {
-        if (ui_source_panes[i]) {
-            source_pane_centerOnAddress(ui_source_panes[i], &e9ui->ctx, addr);
+    e9ui_component_t *pane = NULL;
+
+    for (size_t i = 0; i < sizeof(ui_source_panes) / sizeof(ui_source_panes[0]); ++i) {
+        if (ui_source_panes[i] && source_pane_getMode(ui_source_panes[i]) != source_pane_mode_cpr) {
+            pane = ui_source_panes[i];
+            break;
         }
     }
+
+    if (!pane) {
+        pane = ui_source_panes[0] ? ui_source_panes[0] : ui_source_panes[1];
+    }
+    if (!pane) {
+        return;
+    }
+
+    if (source_pane_getMode(pane) != source_pane_mode_a &&
+        source_pane_getMode(pane) != source_pane_mode_h) {
+        source_pane_setMode(pane, source_pane_mode_a);
+    }
+    source_pane_submitAddress(pane, &e9ui->ctx, addr);
+    e9ui_setFocus(&e9ui->ctx, pane);
 }
 
 void

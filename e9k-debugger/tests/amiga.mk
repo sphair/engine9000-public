@@ -31,6 +31,9 @@ make-test-amigavasm: all tests/amiga/vasm/vasm.adf
 make-test-amigacustomui: all tests/amiga/custom/custom.adf
 	./e9k-debugger --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --make-test tests/results/amiga/custom
 
+make-test-amigablitvis: all tests/amiga/custom/custom.adf
+	./e9k-debugger --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --make-test tests/results/amiga/blitvis
+
 make-test-amigacustom: all tests/amiga/custom/custom.adf
 	./e9k-debugger --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --make-test tests/results/amiga/custom2
 
@@ -69,6 +72,10 @@ remake-test-amigavasm: all tests/amiga/vasm/vasm.adf
 remake-test-amigacustomui: all tests/amiga/custom/custom.adf
 	@printf "AMIGA CUSTOMUI ($@) ..."
 	./e9k-debugger --amiga --volume=0 --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --remake-test tests/results/amiga/custom
+
+remake-test-amigablitvis: all tests/amiga/custom/custom.adf
+	@printf "AMIGA BLITVIS ($@) ..."
+	./e9k-debugger --amiga --volume=0 --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --remake-test tests/results/amiga/blitvis
 
 remake-test-amigacustom: all tests/amiga/custom/custom.adf
 	@printf "AMIGA CUSTOM ($@) ..."
@@ -121,6 +128,11 @@ test-amigavasm: all tests/amiga/vasm/vasm.adf
 test-amigacustomui: all tests/amiga/custom/custom.adf
 	@printf "AMIGA CUSTOMUI ($@) ..."
 	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test tests/results/amiga/custom >> test.log 2>&1
+	@echo " PASSED ✅"
+
+test-amigablitvis: all tests/amiga/custom/custom.adf
+	@printf "AMIGA BLITVIS ($@) ..."
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test tests/results/amiga/blitvis >> test.log 2>&1
 	@echo " PASSED ✅"
 
 test-amigacustom: all tests/amiga/custom/custom.adf

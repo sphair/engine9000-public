@@ -234,6 +234,9 @@ bool
 libretro_host_debugAmiGetBlitterDebug(int *out_enabled);
 
 size_t
+libretro_host_debugAmiReadBlitterVisSpans(e9k_debug_ami_blitter_vis_span_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height);
+
+size_t
 libretro_host_debugAmiReadBlitterVisPoints(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height);
 
 bool

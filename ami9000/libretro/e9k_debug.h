@@ -110,6 +110,9 @@ void
 e9k_debug_ami_on_video_presented(void);
 
 size_t
+e9k_debug_ami_blitter_vis_read_spans(e9k_debug_ami_blitter_vis_span_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight);
+
+size_t
 e9k_debug_ami_blitter_vis_read_points(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight);
 
 size_t

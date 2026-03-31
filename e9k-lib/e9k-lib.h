@@ -65,11 +65,16 @@ typedef struct e9k_debug_checkpoint {
     uint64_t maximum;
 } e9k_debug_checkpoint_t;
 
-typedef struct e9k_debug_ami_blitter_vis_point {
+typedef struct e9k_debug_ami_blitter_vis_span {
     uint16_t x;
     uint16_t y;
+    uint16_t xEnd;
     uint32_t blitId;
-} e9k_debug_ami_blitter_vis_point_t;
+    uint32_t sourceAddr;
+    uint8_t sourceIsCopper;
+} e9k_debug_ami_blitter_vis_span_t;
+
+typedef e9k_debug_ami_blitter_vis_span_t e9k_debug_ami_blitter_vis_point_t;
 
 typedef struct e9k_debug_ami_blitter_vis_stats {
     uint32_t enabled;
@@ -80,8 +85,6 @@ typedef struct e9k_debug_ami_blitter_vis_stats {
     uint32_t writeBytesThisFrame;
     uint32_t writeBytesMaxEstimateFrame;
     uint32_t frameCounter;
-    uint32_t fetchQueriesThisFrame;
-    uint32_t fetchHitsThisFrame;
     uint32_t drawMarkCallsFrame;
     uint32_t drawMarkCallsSnapshot;
 } e9k_debug_ami_blitter_vis_stats_t;

@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <time.h>
 
 #include "debugger.h"
 #include "debugger_input_bindings.h"
@@ -35,6 +36,7 @@
 #define EMU_AMI_BLITTER_VIS_ALPHA_MAX 0xb0u
 #define EMU_AMI_BLITTER_VIS_BLIT_TABLE_CAP_MIN 1024u
 #define EMU_AMI_BLITTER_VIS_BLIT_TABLE_CAP_MAX (1u << 20)
+#define EMU_AMI_BLITTER_VIS_PROFILE_LOG_EVERY 60u
 #define EMU_AMI_DMA_DEBUG_ALPHA 0xa0u
 #define EMU_AMI_DMA_RECORD_REFRESH 1u
 #define EMU_AMI_DMA_RECORD_CPU 2u
@@ -90,10 +92,12 @@ typedef struct emu_ami_blitter_vis_cache {
     SDL_Renderer *renderer;
     uint32_t *pixels;
     size_t pixelsCap;
-    uint32_t *retainedBlitIds;
-    uint32_t *retainedFrames;
-    uint32_t *retainedRgbs;
+    struct emu_ami_blitter_vis_retained_pixel *retainedPixels;
     size_t retainedCap;
+    uint32_t *retainedActivePixels;
+    uint32_t *retainedActiveSlots;
+    size_t retainedActiveCap;
+    size_t retainedActiveCount;
     uint32_t *blitFrameIds;
     uint32_t *blitFrameValues;
     size_t blitFrameCap;
@@ -102,6 +106,7 @@ typedef struct emu_ami_blitter_vis_cache {
     int texHeight;
     e9k_debug_ami_blitter_vis_point_t *points;
     size_t pointsCap;
+    size_t pointCount;
     emu_ami_blitter_vis_line_stat_t *lineTable;
     size_t lineTableCap;
     emu_ami_blitter_vis_line_stat_t *lineList;
@@ -112,6 +117,13 @@ typedef struct emu_ami_blitter_vis_cache {
     int hasLatestStats;
     e9k_debug_ami_blitter_vis_stats_t latestStats;
 } emu_ami_blitter_vis_cache_t;
+
+typedef struct emu_ami_blitter_vis_retained_pixel {
+    uint32_t blitId;
+    uint32_t frame;
+    uint32_t rgb;
+    uint32_t sourceInfo;
+} emu_ami_blitter_vis_retained_pixel_t;
 
 typedef struct emu_ami_sprite_vis_cache {
     SDL_Texture *texture;
@@ -165,6 +177,21 @@ static int emu_ami_legendReservedHeight = 0;
 
 static uint32_t
 emu_ami_blitterVisColorFromId(uint32_t blitId);
+
+static uint32_t
+emu_ami_blitterVisRetainedPackSource(uint32_t sourceAddr, int sourceIsCopper);
+
+static uint32_t
+emu_ami_blitterVisRetainedSourceAddr(uint32_t sourceInfo);
+
+static int
+emu_ami_blitterVisRetainedSourceIsCopper(uint32_t sourceInfo);
+
+static void
+emu_ami_blitterVisRetainedActivate(size_t pixelIndex);
+
+static void
+emu_ami_blitterVisRetainedRemove(size_t pixelIndex);
 
 static uint32_t
 emu_ami_blitterVisHoveredIdAtPoint(const SDL_Rect *dst,
@@ -887,9 +914,9 @@ emu_ami_destroy(void)
         emu_ami_blitterVisCache.texture = NULL;
     }
     free(emu_ami_blitterVisCache.pixels);
-    free(emu_ami_blitterVisCache.retainedBlitIds);
-    free(emu_ami_blitterVisCache.retainedFrames);
-    free(emu_ami_blitterVisCache.retainedRgbs);
+    free(emu_ami_blitterVisCache.retainedPixels);
+    free(emu_ami_blitterVisCache.retainedActivePixels);
+    free(emu_ami_blitterVisCache.retainedActiveSlots);
     free(emu_ami_blitterVisCache.blitFrameIds);
     free(emu_ami_blitterVisCache.blitFrameValues);
     free(emu_ami_blitterVisCache.points);
@@ -936,6 +963,72 @@ emu_ami_blitterVisColorFromId(uint32_t blitId)
 }
 
 static uint32_t
+emu_ami_blitterVisRetainedPackSource(uint32_t sourceAddr, int sourceIsCopper)
+{
+    uint32_t packed = sourceAddr & 0x00ffffffu;
+    if (sourceIsCopper) {
+        packed |= 0x80000000u;
+    }
+    return packed;
+}
+
+static uint32_t
+emu_ami_blitterVisRetainedSourceAddr(uint32_t sourceInfo)
+{
+    return sourceInfo & 0x00ffffffu;
+}
+
+static int
+emu_ami_blitterVisRetainedSourceIsCopper(uint32_t sourceInfo)
+{
+    return (sourceInfo & 0x80000000u) != 0u ? 1 : 0;
+}
+
+static void
+emu_ami_blitterVisRetainedActivate(size_t pixelIndex)
+{
+    if (!emu_ami_blitterVisCache.retainedActivePixels ||
+        !emu_ami_blitterVisCache.retainedActiveSlots ||
+        pixelIndex >= emu_ami_blitterVisCache.retainedCap ||
+        pixelIndex >= emu_ami_blitterVisCache.retainedActiveCap) {
+        return;
+    }
+    if (emu_ami_blitterVisCache.retainedActiveSlots[pixelIndex] != 0u) {
+        return;
+    }
+    if (emu_ami_blitterVisCache.retainedActiveCount >= emu_ami_blitterVisCache.retainedActiveCap) {
+        return;
+    }
+    emu_ami_blitterVisCache.retainedActivePixels[emu_ami_blitterVisCache.retainedActiveCount] = (uint32_t)pixelIndex;
+    emu_ami_blitterVisCache.retainedActiveSlots[pixelIndex] = (uint32_t)(emu_ami_blitterVisCache.retainedActiveCount + 1u);
+    emu_ami_blitterVisCache.retainedActiveCount++;
+}
+
+static void
+emu_ami_blitterVisRetainedRemove(size_t pixelIndex)
+{
+    if (!emu_ami_blitterVisCache.retainedActivePixels ||
+        !emu_ami_blitterVisCache.retainedActiveSlots ||
+        pixelIndex >= emu_ami_blitterVisCache.retainedCap ||
+        pixelIndex >= emu_ami_blitterVisCache.retainedActiveCap) {
+        return;
+    }
+    uint32_t slotPlusOne = emu_ami_blitterVisCache.retainedActiveSlots[pixelIndex];
+    if (slotPlusOne == 0u || emu_ami_blitterVisCache.retainedActiveCount == 0u) {
+        return;
+    }
+    size_t slot = (size_t)(slotPlusOne - 1u);
+    size_t lastSlot = emu_ami_blitterVisCache.retainedActiveCount - 1u;
+    uint32_t movedPixelIndex = emu_ami_blitterVisCache.retainedActivePixels[lastSlot];
+    emu_ami_blitterVisCache.retainedActiveSlots[pixelIndex] = 0u;
+    if (slot != lastSlot) {
+        emu_ami_blitterVisCache.retainedActivePixels[slot] = movedPixelIndex;
+        emu_ami_blitterVisCache.retainedActiveSlots[movedPixelIndex] = (uint32_t)(slot + 1u);
+    }
+    emu_ami_blitterVisCache.retainedActiveCount = lastSlot;
+}
+
+static uint32_t
 emu_ami_blitterVisHoveredIdAtPoint(const SDL_Rect *dst,
                                    int mouseX,
                                    int mouseY,
@@ -963,19 +1056,107 @@ emu_ami_blitterVisHoveredIdAtPoint(const SDL_Rect *dst,
     }
 
     if (overlayMode &&
-        emu_ami_blitterVisCache.retainedBlitIds &&
+        emu_ami_blitterVisCache.retainedPixels &&
         emu_ami_blitterVisCache.retainedCap >= ((size_t)srcWidth * (size_t)srcHeight)) {
         size_t pixelIndex = (size_t)srcY * (size_t)srcWidth + (size_t)srcX;
-        return emu_ami_blitterVisCache.retainedBlitIds[pixelIndex];
+        return emu_ami_blitterVisCache.retainedPixels[pixelIndex].blitId;
     }
 
     for (size_t i = 0u; i < fetchedCount; ++i) {
-        if ((uint32_t)emu_ami_blitterVisCache.points[i].x == srcX &&
-            (uint32_t)emu_ami_blitterVisCache.points[i].y == srcY) {
+        uint32_t spanX = (uint32_t)emu_ami_blitterVisCache.points[i].x;
+        uint32_t spanY = (uint32_t)emu_ami_blitterVisCache.points[i].y;
+        uint32_t spanXEnd = (uint32_t)emu_ami_blitterVisCache.points[i].xEnd;
+        if (spanXEnd < spanX) {
+            spanXEnd = spanX;
+        }
+        if (spanY == srcY && srcX >= spanX && srcX <= spanXEnd) {
             return emu_ami_blitterVisCache.points[i].blitId;
         }
     }
     return 0u;
+}
+
+static int
+emu_ami_blitterVisSourceAtPoint(const SDL_Rect *dst,
+                                int mouseX,
+                                int mouseY,
+                                uint32_t srcWidth,
+                                uint32_t srcHeight,
+                                int overlayMode,
+                                size_t fetchedCount,
+                                uint32_t *outBlitId,
+                                uint32_t *outSourceAddr,
+                                int *outSourceIsCopper)
+{
+    if (outBlitId) {
+        *outBlitId = 0u;
+    }
+    if (outSourceAddr) {
+        *outSourceAddr = 0u;
+    }
+    if (outSourceIsCopper) {
+        *outSourceIsCopper = 0;
+    }
+    if (!dst || dst->w <= 0 || dst->h <= 0 || srcWidth == 0u || srcHeight == 0u) {
+        return 0;
+    }
+    if (mouseX < dst->x || mouseX >= dst->x + dst->w || mouseY < dst->y || mouseY >= dst->y + dst->h) {
+        return 0;
+    }
+
+    int localX = mouseX - dst->x;
+    int localY = mouseY - dst->y;
+    uint32_t srcX = (uint32_t)(((uint64_t)localX * srcWidth) / (uint32_t)dst->w);
+    uint32_t srcY = (uint32_t)(((uint64_t)localY * srcHeight) / (uint32_t)dst->h);
+    if (srcX >= srcWidth) {
+        srcX = srcWidth - 1u;
+    }
+    if (srcY >= srcHeight) {
+        srcY = srcHeight - 1u;
+    }
+
+    if (overlayMode &&
+        emu_ami_blitterVisCache.retainedPixels &&
+        emu_ami_blitterVisCache.retainedCap >= ((size_t)srcWidth * (size_t)srcHeight)) {
+        size_t pixelIndex = (size_t)srcY * (size_t)srcWidth + (size_t)srcX;
+        const emu_ami_blitter_vis_retained_pixel_t *retainedPixel = &emu_ami_blitterVisCache.retainedPixels[pixelIndex];
+        uint32_t blitId = retainedPixel->blitId;
+        if (!blitId) {
+            return 0;
+        }
+        if (outBlitId) {
+            *outBlitId = blitId;
+        }
+        if (outSourceAddr) {
+            *outSourceAddr = emu_ami_blitterVisRetainedSourceAddr(retainedPixel->sourceInfo);
+        }
+        if (outSourceIsCopper) {
+            *outSourceIsCopper = emu_ami_blitterVisRetainedSourceIsCopper(retainedPixel->sourceInfo);
+        }
+        return 1;
+    }
+
+    for (size_t i = 0u; i < fetchedCount; ++i) {
+        uint32_t spanX = (uint32_t)emu_ami_blitterVisCache.points[i].x;
+        uint32_t spanY = (uint32_t)emu_ami_blitterVisCache.points[i].y;
+        uint32_t spanXEnd = (uint32_t)emu_ami_blitterVisCache.points[i].xEnd;
+        if (spanXEnd < spanX) {
+            spanXEnd = spanX;
+        }
+        if (spanY == srcY && srcX >= spanX && srcX <= spanXEnd) {
+            if (outBlitId) {
+                *outBlitId = emu_ami_blitterVisCache.points[i].blitId;
+            }
+            if (outSourceAddr) {
+                *outSourceAddr = emu_ami_blitterVisCache.points[i].sourceAddr;
+            }
+            if (outSourceIsCopper) {
+                *outSourceIsCopper = emu_ami_blitterVisCache.points[i].sourceIsCopper ? 1 : 0;
+            }
+            return emu_ami_blitterVisCache.points[i].blitId != 0u;
+        }
+    }
+    return 0;
 }
 
 static uint32_t
@@ -1432,6 +1613,10 @@ emu_ami_blitterVisAnalyzePoints(emu_ami_blitter_vis_cache_t *cache, size_t fetch
         }
         uint32_t y = (uint32_t)cache->points[i].y;
         uint32_t x = (uint32_t)cache->points[i].x;
+        uint32_t xEnd = (uint32_t)cache->points[i].xEnd;
+        if (xEnd < x) {
+            xEnd = x;
+        }
         uint32_t hash = emu_ami_blitterVisLineHash(blitId, y);
         size_t index = (size_t)hash & mask;
         emu_ami_blitter_vis_line_stat_t *entry = NULL;
@@ -1442,8 +1627,8 @@ emu_ami_blitterVisAnalyzePoints(emu_ami_blitter_vis_cache_t *cache, size_t fetch
                 candidate->blitId = blitId;
                 candidate->y = y;
                 candidate->minX = x;
-                candidate->maxX = x;
-                candidate->count = 1u;
+                candidate->maxX = xEnd;
+                candidate->count = xEnd - x + 1u;
                 entry = candidate;
                 break;
             }
@@ -1457,14 +1642,14 @@ emu_ami_blitterVisAnalyzePoints(emu_ami_blitter_vis_cache_t *cache, size_t fetch
             out->droppedEntries++;
             continue;
         }
-        if (entry->count != 1u || entry->minX != x || entry->maxX != x) {
+        if (entry->count != xEnd - x + 1u || entry->minX != x || entry->maxX != xEnd) {
             if (x < entry->minX) {
                 entry->minX = x;
             }
-            if (x > entry->maxX) {
-                entry->maxX = x;
+            if (xEnd > entry->maxX) {
+                entry->maxX = xEnd;
             }
-            entry->count++;
+            entry->count += xEnd - x + 1u;
         }
     }
 
@@ -1565,196 +1750,6 @@ emu_ami_blitterVisAnalyzePoints(emu_ami_blitter_vis_cache_t *cache, size_t fetch
     return 1;
 }
 
-static __attribute__((unused)) void
-emu_ami_blitterVisDumpRunsForLine(emu_ami_blitter_vis_cache_t *cache,
-                                  size_t fetchedCount,
-                                  uint32_t blitId,
-                                  uint32_t y,
-                                  uint32_t width,
-                                  const char *label)
-{
-    if (!cache || !cache->points || !label || !width) {
-        return;
-    }
-    uint8_t *mask = (uint8_t *)calloc(width, sizeof(*mask));
-    if (!mask) {
-        return;
-    }
-
-    uint32_t count = 0u;
-    for (size_t i = 0; i < fetchedCount; ++i) {
-        const e9k_debug_ami_blitter_vis_point_t *p = &cache->points[i];
-        if (p->blitId != blitId || (uint32_t)p->y != y) {
-            continue;
-        }
-        if ((uint32_t)p->x >= width) {
-            continue;
-        }
-        if (!mask[p->x]) {
-            mask[p->x] = 1u;
-            count++;
-        }
-    }
-
-    printf("E9K BLITTER VIS RUNS: %s blit=%u y=%u count=%u width=%u\n", label, blitId, y, count, width);
-    uint32_t runCount = 0u;
-    int inRun = 0;
-    uint32_t runStart = 0u;
-    for (uint32_t x = 0u; x < width; ++x) {
-        if (!inRun && mask[x]) {
-            inRun = 1;
-            runStart = x;
-            continue;
-        }
-        if (inRun && !mask[x]) {
-            printf("E9K BLITTER VIS RUNS: %s run=%u [%u,%u]\n", label, runCount, runStart, x - 1u);
-            runCount++;
-            inRun = 0;
-            if (runCount >= 24u) {
-                printf("E9K BLITTER VIS RUNS: %s truncated_after=%u\n", label, runCount);
-                break;
-            }
-        }
-    }
-    if (inRun && runCount < 24u) {
-        printf("E9K BLITTER VIS RUNS: %s run=%u [%u,%u]\n", label, runCount, runStart, width - 1u);
-    }
-    free(mask);
-}
-
-static __attribute__((unused)) void
-emu_ami_blitterVisDumpSpanIdsForLine(emu_ami_blitter_vis_cache_t *cache,
-                                     size_t fetchedCount,
-                                     uint32_t y,
-                                     uint32_t width,
-                                     uint32_t xStart,
-                                     uint32_t xEnd,
-                                     const char *label)
-{
-    if (!cache || !cache->points || !label || !width || xStart > xEnd || xStart >= width) {
-        return;
-    }
-    if (xEnd >= width) {
-        xEnd = width - 1u;
-    }
-    uint32_t *idByX = (uint32_t *)calloc(width, sizeof(*idByX));
-    if (!idByX) {
-        return;
-    }
-    for (size_t i = 0; i < fetchedCount; ++i) {
-        const e9k_debug_ami_blitter_vis_point_t *p = &cache->points[i];
-        if ((uint32_t)p->y != y) {
-            continue;
-        }
-        uint32_t x = (uint32_t)p->x;
-        if (x < xStart || x > xEnd || x >= width) {
-            continue;
-        }
-        idByX[x] = p->blitId;
-    }
-
-    printf("E9K BLITTER VIS SPANIDS: %s y=%u span=[%u,%u]\n", label, y, xStart, xEnd);
-    uint32_t runCount = 0u;
-    uint32_t runStart = xStart;
-    uint32_t runId = idByX[xStart];
-    for (uint32_t x = xStart + 1u; x <= xEnd; ++x) {
-        if (idByX[x] == runId) {
-            continue;
-        }
-        printf("E9K BLITTER VIS SPANIDS: %s run=%u id=%u [%u,%u]\n", label, runCount, runId, runStart, x - 1u);
-        runCount++;
-        runStart = x;
-        runId = idByX[x];
-        if (runCount >= 48u) {
-            printf("E9K BLITTER VIS SPANIDS: %s truncated_after=%u\n", label, runCount);
-            free(idByX);
-            return;
-        }
-    }
-    printf("E9K BLITTER VIS SPANIDS: %s run=%u id=%u [%u,%u]\n", label, runCount, runId, runStart, xEnd);
-    free(idByX);
-}
-
-static __attribute__((unused)) void
-emu_ami_blitterVisDumpMinXVariance(const emu_ami_blitter_vis_cache_t *cache, const emu_ami_blitter_vis_analysis_t *analysis)
-{
-    if (!cache || !analysis || !cache->lineList || analysis->lineCount == 0u) {
-        return;
-    }
-    uint32_t logged = 0u;
-    size_t idx = 0u;
-    while (idx < (size_t)analysis->lineCount) {
-        const emu_ami_blitter_vis_line_stat_t *start = &cache->lineList[idx];
-        uint32_t blitId = start->blitId;
-        uint32_t lowMinX = start->minX;
-        uint32_t highMinX = start->minX;
-        uint32_t lowY = start->y;
-        uint32_t highY = start->y;
-        size_t lines = 1u;
-        idx++;
-        while (idx < (size_t)analysis->lineCount && cache->lineList[idx].blitId == blitId) {
-            const emu_ami_blitter_vis_line_stat_t *entry = &cache->lineList[idx];
-            if (entry->minX < lowMinX) {
-                lowMinX = entry->minX;
-                lowY = entry->y;
-            }
-            if (entry->minX > highMinX) {
-                highMinX = entry->minX;
-                highY = entry->y;
-            }
-            lines++;
-            idx++;
-        }
-        if (highMinX > lowMinX) {
-            printf("E9K BLITTER VIS XLTMIN: blit=%u lowMinX=%u lowY=%u highMinX=%u highY=%u spread=%u lines=%zu\n",
-                   blitId,
-                   lowMinX,
-                   lowY,
-                   highMinX,
-                   highY,
-                   highMinX - lowMinX,
-                   lines);
-            logged++;
-            if (logged >= EMU_AMI_BLITTER_VIS_XINV_MAX_LOGS) {
-                printf("E9K BLITTER VIS XLTMIN: truncated_after=%u totalBlits=%u\n",
-                       logged,
-                       analysis->blitsWithMinXVariance);
-                break;
-            }
-        }
-    }
-}
-
-static __attribute__((unused)) void
-emu_ami_blitterVisDumpBlitLines(const emu_ami_blitter_vis_cache_t *cache,
-                                const emu_ami_blitter_vis_analysis_t *analysis,
-                                uint32_t blitId)
-{
-    if (!cache || !analysis || !cache->lineList || !blitId) {
-        return;
-    }
-    printf("E9K BLITTER VIS BLITLINES: blit=%u begin\n", blitId);
-    uint32_t logged = 0u;
-    for (size_t i = 0u; i < (size_t)analysis->lineCount; ++i) {
-        const emu_ami_blitter_vis_line_stat_t *entry = &cache->lineList[i];
-        if (entry->blitId != blitId) {
-            continue;
-        }
-        printf("E9K BLITTER VIS BLITLINES: blit=%u y=%u minX=%u maxX=%u count=%u\n",
-               blitId,
-               entry->y,
-               entry->minX,
-               entry->maxX,
-               entry->count);
-        logged++;
-        if (logged >= 128u) {
-            printf("E9K BLITTER VIS BLITLINES: blit=%u truncated_after=%u\n", blitId, logged);
-            break;
-        }
-    }
-    printf("E9K BLITTER VIS BLITLINES: blit=%u end lines=%u\n", blitId, logged);
-}
-
 static void
 emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
 {
@@ -1765,6 +1760,7 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
     int enabled = 0;
     if (!libretro_host_debugAmiGetBlitterDebug(&enabled) || !enabled) {
         emu_ami_blitterVisCache.hoveredBlitId = 0u;
+        emu_ami_blitterVisCache.pointCount = 0u;
         return;
     }
 
@@ -1780,10 +1776,11 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
         }
     }
 
-    size_t fetchedCount = libretro_host_debugAmiReadBlitterVisPoints(emu_ami_blitterVisCache.points,
-                                                                     emu_ami_blitterVisCache.pointsCap,
-                                                                     &srcWidth,
-                                                                     &srcHeight);
+    size_t fetchedCount = 0u;
+    fetchedCount = libretro_host_debugAmiReadBlitterVisSpans(emu_ami_blitterVisCache.points,
+                                                             emu_ami_blitterVisCache.pointsCap,
+                                                             &srcWidth,
+                                                             &srcHeight);
     e9k_debug_ami_blitter_vis_stats_t stats;
     int hasStats = libretro_host_debugAmiReadBlitterVisStats(&stats) ? 1 : 0;
     if (hasStats) {
@@ -1813,6 +1810,7 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
     }
     if (!srcWidth || !srcHeight) {
         emu_ami_blitterVisCache.hoveredBlitId = 0u;
+        emu_ami_blitterVisCache.pointCount = 0u;
         if (emu_ami_blitterVisCache.hasRetainedOverlay && emu_ami_blitterVisCache.texture) {
             SDL_SetTextureBlendMode(emu_ami_blitterVisCache.texture, SDL_BLENDMODE_BLEND);
             SDL_RenderCopy(ctx->renderer, emu_ami_blitterVisCache.texture, NULL, dst);
@@ -1828,14 +1826,15 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
         }
         emu_ami_blitterVisCache.points = nextPoints;
         emu_ami_blitterVisCache.pointsCap = fetchedCount;
-        fetchedCount = libretro_host_debugAmiReadBlitterVisPoints(emu_ami_blitterVisCache.points,
-                                                                   emu_ami_blitterVisCache.pointsCap,
-                                                                   &srcWidth,
-                                                                   &srcHeight);
+        fetchedCount = libretro_host_debugAmiReadBlitterVisSpans(emu_ami_blitterVisCache.points,
+                                                                 emu_ami_blitterVisCache.pointsCap,
+                                                                 &srcWidth,
+                                                                 &srcHeight);
     }
 
     if (!srcWidth || !srcHeight) {
         emu_ami_blitterVisCache.hoveredBlitId = 0u;
+        emu_ami_blitterVisCache.pointCount = 0u;
         if (emu_ami_blitterVisCache.hasRetainedOverlay && emu_ami_blitterVisCache.texture) {
             SDL_SetTextureBlendMode(emu_ami_blitterVisCache.texture, SDL_BLENDMODE_BLEND);
             SDL_RenderCopy(ctx->renderer, emu_ami_blitterVisCache.texture, NULL, dst);
@@ -1847,6 +1846,7 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
     int textureHeight = (int)srcHeight;
     if (textureWidth <= 0 || textureHeight <= 0) {
         emu_ami_blitterVisCache.hoveredBlitId = 0u;
+        emu_ami_blitterVisCache.pointCount = 0u;
         return;
     }
 
@@ -1885,58 +1885,59 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
 
     size_t pixelCount = (size_t)textureWidth * (size_t)textureHeight;
     if (pixelCount > emu_ami_blitterVisCache.pixelsCap) {
+        size_t oldPixelsCap = emu_ami_blitterVisCache.pixelsCap;
         uint32_t *nextPixels = (uint32_t *)realloc(emu_ami_blitterVisCache.pixels, pixelCount * sizeof(*nextPixels));
         if (!nextPixels) {
             return;
         }
         emu_ami_blitterVisCache.pixels = nextPixels;
         emu_ami_blitterVisCache.pixelsCap = pixelCount;
+        memset(emu_ami_blitterVisCache.pixels + oldPixelsCap,
+               0,
+               (pixelCount - oldPixelsCap) * sizeof(*emu_ami_blitterVisCache.pixels));
     }
 
     if (pixelCount > emu_ami_blitterVisCache.retainedCap) {
-        uint32_t *nextRetainedBlitIds =
-            (uint32_t *)realloc(emu_ami_blitterVisCache.retainedBlitIds, pixelCount * sizeof(*nextRetainedBlitIds));
-        if (!nextRetainedBlitIds) {
+        emu_ami_blitter_vis_retained_pixel_t *nextRetainedPixels =
+            (emu_ami_blitter_vis_retained_pixel_t *)realloc(emu_ami_blitterVisCache.retainedPixels, pixelCount * sizeof(*nextRetainedPixels));
+        if (!nextRetainedPixels) {
             return;
         }
-        emu_ami_blitterVisCache.retainedBlitIds = nextRetainedBlitIds;
-        uint32_t *nextRetainedFrames =
-            (uint32_t *)realloc(emu_ami_blitterVisCache.retainedFrames, pixelCount * sizeof(*nextRetainedFrames));
-        if (!nextRetainedFrames) {
+        emu_ami_blitterVisCache.retainedPixels = nextRetainedPixels;
+        uint32_t *nextRetainedActivePixels =
+            (uint32_t *)realloc(emu_ami_blitterVisCache.retainedActivePixels, pixelCount * sizeof(*nextRetainedActivePixels));
+        if (!nextRetainedActivePixels) {
             return;
         }
-        emu_ami_blitterVisCache.retainedFrames = nextRetainedFrames;
-        uint32_t *nextRetainedRgbs =
-            (uint32_t *)realloc(emu_ami_blitterVisCache.retainedRgbs, pixelCount * sizeof(*nextRetainedRgbs));
-        if (!nextRetainedRgbs) {
+        emu_ami_blitterVisCache.retainedActivePixels = nextRetainedActivePixels;
+        uint32_t *nextRetainedActiveSlots =
+            (uint32_t *)realloc(emu_ami_blitterVisCache.retainedActiveSlots, pixelCount * sizeof(*nextRetainedActiveSlots));
+        if (!nextRetainedActiveSlots) {
             return;
         }
-        emu_ami_blitterVisCache.retainedRgbs = nextRetainedRgbs;
+        emu_ami_blitterVisCache.retainedActiveSlots = nextRetainedActiveSlots;
         size_t oldRetainedCap = emu_ami_blitterVisCache.retainedCap;
         emu_ami_blitterVisCache.retainedCap = pixelCount;
+        emu_ami_blitterVisCache.retainedActiveCap = pixelCount;
         if (pixelCount > oldRetainedCap) {
-            memset(emu_ami_blitterVisCache.retainedBlitIds + oldRetainedCap,
+            memset(emu_ami_blitterVisCache.retainedPixels + oldRetainedCap,
                    0,
-                   (pixelCount - oldRetainedCap) * sizeof(*emu_ami_blitterVisCache.retainedBlitIds));
-            memset(emu_ami_blitterVisCache.retainedFrames + oldRetainedCap,
+                   (pixelCount - oldRetainedCap) * sizeof(*emu_ami_blitterVisCache.retainedPixels));
+            memset(emu_ami_blitterVisCache.retainedActiveSlots + oldRetainedCap,
                    0,
-                   (pixelCount - oldRetainedCap) * sizeof(*emu_ami_blitterVisCache.retainedFrames));
-            memset(emu_ami_blitterVisCache.retainedRgbs + oldRetainedCap,
-                   0,
-                   (pixelCount - oldRetainedCap) * sizeof(*emu_ami_blitterVisCache.retainedRgbs));
+                   (pixelCount - oldRetainedCap) * sizeof(*emu_ami_blitterVisCache.retainedActiveSlots));
         }
     }
 
     if (textureRecreated &&
-        emu_ami_blitterVisCache.retainedBlitIds &&
+        emu_ami_blitterVisCache.retainedPixels &&
         emu_ami_blitterVisCache.retainedCap >= pixelCount) {
-        memset(emu_ami_blitterVisCache.retainedBlitIds, 0, pixelCount * sizeof(*emu_ami_blitterVisCache.retainedBlitIds));
-        if (emu_ami_blitterVisCache.retainedFrames) {
-            memset(emu_ami_blitterVisCache.retainedFrames, 0, pixelCount * sizeof(*emu_ami_blitterVisCache.retainedFrames));
+        memset(emu_ami_blitterVisCache.pixels, 0, pixelCount * sizeof(*emu_ami_blitterVisCache.pixels));
+        memset(emu_ami_blitterVisCache.retainedPixels, 0, pixelCount * sizeof(*emu_ami_blitterVisCache.retainedPixels));
+        if (emu_ami_blitterVisCache.retainedActiveSlots) {
+            memset(emu_ami_blitterVisCache.retainedActiveSlots, 0, pixelCount * sizeof(*emu_ami_blitterVisCache.retainedActiveSlots));
         }
-        if (emu_ami_blitterVisCache.retainedRgbs) {
-            memset(emu_ami_blitterVisCache.retainedRgbs, 0, pixelCount * sizeof(*emu_ami_blitterVisCache.retainedRgbs));
-        }
+        emu_ami_blitterVisCache.retainedActiveCount = 0u;
         if (emu_ami_blitterVisCache.blitFrameIds && emu_ami_blitterVisCache.blitFrameCap) {
             memset(emu_ami_blitterVisCache.blitFrameIds, 0, emu_ami_blitterVisCache.blitFrameCap * sizeof(*emu_ami_blitterVisCache.blitFrameIds));
         }
@@ -1945,17 +1946,24 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
 
     int hasVisiblePixels = 0;
     if (overlayMode &&
-        emu_ami_blitterVisCache.retainedBlitIds &&
-        emu_ami_blitterVisCache.retainedFrames &&
-        emu_ami_blitterVisCache.retainedRgbs &&
+        emu_ami_blitterVisCache.retainedPixels &&
+        emu_ami_blitterVisCache.retainedActivePixels &&
+        emu_ami_blitterVisCache.retainedActiveSlots &&
         emu_ami_blitterVisCache.retainedCap >= pixelCount) {
         uint32_t lastScatterBlitId = 0u;
         uint32_t lastScatterRgb = 0u;
         for (size_t i = 0; i < fetchedCount; i++) {
             uint32_t x = emu_ami_blitterVisCache.points[i].x;
             uint32_t y = emu_ami_blitterVisCache.points[i].y;
+            uint32_t xEnd = emu_ami_blitterVisCache.points[i].xEnd;
+            if (xEnd < x) {
+                xEnd = x;
+            }
             if (x >= srcWidth || y >= srcHeight) {
                 continue;
+            }
+            if (xEnd >= srcWidth) {
+                xEnd = srcWidth - 1u;
             }
             uint32_t blitId = emu_ami_blitterVisCache.points[i].blitId;
             if (!blitId) {
@@ -1967,31 +1975,39 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
                 lastScatterBlitId = blitId;
                 lastScatterRgb = rgb;
             }
-            size_t pixelIndex = (size_t)y * (size_t)srcWidth + (size_t)x;
-            /* Overlay decay reads retainedFrames/retainedRgbs directly; avoid blitFrame hash-table updates here (hot path). */
-            emu_ami_blitterVisCache.retainedBlitIds[pixelIndex] = blitId;
-            emu_ami_blitterVisCache.retainedFrames[pixelIndex] = frameCounter;
-            emu_ami_blitterVisCache.retainedRgbs[pixelIndex] = rgb;
+            uint32_t sourceInfo = emu_ami_blitterVisRetainedPackSource(emu_ami_blitterVisCache.points[i].sourceAddr,
+                                                                       emu_ami_blitterVisCache.points[i].sourceIsCopper ? 1 : 0);
+            for (uint32_t spanX = x; spanX <= xEnd; ++spanX) {
+                size_t pixelIndex = (size_t)y * (size_t)srcWidth + (size_t)spanX;
+                emu_ami_blitter_vis_retained_pixel_t *retainedPixel = &emu_ami_blitterVisCache.retainedPixels[pixelIndex];
+                emu_ami_blitterVisRetainedActivate(pixelIndex);
+                retainedPixel->blitId = blitId;
+                retainedPixel->frame = frameCounter;
+                retainedPixel->rgb = rgb;
+                retainedPixel->sourceInfo = sourceInfo;
+            }
         }
-
-        for (size_t pixelIndex = 0; pixelIndex < pixelCount; ++pixelIndex) {
-            uint32_t blitId = emu_ami_blitterVisCache.retainedBlitIds[pixelIndex];
-            if (!blitId) {
+        size_t activeIndex = 0u;
+        while (activeIndex < emu_ami_blitterVisCache.retainedActiveCount) {
+            size_t pixelIndex = (size_t)emu_ami_blitterVisCache.retainedActivePixels[activeIndex];
+            emu_ami_blitter_vis_retained_pixel_t *retainedPixel = &emu_ami_blitterVisCache.retainedPixels[pixelIndex];
+            if (!retainedPixel->blitId) {
                 emu_ami_blitterVisCache.pixels[pixelIndex] = 0u;
+                emu_ami_blitterVisRetainedRemove(pixelIndex);
                 continue;
             }
-            uint32_t blitFrame = emu_ami_blitterVisCache.retainedFrames[pixelIndex];
+            uint32_t blitFrame = retainedPixel->frame;
             uint32_t age = frameCounter - blitFrame;
             if (decayFrames > 0u && age < decayFrames) {
-                uint32_t rgb = emu_ami_blitterVisCache.retainedRgbs[pixelIndex];
+                uint32_t rgb = retainedPixel->rgb;
                 uint8_t alpha = emu_ami_blitterVisAlphaForAge(age, decayFrames);
                 emu_ami_blitterVisCache.pixels[pixelIndex] = ((uint32_t)alpha << 24) | rgb;
                 hasVisiblePixels = 1;
+                activeIndex++;
             } else {
                 emu_ami_blitterVisCache.pixels[pixelIndex] = 0u;
-                emu_ami_blitterVisCache.retainedBlitIds[pixelIndex] = 0u;
-                emu_ami_blitterVisCache.retainedFrames[pixelIndex] = 0u;
-                emu_ami_blitterVisCache.retainedRgbs[pixelIndex] = 0u;
+                memset(retainedPixel, 0, sizeof(*retainedPixel));
+                emu_ami_blitterVisRetainedRemove(pixelIndex);
             }
         }
     } else {
@@ -2001,8 +2017,15 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
         for (size_t i = 0; i < fetchedCount; i++) {
             uint32_t x = emu_ami_blitterVisCache.points[i].x;
             uint32_t y = emu_ami_blitterVisCache.points[i].y;
+            uint32_t xEnd = emu_ami_blitterVisCache.points[i].xEnd;
+            if (xEnd < x) {
+                xEnd = x;
+            }
             if (x >= srcWidth || y >= srcHeight) {
                 continue;
+            }
+            if (xEnd >= srcWidth) {
+                xEnd = srcWidth - 1u;
             }
             uint32_t blitId = emu_ami_blitterVisCache.points[i].blitId;
             uint32_t color = lastScatterColor;
@@ -2011,10 +2034,13 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
                 lastScatterBlitId = blitId;
                 lastScatterColor = color;
             }
-            emu_ami_blitterVisCache.pixels[(size_t)y * (size_t)srcWidth + (size_t)x] = color;
+            for (uint32_t spanX = x; spanX <= xEnd; ++spanX) {
+                emu_ami_blitterVisCache.pixels[(size_t)y * (size_t)srcWidth + (size_t)spanX] = color;
+            }
             hasVisiblePixels = 1;
         }
     }
+    emu_ami_blitterVisCache.pointCount = fetchedCount;
     SDL_UpdateTexture(emu_ami_blitterVisCache.texture,
                       NULL,
                       emu_ami_blitterVisCache.pixels,
@@ -3354,6 +3380,12 @@ static int
 emu_ami_handleOverlayEvent(e9ui_context_t *ctx, const SDL_Rect *dst, const e9ui_event_t *ev)
 {
     const e9k_debug_ami_copper_debug_raw_record_t *rec = NULL;
+    uint32_t blitId = 0u;
+    uint32_t blitSourceAddr = 0u;
+    uint32_t srcWidth = 0u;
+    uint32_t srcHeight = 0u;
+    int blitSourceIsCopper = 0;
+    int overlayMode = 1;
 
     (void)ctx;
     if (!dst || !ev) {
@@ -3364,6 +3396,33 @@ emu_ami_handleOverlayEvent(e9ui_context_t *ctx, const SDL_Rect *dst, const e9ui_
     }
     if (ev->button.button != SDL_BUTTON_LEFT) {
         return 0;
+    }
+
+    if (emu_ami_blitterVisCache.texWidth > 0 && emu_ami_blitterVisCache.texHeight > 0) {
+        srcWidth = (uint32_t)emu_ami_blitterVisCache.texWidth;
+        srcHeight = (uint32_t)emu_ami_blitterVisCache.texHeight;
+        if (emu_ami_blitterVisCache.hasLatestStats) {
+            overlayMode = ((emu_ami_blitterVisCache.latestStats.mode & EMU_AMI_BLITTER_VIS_MODE_OVERLAY) != 0u) ? 1 : 0;
+        }
+        if (emu_ami_blitterVisSourceAtPoint(dst,
+                                            ev->button.x,
+                                            ev->button.y,
+                                            srcWidth,
+                                            srcHeight,
+                                            overlayMode,
+                                            emu_ami_blitterVisCache.pointCount,
+                                            &blitId,
+                                            &blitSourceAddr,
+                                            &blitSourceIsCopper)) {
+            if (ev->type == SDL_MOUSEBUTTONDOWN) {
+                if (blitSourceIsCopper) {
+                    ui_centerCprSourceOnAddress(blitSourceAddr);
+                } else {
+                    ui_centerSourceOnAddress(blitSourceAddr);
+                }
+            }
+            return 1;
+        }
     }
 
     rec = emu_ami_findCopperRecordAtPoint(dst, ev->button.x, ev->button.y, NULL, 1);

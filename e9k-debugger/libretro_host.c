@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <stdbool.h>
 
 #include "debug.h"
@@ -98,7 +99,7 @@ typedef int *(*e9k_debug_amiga_get_debug_copper_addr_fn_t)(void);
 typedef const e9k_debug_ami_custom_reg_state_t *(*e9k_debug_ami_get_custom_regs_fn_t)(void);
 typedef void (*e9k_debug_ami_set_blitter_debug_fn_t)(int enabled);
 typedef int (*e9k_debug_ami_get_blitter_debug_fn_t)(void);
-typedef size_t (*e9k_debug_ami_blitter_vis_read_points_fn_t)(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height);
+typedef size_t (*e9k_debug_ami_blitter_vis_read_spans_fn_t)(e9k_debug_ami_blitter_vis_span_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height);
 typedef size_t (*e9k_debug_ami_blitter_vis_read_stats_fn_t)(e9k_debug_ami_blitter_vis_stats_t *out, size_t cap);
 typedef size_t (*e9k_debug_ami_blitter_vis_read_word_tags_fn_t)(uint32_t addr, uint32_t *out, size_t cap);
 typedef void (*e9k_debug_ami_set_sprite_vis_fn_t)(int enabled);
@@ -250,7 +251,7 @@ typedef struct  {
     e9k_debug_ami_get_custom_regs_fn_t debugAmiGetCustomRegs;
     e9k_debug_ami_set_blitter_debug_fn_t debugAmiSetBlitterDebug;
     e9k_debug_ami_get_blitter_debug_fn_t debugAmiGetBlitterDebug;
-    e9k_debug_ami_blitter_vis_read_points_fn_t debugAmiBlitterVisReadPoints;
+    e9k_debug_ami_blitter_vis_read_spans_fn_t debugAmiBlitterVisReadSpans;
     e9k_debug_ami_blitter_vis_read_stats_fn_t debugAmiBlitterVisReadStats;
     e9k_debug_ami_blitter_vis_read_word_tags_fn_t debugAmiBlitterVisReadWordTags;
     e9k_debug_ami_set_sprite_vis_fn_t debugAmiSetSpriteVis;
@@ -2884,7 +2885,7 @@ libretro_host_debugAmiGetBlitterDebug(int *out_enabled)
 }
 
 size_t
-libretro_host_debugAmiReadBlitterVisPoints(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height)
+libretro_host_debugAmiReadBlitterVisSpans(e9k_debug_ami_blitter_vis_span_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height)
 {
     if (out_width) {
         *out_width = 0u;
@@ -2892,14 +2893,24 @@ libretro_host_debugAmiReadBlitterVisPoints(e9k_debug_ami_blitter_vis_point_t *ou
     if (out_height) {
         *out_height = 0u;
     }
-    if (!libretro_host.debugAmiBlitterVisReadPoints) {
-        libretro_host.debugAmiBlitterVisReadPoints = (e9k_debug_ami_blitter_vis_read_points_fn_t)
-            libretro_host_loadSymbol("e9k_debug_ami_blitter_vis_read_points");
+    if (!libretro_host.debugAmiBlitterVisReadSpans) {
+        libretro_host.debugAmiBlitterVisReadSpans = (e9k_debug_ami_blitter_vis_read_spans_fn_t)
+            libretro_host_loadSymbol("e9k_debug_ami_blitter_vis_read_spans");
+        if (!libretro_host.debugAmiBlitterVisReadSpans) {
+            libretro_host.debugAmiBlitterVisReadSpans = (e9k_debug_ami_blitter_vis_read_spans_fn_t)
+                libretro_host_loadSymbol("e9k_debug_ami_blitter_vis_read_points");
+        }
     }
-    if (!libretro_host.debugAmiBlitterVisReadPoints) {
+    if (!libretro_host.debugAmiBlitterVisReadSpans) {
         return 0u;
     }
-    return libretro_host.debugAmiBlitterVisReadPoints(out, cap, out_width, out_height);
+    return libretro_host.debugAmiBlitterVisReadSpans(out, cap, out_width, out_height);
+}
+
+size_t
+libretro_host_debugAmiReadBlitterVisPoints(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height)
+{
+    return libretro_host_debugAmiReadBlitterVisSpans(out, cap, out_width, out_height);
 }
 
 bool

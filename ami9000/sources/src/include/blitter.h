@@ -73,8 +73,7 @@ extern uint32_t blitter_getDebugWritesLastFrame(void);
 extern uint32_t blitter_getDebugWriteBytesThisFrame(void);
 extern uint32_t blitter_getDebugWriteBytesLastFrame(void);
 extern uint32_t blitter_getDebugFrameCounter(void);
-extern uint32_t blitter_getDebugFetchQueriesThisFrame(void);
-extern uint32_t blitter_getDebugFetchHitsThisFrame(void);
+extern int blitter_getDebugBlitSourceInfo(uint32_t blitId, uaecptr *sourceAddr, int *sourceIsCopper);
 #if E9K_HACK_MEMVIS
 extern void blitter_debugSnapshotFrame(void);
 extern size_t blitter_debugReadSnapshotBlitIds(uaecptr addr, uint32_t *out, size_t wordCount);

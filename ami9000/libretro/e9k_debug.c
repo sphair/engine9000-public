@@ -20,8 +20,8 @@
 #include "drawing.h"
 #include "debug.h"
 
+#include <stdio.h>
 #include <stdlib.h>
-
 #define E9K_DEBUG_CALLSTACK_MAX 256
 #define E9K_DEBUG_BREAKPOINT_MAX 4096
 #define E9K_DEBUG_AMI_KNOWN_PC_RING_CAP 256u
@@ -1486,11 +1486,14 @@ e9k_debug_ami_get_sprite_vis(void)
 #endif
 
 E9K_DEBUG_EXPORT size_t
-e9k_debug_ami_blitter_vis_read_points(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight)
+e9k_debug_ami_blitter_vis_read_spans(e9k_debug_ami_blitter_vis_span_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight)
 {
 #if E9K_HACK_BLITTER_VIS
-	static uint32_t readLogCounter = 0;
 	int collectMode = ((blitter_getDebugVisMode() & E9K_DEBUG_BLITTER_VIS_MODE_COLLECT) != 0) ? 1 : 0;
+	uaecptr lastSourceAddr = 0;
+	uae_u32 lastBlitId = 0;
+	int lastSourceIsCopper = 0;
+	int lastSourceValid = 0;
 	uint32_t width = (uint32_t)retrow_crop;
 	uint32_t height = (uint32_t)retroh_crop;
 	if (outWidth) {
@@ -1501,101 +1504,30 @@ e9k_debug_ami_blitter_vis_read_points(e9k_debug_ami_blitter_vis_point_t *out, si
 	}
 
 	size_t written = 0;
-	size_t drained = 0;
-	uint32_t sampleX = 0;
-	uint32_t sampleY = 0;
-	uint32_t sampleBlitId = 0;
-	int sampleValid = 0;
-	uint32_t minX = 0;
-	uint32_t minY = 0;
-	uint32_t maxX = 0;
-	uint32_t maxY = 0;
-	int boundsValid = 0;
-
 	if (width == 0 || height == 0) {
 		return 0;
 	}
-	if (collectMode) {
-		for (uint32_t y = 0; y < height; y++) {
-			for (uint32_t x = 0; x < width; x++) {
-				uae_u32 blitId = 0;
-				if (!drawing_blitterVisGetNativePixelBlitId((int)y, (int)x, &blitId)) {
-					continue;
-				}
-				if (!sampleValid) {
-					sampleValid = 1;
-					sampleX = x;
-					sampleY = y;
-					sampleBlitId = blitId;
-				}
-				if (!boundsValid) {
-					boundsValid = 1;
-					minX = maxX = x;
-					minY = maxY = y;
-				} else {
-					if (x < minX) {
-						minX = x;
-					}
-					if (x > maxX) {
-						maxX = x;
-					}
-					if (y < minY) {
-						minY = y;
-					}
-					if (y > maxY) {
-						maxY = y;
-					}
-				}
-				drained++;
-				if (out && written < cap) {
-					out[written].x = (uint16_t)x;
-					out[written].y = (uint16_t)y;
-					out[written].blitId = blitId;
-					written++;
-				}
+	if (!collectMode) {
+		return 0;
+	}
+	size_t spanCount = 0u;
+	const drawing_blitter_vis_native_span_t *spans = drawing_blitterVisGetSnapshotSpans(&spanCount);
+	for (size_t i = 0u; i < spanCount; ++i) {
+		uae_u32 blitId = spans[i].blitId;
+		if (out && written < cap) {
+			if (blitId != lastBlitId) {
+				lastSourceValid = blitter_getDebugBlitSourceInfo(blitId, &lastSourceAddr, &lastSourceIsCopper);
+				lastBlitId = blitId;
 			}
-		}
-	} else {
-		for (uint32_t y = 0; y < height; y++) {
-			for (uint32_t x = 0; x < width; x++) {
-				uae_u32 blitId = 0;
-				if (!drawing_blitterVisGetNativePixelBlitId((int)y, (int)x, &blitId)) {
-					continue;
-				}
-				if (!sampleValid) {
-					sampleValid = 1;
-					sampleX = x;
-					sampleY = y;
-					sampleBlitId = blitId;
-				}
-				if (!boundsValid) {
-					boundsValid = 1;
-					minX = maxX = x;
-					minY = maxY = y;
-				} else {
-					if (x < minX) {
-						minX = x;
-					}
-					if (x > maxX) {
-						maxX = x;
-					}
-					if (y < minY) {
-						minY = y;
-					}
-					if (y > maxY) {
-						maxY = y;
-					}
-				}
-				if (out && written < cap) {
-					out[written].x = (uint16_t)x;
-					out[written].y = (uint16_t)y;
-					out[written].blitId = blitId;
-				}
-				written++;
-			}
+			out[written].x = spans[i].x;
+			out[written].y = spans[i].y;
+			out[written].xEnd = spans[i].xEnd;
+			out[written].blitId = blitId;
+			out[written].sourceAddr = lastSourceValid ? e9k_debug_maskAddr(lastSourceAddr) : 0u;
+			out[written].sourceIsCopper = lastSourceValid && lastSourceIsCopper ? 1u : 0u;
+			written++;
 		}
 	}
-	readLogCounter++;
 	return written;
 #else
 	(void)out;
@@ -1608,6 +1540,12 @@ e9k_debug_ami_blitter_vis_read_points(e9k_debug_ami_blitter_vis_point_t *out, si
 	}
 	return 0;
 #endif
+}
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_ami_blitter_vis_read_points(e9k_debug_ami_blitter_vis_point_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight)
+{
+	return e9k_debug_ami_blitter_vis_read_spans(out, cap, outWidth, outHeight);
 }
 
 #if E9K_HACK_AMI_SPRITE_VIS
@@ -1664,8 +1602,6 @@ e9k_debug_ami_blitter_vis_read_stats(e9k_debug_ami_blitter_vis_stats_t *out, siz
 	out->writeBytesThisFrame = blitter_getDebugWriteBytesLastFrame();
 	out->writeBytesMaxEstimateFrame = maxWriteBytesEstimateFrame;
 	out->frameCounter = blitter_getDebugFrameCounter();
-	out->fetchQueriesThisFrame = blitter_getDebugFetchQueriesThisFrame();
-	out->fetchHitsThisFrame = blitter_getDebugFetchHitsThisFrame();
 	out->drawMarkCallsFrame = drawing_blitterVisGetNativeMarkCallsFrame();
 	out->drawMarkCallsSnapshot = drawing_blitterVisGetNativeMarkCallsSnapshot();
 	return sizeof(*out);

@@ -117,7 +117,6 @@ extern uint8_t video_config_allow_hz_change;
 
 #if E9K_HACK_BLITTER_VIS
 #define CUSTOM_BLITTER_VIS_MODE_COLLECT 0x2
-#define CUSTOM_BLITTER_VIS_FETCH_MIN_TRACK_CAP 16384u
 #endif
 
 #ifdef SERIAL_PORT
@@ -772,84 +771,6 @@ static int toscr_nbits;
 
 #if E9K_HACK_BLITTER_VIS
 static int custom_blitterVisFetchPixelCursor[MAX_PLANES];
-typedef struct custom_blitter_vis_fetch_min_track_s
-{
-	uae_u32 blitId;
-	int minX;
-	int minLine;
-	int used;
-} custom_blitter_vis_fetch_min_track_t;
-static custom_blitter_vis_fetch_min_track_t custom_blitterVisFetchMinTrack[CUSTOM_BLITTER_VIS_FETCH_MIN_TRACK_CAP];
-static uint32_t custom_blitterVisFetchMinTrackFrame = 0;
-static uint32_t custom_blitterVisFetchMinDropLogsFrame = 0;
-static int custom_blitterVisMarkSite = 0;
-
-#define CUSTOM_BLITTER_VIS_MARK_SITE_FETCH 1
-#define CUSTOM_BLITTER_VIS_MARK_SITE_LONG16 2
-#define CUSTOM_BLITTER_VIS_MARK_SITE_LONG32 3
-#define CUSTOM_BLITTER_VIS_MARK_SITE_LONG64 4
-
-STATIC_INLINE uint32_t
-custom_blitterVisFetchMinHash(uae_u32 blitId)
-{
-	uint32_t mixed = blitId * 2654435761u;
-	return mixed & (CUSTOM_BLITTER_VIS_FETCH_MIN_TRACK_CAP - 1u);
-}
-
-STATIC_INLINE void
-custom_blitterVisFetchMinReset(uint32_t frameId)
-{
-	memset(custom_blitterVisFetchMinTrack, 0, sizeof(custom_blitterVisFetchMinTrack));
-	custom_blitterVisFetchMinTrackFrame = frameId;
-	custom_blitterVisFetchMinDropLogsFrame = 0;
-}
-
-STATIC_INLINE custom_blitter_vis_fetch_min_track_t *
-custom_blitterVisFetchMinFind(uae_u32 blitId, int create)
-{
-	uint32_t index = custom_blitterVisFetchMinHash(blitId);
-	for (uint32_t probe = 0; probe < CUSTOM_BLITTER_VIS_FETCH_MIN_TRACK_CAP; ++probe) {
-		custom_blitter_vis_fetch_min_track_t *entry = &custom_blitterVisFetchMinTrack[index];
-		if (!entry->used) {
-			if (!create) {
-				return NULL;
-			}
-			entry->used = 1;
-			entry->blitId = blitId;
-			entry->minX = 0;
-			entry->minLine = -1;
-			return entry;
-		}
-		if (entry->blitId == blitId) {
-			return entry;
-		}
-		index = (index + 1u) & (CUSTOM_BLITTER_VIS_FETCH_MIN_TRACK_CAP - 1u);
-	}
-	return NULL;
-}
-
-STATIC_INLINE void
-custom_blitterVisLogFetchMinDrop(uaecptr addr, int pixelStart, int pixelCount, uae_u32 blitId)
-{
-	uint32_t frameId = blitter_getDebugFrameCounter();
-	if (custom_blitterVisFetchMinTrackFrame != frameId) {
-		custom_blitterVisFetchMinReset(frameId);
-	}
-	custom_blitter_vis_fetch_min_track_t *entry = custom_blitterVisFetchMinFind(blitId, 1);
-	if (!entry) {
-		return;
-	}
-	if (entry->minLine < 0) {
-		entry->minX = pixelStart;
-		entry->minLine = next_lineno;
-		return;
-	}
-	if (pixelStart >= entry->minX) {
-		return;
-	}
-	entry->minX = pixelStart;
-	entry->minLine = next_lineno;
-}
 
 STATIC_INLINE int
 custom_blitterVisTakeFetchPixelStartPixels(int plane, int pixelCount)
@@ -3009,11 +2930,8 @@ static uae_u16 fetch16(uaecptr p, int nr, int pixelStart)
 		// AGA always does 32-bit fetches, this is needed
 		// to emulate 64 pixel wide sprite side-effects.
 	#if E9K_HACK_BLITTER_VIS
-		int prevSite = custom_blitterVisMarkSite;
-		custom_blitterVisMarkSite = CUSTOM_BLITTER_VIS_MARK_SITE_FETCH;
 		uae_u32 vv = chipmem_lget_indirect(p & ~3);
 		(void)custom_getRenderWord(p, pixelStart, 16);
-		custom_blitterVisMarkSite = prevSite;
 	#else
 		uae_u32 vv = chipmem_lget_indirect(p & ~3);
 	#endif
@@ -3030,10 +2948,7 @@ static uae_u16 fetch16(uaecptr p, int nr, int pixelStart)
 		}
 	} else {
 #if E9K_HACK_BLITTER_VIS
-		int prevSite = custom_blitterVisMarkSite;
-		custom_blitterVisMarkSite = CUSTOM_BLITTER_VIS_MARK_SITE_FETCH;
 		v = custom_getRenderWord(p, pixelStart, pixelStart >= 0 ? 16 : 0);
-		custom_blitterVisMarkSite = prevSite;
 #else
 		v = chipmem_wget_indirect(p);
 #endif
@@ -3054,10 +2969,7 @@ static uae_u32 fetch32(uaecptr p, int pixelStart)
 	uae_u32 v;
 	uaecptr pm = p & ~3;
 #if E9K_HACK_BLITTER_VIS
-	int prevSite = custom_blitterVisMarkSite;
-	custom_blitterVisMarkSite = CUSTOM_BLITTER_VIS_MARK_SITE_FETCH;
 	uae_u32 fetchedLong = custom_getRenderLong(pm, pixelStart, pixelStart >= 0 ? 32 : 0);
-	custom_blitterVisMarkSite = prevSite;
 #else
 	uae_u32 fetchedLong = chipmem_lget_indirect(pm);
 #endif
@@ -3097,11 +3009,8 @@ static uae_u64 fetch64(uaecptr p, int pixelStart)
 #if E9K_HACK_BLITTER_VIS
 		int pixelStart1 = pixelStart;
 		int pixelStart2 = pixelStart >= 0 ? (pixelStart + 32) : -1;
-		int prevSite = custom_blitterVisMarkSite;
-		custom_blitterVisMarkSite = CUSTOM_BLITTER_VIS_MARK_SITE_FETCH;
 		uae_u32 v1 = custom_getRenderLong(pm1, pixelStart1, pixelStart1 >= 0 ? 32 : 0) & 0x0000ffff;
 		uae_u32 v2 = custom_getRenderLong(pm2, pixelStart2, pixelStart2 >= 0 ? 32 : 0) & 0x0000ffff;
-		custom_blitterVisMarkSite = prevSite;
 #else
 		uae_u32 v1 = chipmem_lget_indirect(pm1) & 0x0000ffff;
 		uae_u32 v2 = chipmem_lget_indirect(pm2) & 0x0000ffff;
@@ -3113,11 +3022,8 @@ static uae_u64 fetch64(uaecptr p, int pixelStart)
 #if E9K_HACK_BLITTER_VIS
 		int pixelStart1 = pixelStart;
 		int pixelStart2 = pixelStart >= 0 ? (pixelStart + 32) : -1;
-		int prevSite = custom_blitterVisMarkSite;
-		custom_blitterVisMarkSite = CUSTOM_BLITTER_VIS_MARK_SITE_FETCH;
 		v = ((uae_u64)custom_getRenderLong(pm1, pixelStart1, pixelStart1 >= 0 ? 32 : 0)) << 32;
 		v |= custom_getRenderLong(pm2, pixelStart2, pixelStart2 >= 0 ? 32 : 0);
-		custom_blitterVisMarkSite = prevSite;
 #else
 		v = ((uae_u64)chipmem_lget_indirect(pm1)) << 32;
 		v |= chipmem_lget_indirect(pm2);
@@ -4944,14 +4850,24 @@ custom_getRenderWord(uaecptr addr, int pixelStart, int pixelCount)
 	uae_u16 value = 0;
 	uae_u32 blitId = 0;
 	int collectMode = (blitter_getDebugVisMode() & CUSTOM_BLITTER_VIS_MODE_COLLECT) != 0;
-	if (blitter_getDebugVideoFetchInfo(addr, &value, &blitId, NULL)) {
-		if (collectMode && blitId && pixelCount > 0) {
-			custom_blitterVisLogFetchMinDrop(addr, pixelStart, pixelCount, blitId);
-			drawing_blitterVisMarkSourceRange(next_lineno, pixelStart, pixelCount, blitId);
-		}
-	}
+			if (blitter_getDebugVideoFetchInfo(addr, &value, &blitId, NULL)) {
+				if (collectMode && blitId && pixelCount > 0) {
+					drawing_blitterVisMarkSourceRange(next_lineno, pixelStart, pixelCount, blitId);
+				}
+			}
 	return chipmem_wget_indirect(addr);
 }
+
+#if E9K_HACK_BLITTER_VIS
+STATIC_INLINE void
+custom_flushRenderMarkRun(int lineNo, int runPixelStart, int runPixelCount, uae_u32 runBlitId)
+{
+	if (!runBlitId || runPixelCount <= 0) {
+		return;
+	}
+	drawing_blitterVisMarkSourceRange(lineNo, runPixelStart, runPixelCount, runBlitId);
+}
+#endif
 
 STATIC_INLINE uae_u32
 custom_getRenderLong(uaecptr addr, int pixelStart, int pixelCount)
@@ -4987,28 +4903,53 @@ STATIC_INLINE void long_fetch_16(int plane, int nwords, int weird_number_of_bits
 	}
 #endif
 
-		if (real_pt == NULL) {
-			if (nwords > MAX_FETCH_TEMP) {
-				return;
+			if (real_pt == NULL) {
+				if (nwords > MAX_FETCH_TEMP) {
+					return;
+				}
+	#if E9K_HACK_BLITTER_VIS
+				int collectMode = (blitter_getDebugVisMode() & CUSTOM_BLITTER_VIS_MODE_COLLECT) != 0;
+				int runPixelStart = -1;
+				int runPixelCount = 0;
+				uae_u32 runBlitId = 0;
+	#endif
+				for (int i = 0; i < nwords; i++) {
+	#if E9K_HACK_BLITTER_VIS
+					int fetchPixelStart = custom_blitterVisTakeFetchPixelStartPixels(plane, 16);
+						int pixelStart = custom_getRenderMarkPixelStart(fetchPixelStart, 16, delay);
+						uae_u32 blitId = 0;
+						if (blitter_getDebugVideoFetchInfo(bpladdr, NULL, &blitId, NULL)) {
+							if (collectMode && blitId && pixelStart >= 0) {
+								if (runBlitId == blitId && pixelStart == runPixelStart + runPixelCount) {
+									runPixelCount += 16;
+								} else {
+								custom_flushRenderMarkRun(next_lineno, runPixelStart, runPixelCount, runBlitId);
+								runPixelStart = pixelStart;
+								runPixelCount = 16;
+								runBlitId = blitId;
+							}
+						} else {
+							custom_flushRenderMarkRun(next_lineno, runPixelStart, runPixelCount, runBlitId);
+							runPixelStart = -1;
+							runPixelCount = 0;
+							runBlitId = 0;
+						}
+					} else {
+						custom_flushRenderMarkRun(next_lineno, runPixelStart, runPixelCount, runBlitId);
+						runPixelStart = -1;
+						runPixelCount = 0;
+						runBlitId = 0;
+					}
+					fetch_tmp[i] = chipmem_wget_indirect(bpladdr);
+	#else
+				fetch_tmp[i] = chipmem_wget_indirect(bpladdr);
+	#endif
+					bpladdr += 2;
+				}
+	#if E9K_HACK_BLITTER_VIS
+				custom_flushRenderMarkRun(next_lineno, runPixelStart, runPixelCount, runBlitId);
+	#endif
 			}
-#if E9K_HACK_BLITTER_VIS
-			int prevSite = custom_blitterVisMarkSite;
-			custom_blitterVisMarkSite = CUSTOM_BLITTER_VIS_MARK_SITE_LONG16;
-#endif
-			for (int i = 0; i < nwords; i++) {
-#if E9K_HACK_BLITTER_VIS
-				int fetchPixelStart = custom_blitterVisTakeFetchPixelStartPixels(plane, 16);
-				int pixelStart = custom_getRenderMarkPixelStart(fetchPixelStart, 16, delay);
-				fetch_tmp[i] = custom_getRenderWord(bpladdr, pixelStart, 16);
-#else
-			fetch_tmp[i] = chipmem_wget_indirect(bpladdr);
-#endif
-				bpladdr += 2;
-			}
-#if E9K_HACK_BLITTER_VIS
-			custom_blitterVisMarkSite = prevSite;
-#endif
-		}
 
 	shiftbuffer = todisplay2[plane] << delay;
 
@@ -5079,23 +5020,16 @@ STATIC_INLINE void long_fetch_32 (int plane, int nwords, int weird_number_of_bit
 			if (nwords > MAX_FETCH_TEMP) {
 				return;
 			}
-#if E9K_HACK_BLITTER_VIS
-			int prevSite = custom_blitterVisMarkSite;
-			custom_blitterVisMarkSite = CUSTOM_BLITTER_VIS_MARK_SITE_LONG32;
-#endif
 			for (int i = 0; i < nwords; i++) {
 #if E9K_HACK_BLITTER_VIS
 				int fetchPixelStart = custom_blitterVisTakeFetchPixelStartPixels(plane, 32);
 				int pixelStart = custom_getRenderMarkPixelStart(fetchPixelStart, 32, delay);
 				fetch_tmp[i] = custom_getRenderLong(bpladdr, pixelStart, 32);
 #else
-			fetch_tmp[i] = chipmem_lget_indirect(bpladdr);
+				fetch_tmp[i] = chipmem_lget_indirect(bpladdr);
 #endif
 				bpladdr += 4;
 			}
-#if E9K_HACK_BLITTER_VIS
-			custom_blitterVisMarkSite = prevSite;
-#endif
 		}
 
 	shiftbuffer = todisplay2_aga[plane] << delay;
@@ -5220,23 +5154,16 @@ STATIC_INLINE void long_fetch_64(int plane, int nwords, int weird_number_of_bits
 			if (nwords * 2 > MAX_FETCH_TEMP) {
 				return;
 			}
-#if E9K_HACK_BLITTER_VIS
-			int prevSite = custom_blitterVisMarkSite;
-			custom_blitterVisMarkSite = CUSTOM_BLITTER_VIS_MARK_SITE_LONG64;
-#endif
 			for (int i = 0; i < nwords * 2; i++) {
 #if E9K_HACK_BLITTER_VIS
 				int fetchPixelStart = custom_blitterVisTakeFetchPixelStartPixels(plane, 32);
 				int pixelStart = custom_getRenderMarkPixelStart(fetchPixelStart, 64, delay);
 				fetch_tmp[i] = custom_getRenderLong(bpladdr, pixelStart, 32);
 #else
-			fetch_tmp[i] = chipmem_lget_indirect(bpladdr);
+				fetch_tmp[i] = chipmem_lget_indirect(bpladdr);
 #endif
 				bpladdr += 4;
 			}
-#if E9K_HACK_BLITTER_VIS
-			custom_blitterVisMarkSite = prevSite;
-#endif
 		}
 
 #ifdef HAVE_UAE_U128
@@ -12657,9 +12584,11 @@ static int calculate_lineno(int vp)
 void init_hardware_for_drawing_frame(void)
 {
 #if E9K_HACK_BLITTER_VIS
-	drawing_blitterVisClearSourceFrame();
-	if (!(blitter_getDebugWriteEnabled() && ((blitter_getDebugVisMode() & CUSTOM_BLITTER_VIS_MODE_COLLECT) != 0))) {
-		drawing_blitterVisClearFrame();
+	if (blitter_getDebugWriteEnabled()) {
+		drawing_blitterVisClearSourceFrame();
+		if ((blitter_getDebugVisMode() & CUSTOM_BLITTER_VIS_MODE_COLLECT) == 0) {
+			drawing_blitterVisClearFrame();
+		}
 	}
 #endif
 	/* Avoid this code in the first frame after a customreset.  */
