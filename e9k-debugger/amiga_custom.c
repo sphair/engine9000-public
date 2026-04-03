@@ -463,15 +463,7 @@ amiga_custom_measureTitleColumnWidth(const e9ui_context_t *ctx, const char *titl
 static e9ui_component_t *
 amiga_custom_wrapTextCell(e9ui_component_t *child)
 {
-    if (!child) {
-        return NULL;
-    }
-
     e9ui_component_t *box = e9ui_box_make(child);
-    if (!box) {
-        return NULL;
-    }
-
     e9ui_box_setPaddingSides(box, AMIGA_CUSTOM_TEXT_CELL_PAD_X, 0, AMIGA_CUSTOM_TEXT_CELL_PAD_X, 0);
     return box;
 }
@@ -520,10 +512,6 @@ amiga_custom_minContentWidth(const e9ui_context_t *ctx)
 static amiga_custom_row_state_t *
 amiga_custom_findRowByComponent(amiga_custom_state_t *ui, const e9ui_component_t *comp)
 {
-    if (!ui || !comp) {
-        return NULL;
-    }
-
     for (size_t regIndex = 0; regIndex < AMIGA_CUSTOM_REG_COUNT; ++regIndex) {
         amiga_custom_row_state_t *row = &ui->rows[regIndex];
         if (row->valueTextbox == comp || row->sourceAddrText == comp) {
@@ -829,10 +817,6 @@ amiga_custom_buildFilterTextbox(amiga_custom_state_t *ui, int filterIndex)
 
     e9ui_component_t *textbox =
         e9ui_textbox_make(AMIGA_CUSTOM_FILTER_TEXT_MAX - 1, NULL, amiga_custom_filterTextboxChanged, &ui->filterCbs[filterIndex]);
-    if (!textbox) {
-        return NULL;
-    }
-
     e9ui_textbox_setPlaceholder(textbox, amiga_custom_filterLabel(filterIndex));
     e9ui_textbox_setText(textbox, ui->filters[filterIndex]);
     ui->filterTextboxes[filterIndex] = textbox;
@@ -849,15 +833,8 @@ amiga_custom_buildFilterRoot(amiga_custom_state_t *ui,
                              int watchColW,
                              int protectColW)
 {
-    if (!ui) {
-        return NULL;
-    }
-
     const int colGap = e9ui_scale_px(&ui->ctx, AMIGA_CUSTOM_COL_GAP);
     e9ui_component_t *row = e9ui_hstack_make();
-    if (!row) {
-        return NULL;
-    }
 
     for (int i = 0; i <= amiga_custom_filter_src_addr; ++i) {
         e9ui_component_t *textbox = amiga_custom_buildFilterTextbox(ui, i);
@@ -992,10 +969,6 @@ amiga_custom_valueSubmitted(e9ui_context_t *ctx, void *user)
 static e9ui_component_t *
 amiga_custom_buildRoot(amiga_custom_state_t *ui)
 {
-    if (!ui) {
-        return NULL;
-    }
-
     const int colGap = e9ui_scale_px(&ui->ctx, AMIGA_CUSTOM_COL_GAP);
     const int addressColW =
         amiga_custom_measureTitleColumnWidth(&ui->ctx, amiga_custom_filterLabel(amiga_custom_filter_address), 36);
@@ -1014,10 +987,6 @@ amiga_custom_buildRoot(amiga_custom_state_t *ui)
     const int contentWidth = amiga_custom_minContentWidth(&ui->ctx);
 
     e9ui_component_t *root = e9ui_stack_makeVertical();
-    if (!root) {
-        return NULL;
-    }
-
     e9ui_component_t *contentStack = e9ui_stack_makeVertical();
     e9ui_component_t *filterRoot =
         amiga_custom_buildFilterRoot(ui, addressColW, nameColW, valueColW, srcColW, sourceAddrColW, watchColW, protectColW);
@@ -1039,84 +1008,38 @@ amiga_custom_buildRoot(amiga_custom_state_t *ui)
         cb->regIndex = regIndex;
 
         e9ui_component_t *rowComp = e9ui_hstack_make();
-        if (!rowComp) {
-            return NULL;
-        }
-
         char addressText[16];
         amiga_custom_formatAddressText(addressText, sizeof(addressText), regOffset);
         e9ui_component_t *addressComp = e9ui_text_make(addressText);
-        if (!addressComp) {
-            return NULL;
-        }
         e9ui_component_t *addressBox = amiga_custom_wrapTextCell(addressComp);
-        if (!addressBox) {
-            return NULL;
-        }
         e9ui_text_setColor(addressComp, amiga_custom_rowColor());
 
         const char *name = amiga_custom_regs_nameForOffset(regOffset);
         e9ui_component_t *nameComp = e9ui_text_make(name ? name : "UNKNOWN");
-        if (!nameComp) {
-            return NULL;
-        }
         e9ui_component_t *nameBox = amiga_custom_wrapTextCell(nameComp);
-        if (!nameBox) {
-            return NULL;
-        }
         SDL_Color regColor = amiga_custom_colorFromRgb(amiga_custom_regs_colorForOffset(regOffset));
         e9ui_text_setColor(nameComp, regColor);
 
         e9ui_component_t *valueTextbox =
             e9ui_textbox_make(AMIGA_CUSTOM_VALUE_TEXT_MAX - 1, amiga_custom_valueSubmitted, NULL, cb);
-        if (!valueTextbox) {
-            return NULL;
-        }
         e9ui_textbox_setPlaceholder(valueTextbox, "0000");
         e9ui_textbox_setEnterMovesToNextTextbox(valueTextbox, 1);
         e9ui_textbox_setTextColor(valueTextbox, 1, amiga_custom_rowColor());
         e9ui_textbox_setText(valueTextbox, "0000");
 
         e9ui_component_t *sourceComp = e9ui_text_make("-");
-        if (!sourceComp) {
-            return NULL;
-        }
         e9ui_component_t *sourceBox = amiga_custom_wrapTextCell(sourceComp);
-        if (!sourceBox) {
-            return NULL;
-        }
         e9ui_text_setColor(sourceComp, amiga_custom_rowColor());
-
         e9ui_component_t *sourceAddrComp = e9ui_text_make("-");
-        if (!sourceAddrComp) {
-            return NULL;
-        }
         e9ui_component_t *sourceAddrBox = amiga_custom_wrapTextCell(sourceAddrComp);
-        if (!sourceAddrBox) {
-            return NULL;
-        }
         e9ui_text_setColor(sourceAddrComp, amiga_custom_rowColor());
         sourceAddrComp->onClick = amiga_custom_sourceAddrClicked;
-
         e9ui_component_t *watchCheckbox = e9ui_checkbox_make(NULL, 0, amiga_custom_watchCheckboxChanged, cb);
-        if (!watchCheckbox) {
-            return NULL;
-        }
-
         e9ui_component_t *protectCheckbox = e9ui_checkbox_make(NULL, 0, amiga_custom_protectCheckboxChanged, cb);
-        if (!protectCheckbox) {
-            return NULL;
-        }
-
         const char *description = amiga_custom_regs_descriptionForOffset(regOffset);
         e9ui_component_t *detailComp = e9ui_text_make(description ? description : "");
-        if (!detailComp) {
-            return NULL;
-        }
         e9ui_component_t *detailBox = amiga_custom_wrapTextCell(detailComp);
-        if (!detailBox) {
-            return NULL;
-        }
+
         e9ui_text_setColor(detailComp, regColor);
 
         row->addressText = addressComp;
@@ -1259,22 +1182,10 @@ amiga_custom_overlayBodyDtor(e9ui_component_t *self, e9ui_context_t *ctx)
 static e9ui_component_t *
 amiga_custom_makeOverlayBodyHost(amiga_custom_state_t *ui)
 {
-    if (!ui || !ui->root) {
-        return NULL;
-    }
-
     e9ui_component_t *host = (e9ui_component_t *)alloc_calloc(1, sizeof(*host));
-    if (!host) {
-        return NULL;
-    }
 
     amiga_custom_overlay_body_state_t *st =
         (amiga_custom_overlay_body_state_t *)alloc_calloc(1, sizeof(*st));
-    if (!st) {
-        alloc_free(host);
-        return NULL;
-    }
-
     st->ui = ui;
     host->name = "amiga_custom_overlay_body";
     host->state = st;

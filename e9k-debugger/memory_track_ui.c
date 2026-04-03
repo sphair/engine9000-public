@@ -1273,9 +1273,6 @@ memory_track_ui_showProtectModal(memory_track_ui_t *ui, uint32_t address)
     ui->protectAddress = address;
     ui->protectAccessSize = ui->accessSize;
     e9ui_component_t *modal = e9ui_modal_make(title, rect, memory_track_ui_protectClosed, ui);
-    if (!modal) {
-        return;
-    }
     ui->protectModal = modal;
     if (ui->root->name && strcmp(ui->root->name, "e9ui_stack") == 0) {
         e9ui_stack_addFixed(ui->root, modal);
@@ -1289,38 +1286,24 @@ memory_track_ui_showProtectModal(memory_track_ui_t *ui, uint32_t address)
     ui->protectCbBlock = cb_block;
     ui->protectCbSet = cb_set;
     ui->protectValueBox = value_box;
-    if (value_box) {
-        e9ui_textbox_setPlaceholder(value_box, "Value");
-    }
+    e9ui_textbox_setPlaceholder(value_box, "Value");
     e9ui_component_t *set_row = e9ui_hstack_make();
     int checkboxW = e9ui_scale_px(&ui->ctx, 140);
     int valueW = e9ui_scale_px(&ui->ctx, 140);
     int rowGap = e9ui_scale_px(&ui->ctx, 8);
-    if (set_row) {
-        if (cb_set) {
-            e9ui_hstack_addFixed(set_row, cb_set, checkboxW);
-        }
-        e9ui_hstack_addFixed(set_row, e9ui_spacer_make(rowGap), rowGap);
-        if (value_box) {
-            e9ui_hstack_addFixed(set_row, value_box, valueW);
-        }
-        e9ui_hstack_addFlex(set_row, e9ui_spacer_make(1));
-    }
+    e9ui_hstack_addFixed(set_row, cb_set, checkboxW);
+    e9ui_hstack_addFixed(set_row, e9ui_spacer_make(rowGap), rowGap);
+    e9ui_hstack_addFixed(set_row, value_box, valueW);
+    e9ui_hstack_addFlex(set_row, e9ui_spacer_make(1));
 
     e9ui_component_t *stack = e9ui_stack_makeVertical();
-    if (cb_block) {
-        e9ui_stack_addFixed(stack, cb_block);
-    }
+    e9ui_stack_addFixed(stack, cb_block);
     e9ui_stack_addFixed(stack, e9ui_vspacer_make(8));
-    if (set_row) {
-        e9ui_stack_addFixed(stack, set_row);
-    }
+    e9ui_stack_addFixed(stack, set_row);
     e9ui_component_t *content_box = e9ui_box_make(stack);
     e9ui_box_setPadding(content_box, 12);
     e9ui_component_t *center = e9ui_center_make(content_box);
-    if (center) {
-        e9ui_center_setSize(center, 420, 120);
-    }
+    e9ui_center_setSize(center, 420, 120);
 
     e9ui_component_t *btn_protect = e9ui_button_make("Protect", memory_track_ui_protectApply, ui);
     e9ui_component_t *btn_cancel = e9ui_button_make("Cancel", memory_track_ui_protectCancel, ui);
@@ -1328,16 +1311,12 @@ memory_track_ui_showProtectModal(memory_track_ui_t *ui, uint32_t address)
     e9ui_flow_setPadding(footer, 0);
     e9ui_flow_setSpacing(footer, 8);
     e9ui_flow_setWrap(footer, 0);
-    if (btn_protect) {
-        e9ui_button_setTheme(btn_protect, e9ui_theme_button_preset_green());
-        e9ui_button_setGlowPulse(btn_protect, 1);
-        e9ui_flow_add(footer, btn_protect);
-    }
-    if (btn_cancel) {
-        e9ui_button_setTheme(btn_cancel, e9ui_theme_button_preset_red());
-        e9ui_button_setGlowPulse(btn_cancel, 1);
-        e9ui_flow_add(footer, btn_cancel);
-    }
+    e9ui_button_setTheme(btn_protect, e9ui_theme_button_preset_green());
+    e9ui_button_setGlowPulse(btn_protect, 1);
+    e9ui_flow_add(footer, btn_protect);
+    e9ui_button_setTheme(btn_cancel, e9ui_theme_button_preset_red());
+    e9ui_button_setGlowPulse(btn_cancel, 1);
+    e9ui_flow_add(footer, btn_cancel);
     e9ui_component_t *overlay = e9ui_overlay_make(center, footer);
     e9ui_overlay_setAnchor(overlay, e9ui_anchor_bottom_right);
     e9ui_overlay_setMargin(overlay, 12);
@@ -2691,18 +2670,11 @@ memory_track_ui_buildFrameRow(memory_track_ui_t *ui)
         return NULL;
     }
     e9ui_component_t *row = e9ui_hstack_make();
-    if (!row) {
-        return NULL;
-    }
     e9ui_component_t *label = e9ui_text_make("Address");
-    if (label) {
-        SDL_Color labelColor = { 200, 200, 200, 255 };
-        e9ui_text_setColor(label, labelColor);
-    }
+    SDL_Color labelColor = { 200, 200, 200, 255 };
+    e9ui_text_setColor(label, labelColor);
     int gap = ui->columnGap;
-    if (label) {
-        e9ui_hstack_addFixed(row, label, ui->addressWidth);
-    }
+    e9ui_hstack_addFixed(row, label, ui->addressWidth);
     e9ui_hstack_addFixed(row, e9ui_spacer_make(gap), gap);
 
     if (ui->columnCount > (int)ui->frameInputsCap) {
@@ -2719,19 +2691,13 @@ memory_track_ui_buildFrameRow(memory_track_ui_t *ui)
 
     for (int columnIndex = 0; columnIndex < ui->columnCount; ++columnIndex) {
         e9ui_component_t *textbox = e9ui_textbox_make(16, memory_track_ui_onFrameSubmit, NULL, ui);
-        if (textbox) {
-            e9ui_textbox_setPlaceholder(textbox, "Frame");
-            e9ui_textbox_setNumericOnly(textbox, 1);
-            if (ui->frameTexts && columnIndex < (int)ui->frameTextsCount && ui->frameTexts[columnIndex]) {
-                e9ui_textbox_setText(textbox, ui->frameTexts[columnIndex]);
-            }
+        e9ui_textbox_setPlaceholder(textbox, "Frame");
+        e9ui_textbox_setNumericOnly(textbox, 1);
+        if (ui->frameTexts && columnIndex < (int)ui->frameTextsCount && ui->frameTexts[columnIndex]) {
+            e9ui_textbox_setText(textbox, ui->frameTexts[columnIndex]);
         }
         ui->frameInputs[columnIndex] = textbox;
-        if (textbox) {
-            e9ui_hstack_addFixed(row, textbox, ui->columnWidth);
-        } else {
-            e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->columnWidth), ui->columnWidth);
-        }
+        e9ui_hstack_addFixed(row, textbox, ui->columnWidth);
         if (columnIndex + 1 < ui->columnCount) {
             e9ui_hstack_addFixed(row, e9ui_spacer_make(gap), gap);
         }
@@ -2749,9 +2715,6 @@ memory_track_ui_buildControlRow(memory_track_ui_t *ui)
         return NULL;
     }
     e9ui_component_t *row = e9ui_hstack_make();
-    if (!row) {
-        return NULL;
-    }
     int gap = ui->columnGap;
     e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->addressWidth), ui->addressWidth);
     e9ui_hstack_addFixed(row, e9ui_spacer_make(gap), gap);
@@ -2759,52 +2722,28 @@ memory_track_ui_buildControlRow(memory_track_ui_t *ui)
     ui->modeBtn8 = e9ui_button_make("8", memory_track_ui_access8, ui);
     ui->modeBtn16 = e9ui_button_make("16", memory_track_ui_access16, ui);
     ui->modeBtn32 = e9ui_button_make("32", memory_track_ui_access32, ui);
-    if (ui->modeBtn8) {
-        e9ui_hstack_addFixed(row, ui->modeBtn8, ui->modeButtonWidth);
-    }
-    if (ui->modeBtn16 || ui->modeBtn32) {
-        e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->modeButtonGap), ui->modeButtonGap);
-    }
-    if (ui->modeBtn16) {
-        e9ui_hstack_addFixed(row, ui->modeBtn16, ui->modeButtonWidth);
-    }
-    if (ui->modeBtn32) {
-        e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->modeButtonGap), ui->modeButtonGap);
-    }
-    if (ui->modeBtn32) {
-        e9ui_hstack_addFixed(row, ui->modeBtn32, ui->modeButtonWidth);
-    }
+    e9ui_hstack_addFixed(row, ui->modeBtn8, ui->modeButtonWidth);
+    e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->modeButtonGap), ui->modeButtonGap);
+    e9ui_hstack_addFixed(row, ui->modeBtn16, ui->modeButtonWidth);
+    e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->modeButtonGap), ui->modeButtonGap);
+    e9ui_hstack_addFixed(row, ui->modeBtn32, ui->modeButtonWidth);
     e9ui_hstack_addFixed(row, e9ui_spacer_make(gap), gap);
 
     ui->filterBtn = e9ui_button_make("Show All", memory_track_ui_toggleRequireAll, ui);
-    if (ui->filterBtn) {
-        e9ui_hstack_addFixed(row, ui->filterBtn, ui->filterButtonWidth);
-    }
+    e9ui_hstack_addFixed(row, ui->filterBtn, ui->filterButtonWidth);
     e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->filterButtonGap), ui->filterButtonGap);
     ui->trendBtnAll = e9ui_button_make("All", memory_track_ui_setTrendAll, ui);
     ui->trendBtnInc = e9ui_button_make("Inc", memory_track_ui_setTrendInc, ui);
     ui->trendBtnDec = e9ui_button_make("Dec", memory_track_ui_setTrendDec, ui);
-    if (ui->trendBtnAll) {
-        e9ui_hstack_addFixed(row, ui->trendBtnAll, ui->trendButtonWidth);
-    }
-    if (ui->trendBtnInc || ui->trendBtnDec) {
-        e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->trendButtonGap), ui->trendButtonGap);
-    }
-    if (ui->trendBtnInc) {
-        e9ui_hstack_addFixed(row, ui->trendBtnInc, ui->trendButtonWidth);
-    }
-    if (ui->trendBtnDec) {
-        e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->trendButtonGap), ui->trendButtonGap);
-    }
-    if (ui->trendBtnDec) {
-        e9ui_hstack_addFixed(row, ui->trendBtnDec, ui->trendButtonWidth);
-    }
+    e9ui_hstack_addFixed(row, ui->trendBtnAll, ui->trendButtonWidth);
+    e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->trendButtonGap), ui->trendButtonGap);
+    e9ui_hstack_addFixed(row, ui->trendBtnInc, ui->trendButtonWidth);
+    e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->trendButtonGap), ui->trendButtonGap);
+    e9ui_hstack_addFixed(row, ui->trendBtnDec, ui->trendButtonWidth);
     e9ui_hstack_addFixed(row, e9ui_spacer_make(gap), gap);
     e9ui_component_t *btn_reset = e9ui_button_make("Reset", memory_track_ui_clearFrameMarkers, ui);
-    if (btn_reset) {
-        int resetW = e9ui_scale_px(&ui->ctx, 80);
-        e9ui_hstack_addFixed(row, btn_reset, resetW);
-    }
+    int resetW = e9ui_scale_px(&ui->ctx, 80);
+    e9ui_hstack_addFixed(row, btn_reset, resetW);
     e9ui_hstack_addFlex(row, e9ui_spacer_make(1));
     memory_track_ui_updateModeButtons(ui);
     memory_track_ui_updateFilterButton(ui);
@@ -2819,9 +2758,6 @@ memory_track_ui_buildFilterRow(memory_track_ui_t *ui)
         return NULL;
     }
     e9ui_component_t *row = e9ui_hstack_make();
-    if (!row) {
-        return NULL;
-    }
     int gap = ui->columnGap;
     e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->addressWidth), ui->addressWidth);
     e9ui_hstack_addFixed(row, e9ui_spacer_make(gap), gap);
@@ -2839,18 +2775,12 @@ memory_track_ui_buildFilterRow(memory_track_ui_t *ui)
 
     for (int columnIndex = 0; columnIndex < ui->columnCount; ++columnIndex) {
         e9ui_component_t *textbox = e9ui_textbox_make(16, memory_track_ui_onFilterSubmit, NULL, ui);
-        if (textbox) {
-            e9ui_textbox_setPlaceholder(textbox, "Filter");
-            if (ui->filterTexts && columnIndex < (int)ui->filterTextsCount && ui->filterTexts[columnIndex]) {
-                e9ui_textbox_setText(textbox, ui->filterTexts[columnIndex]);
-            }
+        e9ui_textbox_setPlaceholder(textbox, "Filter");
+        if (ui->filterTexts && columnIndex < (int)ui->filterTextsCount && ui->filterTexts[columnIndex]) {
+            e9ui_textbox_setText(textbox, ui->filterTexts[columnIndex]);
         }
         ui->filterInputs[columnIndex] = textbox;
-        if (textbox) {
-            e9ui_hstack_addFixed(row, textbox, ui->columnWidth);
-        } else {
-            e9ui_hstack_addFixed(row, e9ui_spacer_make(ui->columnWidth), ui->columnWidth);
-        }
+        e9ui_hstack_addFixed(row, textbox, ui->columnWidth);
         if (columnIndex + 1 < ui->columnCount) {
             e9ui_hstack_addFixed(row, e9ui_spacer_make(gap), gap);
         }

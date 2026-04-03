@@ -299,13 +299,6 @@ help_makeCollapsibleHeading(e9ui_component_t *title,
         return NULL;
     }
     e9ui_component_t *row = e9ui_hstack_make();
-    if (!row) {
-        title->onClick = onClick;
-        title->onHover = help_sectionTitleHover;
-        title->onMouseMove = help_sectionTitleMove;
-        title->onLeave = help_sectionTitleLeave;
-        return title;
-    }
     e9ui_hstack_addFlex(row, title);
     row->onClick = onClick;
     row->onHover = help_sectionTitleHover;
@@ -447,9 +440,6 @@ help_addSpacer(e9ui_component_t *stack, int height, e9ui_context_t *ctx, int col
         return;
     }
     e9ui_component_t *spacer = e9ui_vspacer_make(height);
-    if (!spacer) {
-        return;
-    }
     e9ui_stack_addFixed(stack, spacer);
     if (spacer->preferredHeight) {
         *totalH += spacer->preferredHeight(spacer, ctx, colW);
@@ -482,9 +472,6 @@ help_showModal(e9ui_context_t *ctx)
     }
     e9ui_rect_t rect = { margin, margin, w, h };
     e9ui->helpModal = e9ui_modal_show(ctx, "HELP", rect, help_uiClosed, NULL);
-    if (!e9ui->helpModal) {
-        return;
-    }
 
     int baseText = e9ui->theme.text.fontSize > 0 ? e9ui->theme.text.fontSize : E9UI_THEME_TEXT_FONT_SIZE;
     int headingSize = baseText + 2;
@@ -851,7 +838,7 @@ help_showModal(e9ui_context_t *ctx)
     e9ui_hstack_addFixed(columns, stackRight, colW);
 
     int contentW = colW * 2 + columnGap;
-    e9ui_component_t *scroll = e9ui_scroll_make(columns ? columns : stackLeft);
+    e9ui_component_t *scroll = e9ui_scroll_make(columns);
     e9ui_scroll_setContentHeightPx(scroll, contentH);
     memset(&help_sections, 0, sizeof(help_sections));
     help_sections.leftHeight = contentHLeft;
@@ -893,77 +880,39 @@ help_showModal(e9ui_context_t *ctx)
     int centerW = e9ui_unscale_px(ctx, contentW);
     e9ui_center_setSize(center, centerW, 0);
     e9ui_component_t *btnClose = e9ui_button_make("Close", help_uiClose, NULL);
-    e9ui_component_t *overlayClose = NULL;
-    if (btnClose) {
-        e9ui_button_setTheme(btnClose, e9ui_theme_button_preset_green());
-        overlayClose = e9ui_overlay_make(center, btnClose);
-        if (overlayClose) {
-            e9ui_overlay_setAnchor(overlayClose, e9ui_anchor_bottom_right);
-            e9ui_overlay_setMargin(overlayClose, 12);
-        }
-    }
+    e9ui_button_setTheme(btnClose, e9ui_theme_button_preset_green());
+    e9ui_component_t *overlayClose = e9ui_overlay_make(center, btnClose);
+    e9ui_overlay_setAnchor(overlayClose, e9ui_anchor_bottom_right);
+    e9ui_overlay_setMargin(overlayClose, 12);
 
     char versionText[64];
     help_getReleaseVersionText(versionText, sizeof(versionText));
     e9ui_component_t *versionLabel = e9ui_text_make(versionText);
-    if (versionLabel) {
-        e9ui_text_setColor(versionLabel, (SDL_Color){180, 180, 180, 255});
-    }
+    e9ui_text_setColor(versionLabel, (SDL_Color){180, 180, 180, 255});
     e9ui_component_t *footerMeta = e9ui_hstack_make();
-    if (footerMeta) {
-        SDL_Color sepColor = bodyColor;
-        e9ui_component_t *sep1 = e9ui_text_make(" | ");
-        e9ui_component_t *sep2 = e9ui_text_make(" | ");
-        e9ui_component_t *sep3 = e9ui_text_make(" | ");
-        e9ui_component_t *freeLink = e9ui_link_make("Free Software", help_openFreeSoftware, NULL);
-        e9ui_component_t *srcLink = e9ui_link_make("Source Code", help_openProjectPage, NULL);
-        e9ui_component_t *ytLink = e9ui_link_make("Youtube Channel", help_openYoutubeChannel, NULL);
-        if (sep1) {
-            e9ui_text_setColor(sep1, sepColor);
-        }
-        if (sep2) {
-            e9ui_text_setColor(sep2, sepColor);
-        }
-        if (sep3) {
-            e9ui_text_setColor(sep3, sepColor);
-        }
-        if (versionLabel) {
-            e9ui_hstack_addFixed(footerMeta, versionLabel, help_measureTextWidth(ctx, versionText));
-            versionLabel = NULL;
-        }
-        if (sep1) {
-            e9ui_hstack_addFixed(footerMeta, sep1, help_measureTextWidth(ctx, " | "));
-        }
-        if (freeLink) {
-            e9ui_hstack_addFixed(footerMeta, freeLink, help_measureTextWidth(ctx, "Free Software"));
-        }
-        if (sep2) {
-            e9ui_hstack_addFixed(footerMeta, sep2, help_measureTextWidth(ctx, " | "));
-        }
-        if (srcLink) {
-            e9ui_hstack_addFixed(footerMeta, srcLink, help_measureTextWidth(ctx, "Source Code"));
-        }
-        if (sep3) {
-            e9ui_hstack_addFixed(footerMeta, sep3, help_measureTextWidth(ctx, " | "));
-        }
-        if (ytLink) {
-            e9ui_hstack_addFixed(footerMeta, ytLink, help_measureTextWidth(ctx, "Youtube Channel"));
-        }
-    }
+    SDL_Color sepColor = bodyColor;
+    e9ui_component_t *sep1 = e9ui_text_make(" | ");
+    e9ui_component_t *sep2 = e9ui_text_make(" | ");
+    e9ui_component_t *sep3 = e9ui_text_make(" | ");
+    e9ui_component_t *freeLink = e9ui_link_make("Free Software", help_openFreeSoftware, NULL);
+    e9ui_component_t *srcLink = e9ui_link_make("Source Code", help_openProjectPage, NULL);
+    e9ui_component_t *ytLink = e9ui_link_make("Youtube Channel", help_openYoutubeChannel, NULL);
+    e9ui_text_setColor(sep1, sepColor);
+    e9ui_text_setColor(sep2, sepColor);
+    e9ui_text_setColor(sep3, sepColor);
+    e9ui_hstack_addFixed(footerMeta, versionLabel, help_measureTextWidth(ctx, versionText));
+    e9ui_hstack_addFixed(footerMeta, sep1, help_measureTextWidth(ctx, " | "));
+    e9ui_hstack_addFixed(footerMeta, freeLink, help_measureTextWidth(ctx, "Free Software"));
+    e9ui_hstack_addFixed(footerMeta, sep2, help_measureTextWidth(ctx, " | "));
+    e9ui_hstack_addFixed(footerMeta, srcLink, help_measureTextWidth(ctx, "Source Code"));
+    e9ui_hstack_addFixed(footerMeta, sep3, help_measureTextWidth(ctx, " | "));
+    e9ui_hstack_addFixed(footerMeta, ytLink, help_measureTextWidth(ctx, "Youtube Channel"));
 
-    e9ui_component_t *body = overlayClose ? overlayClose : center;
-    e9ui_component_t *overlayVersion = NULL;
-    e9ui_component_t *overlayLeftChild = footerMeta ? footerMeta : versionLabel;
-    if (overlayLeftChild) {
-        overlayVersion = e9ui_overlay_make(body, overlayLeftChild);
-        if (overlayVersion) {
-            e9ui_overlay_setAnchor(overlayVersion, e9ui_anchor_bottom_left);
-            e9ui_overlay_setMargin(overlayVersion, 12);
-        }
-    }
+    e9ui_component_t *body = overlayClose;
+    e9ui_component_t *overlayVersion = e9ui_overlay_make(body, footerMeta);
+    e9ui_overlay_setAnchor(overlayVersion, e9ui_anchor_bottom_left);
+    e9ui_overlay_setMargin(overlayVersion, 12);
 
-    e9ui_modal_setBodyChild(e9ui->helpModal, overlayVersion ? overlayVersion : body, ctx);
-    if (btnClose) {
-        e9ui_setFocus(ctx, btnClose);
-    }
+    e9ui_modal_setBodyChild(e9ui->helpModal, overlayVersion, ctx);
+    e9ui_setFocus(ctx, btnClose);
 }

@@ -1212,12 +1212,6 @@ emu_makeComponent(void)
     state->viewComp = view;
 
     scroll = e9ui_scroll_make(view);
-    if (!scroll) {
-        alloc_free(view);
-        alloc_free(state);
-        alloc_free(comp);
-        return NULL;
-    }
     state->scrollComp = scroll;
     state->scrollMeta = alloc_strdup("scroll");
     e9ui_child_add(comp, scroll, state->scrollMeta);
@@ -1234,50 +1228,42 @@ emu_makeComponent(void)
     state->zoomInBinding.state = state;
 
     e9ui_component_t *btnZoomOut = e9ui_button_make("-", emu_adjustZoom, &state->zoomOutBinding);
-    if (btnZoomOut) {
-        e9ui_button_setMini(btnZoomOut, 1);
-        e9ui_setFocusTarget(btnZoomOut, view);
-        state->zoomOutBtnMeta = alloc_strdup("zoom_out");
-        e9ui_child_add(button_stack, btnZoomOut, state->zoomOutBtnMeta);
-    }
+    e9ui_button_setMini(btnZoomOut, 1);
+    e9ui_setFocusTarget(btnZoomOut, view);
+    state->zoomOutBtnMeta = alloc_strdup("zoom_out");
+    e9ui_child_add(button_stack, btnZoomOut, state->zoomOutBtnMeta);
 
     e9ui_component_t *btnZoomIn = e9ui_button_make("+", emu_adjustZoom, &state->zoomInBinding);
-    if (btnZoomIn) {
-        e9ui_button_setMini(btnZoomIn, 1);
-        e9ui_setFocusTarget(btnZoomIn, view);
-        state->zoomInBtnMeta = alloc_strdup("zoom_in");
-        e9ui_child_add(button_stack, btnZoomIn, state->zoomInBtnMeta);
-    }
+    e9ui_button_setMini(btnZoomIn, 1);
+    e9ui_setFocusTarget(btnZoomIn, view);
+    state->zoomInBtnMeta = alloc_strdup("zoom_in");
+    e9ui_child_add(button_stack, btnZoomIn, state->zoomInBtnMeta);
 
     target->emu->createOverlays(view, button_stack);
     
     e9ui_component_t *btn_shader = e9ui_button_make("CRT", emu_toggleShaderUi, view);
-    if (btn_shader) {
-        e9ui_button_setMini(btn_shader, 1);
-        e9ui_setFocusTarget(btn_shader, view);
-        state->shaderUiBtnMeta = alloc_strdup("shader_ui");
-        e9ui_child_add(button_stack, btn_shader, state->shaderUiBtnMeta);
-    }
+    e9ui_button_setMini(btn_shader, 1);
+    e9ui_setFocusTarget(btn_shader, view);
+    state->shaderUiBtnMeta = alloc_strdup("shader_ui");
+    e9ui_child_add(button_stack, btn_shader, state->shaderUiBtnMeta);
 
     e9ui_component_t *seek = e9ui_seek_bar_make();
-    if (seek) {
-        e9ui_seek_bar_setMargins(seek, 30, 30, 10);
-        e9ui_seek_bar_setHeight(seek, 14);
-        e9ui_seek_bar_setHoverMargin(seek, 18);
-        e9ui_seek_bar_setCallback(seek, emu_seekBarChanged, NULL);
-        e9ui_seek_bar_setDragCallback(seek, emu_seekBarDragging, seek);
-        e9ui_seek_bar_setTooltipCallback(seek, emu_seekTooltip, NULL);
-        seek->disabled = state_buffer_isRollingPaused() ? 1 : 0;
-        if (seek->disabled) {
-            e9ui_setHidden(seek, 1);
-            state->seekBarForcedHidden = 1;
-        } else {
-            state->seekBarForcedHidden = 0;
-        }
-        e9ui_setAutoHide(seek, 1, e9ui_seek_bar_getHoverMargin(seek));
-        state->seekBarMeta = alloc_strdup("seek_bar");
-        e9ui_child_add(view, seek, state->seekBarMeta);
+    e9ui_seek_bar_setMargins(seek, 30, 30, 10);
+    e9ui_seek_bar_setHeight(seek, 14);
+    e9ui_seek_bar_setHoverMargin(seek, 18);
+    e9ui_seek_bar_setCallback(seek, emu_seekBarChanged, NULL);
+    e9ui_seek_bar_setDragCallback(seek, emu_seekBarDragging, seek);
+    e9ui_seek_bar_setTooltipCallback(seek, emu_seekTooltip, NULL);
+    seek->disabled = state_buffer_isRollingPaused() ? 1 : 0;
+    if (seek->disabled) {
+        e9ui_setHidden(seek, 1);
+        state->seekBarForcedHidden = 1;
+    } else {
+        state->seekBarForcedHidden = 0;
     }
+    e9ui_setAutoHide(seek, 1, e9ui_seek_bar_getHoverMargin(seek));
+    state->seekBarMeta = alloc_strdup("seek_bar");
+    e9ui_child_add(view, seek, state->seekBarMeta);
 
     if (target && target->emu && target->emu->rangeBarCount && target->emu->rangeBarDescribe) {
         size_t count = target->emu->rangeBarCount();
@@ -1296,9 +1282,6 @@ emu_makeComponent(void)
                 continue;
             }
             rangeBar = e9ui_range_bar_make();
-            if (!rangeBar) {
-                continue;
-            }
             e9ui_range_bar_setSide(rangeBar, (e9ui_range_bar_side_t)desc.side);
             e9ui_range_bar_setMargins(rangeBar, desc.marginTop, desc.marginBottom, desc.marginSide);
             e9ui_range_bar_setWidth(rangeBar, desc.width);

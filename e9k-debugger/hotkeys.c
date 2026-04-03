@@ -1523,45 +1523,28 @@ hotkeys_makeConfigBody(hotkeys_config_modal_state_t *st, e9ui_context_t *ctx)
             *lastSection = section;
         }
         e9ui_component_t *row = e9ui_hstack_make();
-        if (!row) {
-            continue;
-        }
         e9ui_component_t *labelText = e9ui_text_make(spec->label);
-        e9ui_component_t *labelBox = labelText ? e9ui_box_make(labelText) : NULL;
-        if (labelBox) {
-            e9ui_box_setWidth(labelBox, e9ui_dim_fixed, labelWidthPx);
-        }
+        e9ui_component_t *labelBox = e9ui_box_make(labelText);
+        e9ui_box_setWidth(labelBox, e9ui_dim_fixed, labelWidthPx);
         e9ui_component_t *button = e9ui_button_make("", hotkeys_configBindingButtonClicked, entry);
-        if (button) {
-            e9ui_button_setLeftJustify(button, 16);
-            e9ui_button_setLargestLabel(button, "Press key... (ctrl+shift+alt+cmd)");
-            entry->button = button;
-            hotkeys_configUpdateEntryButtonLabel(entry);
-        }
+        e9ui_button_setLeftJustify(button, 16);
+        e9ui_button_setLargestLabel(button, "Press key... (ctrl+shift+alt+cmd)");
+        entry->button = button;
+        hotkeys_configUpdateEntryButtonLabel(entry);
         e9ui_component_t *btnUnbind = e9ui_button_make("", hotkeys_configUnbindClicked, entry);
-        if (btnUnbind) {
-            e9ui_button_setMini(btnUnbind, 1);
-            e9ui_button_setIconAsset(btnUnbind, "assets/icons/trash.png");
-            e9ui_setTooltip(btnUnbind, "Delete Hotkey");
-            entry->btnUnbind = btnUnbind;
-        }
+        e9ui_button_setMini(btnUnbind, 1);
+        e9ui_button_setIconAsset(btnUnbind, "assets/icons/trash.png");
+        e9ui_setTooltip(btnUnbind, "Delete Hotkey");
+        entry->btnUnbind = btnUnbind;
         int gapPx = e9ui_scale_px(ctx, 8);
         int unbindW = 0;
         int unbindH = 0;
-        if (btnUnbind) {
-            e9ui_button_measure(btnUnbind, ctx, &unbindW, &unbindH);
-            (void)unbindH;
-        }
-        if (labelBox) {
-            e9ui_hstack_addFixed(row, labelBox, e9ui_scale_px(ctx, labelWidthPx));
-        } else if (labelText) {
-            e9ui_hstack_addFlex(row, labelText);
-        }
+        e9ui_button_measure(btnUnbind, ctx, &unbindW, &unbindH);
+        (void)unbindH;
+        e9ui_hstack_addFixed(row, labelBox, e9ui_scale_px(ctx, labelWidthPx));
         e9ui_hstack_addFixed(row, e9ui_spacer_make(gapPx), gapPx);
-        if (button) {
-            e9ui_hstack_addFlex(row, button);
-        }
-        if (btnUnbind && unbindW > 0) {
+        e9ui_hstack_addFlex(row, button);
+        if (unbindW > 0) {
             e9ui_hstack_addFixed(row, e9ui_spacer_make(gapPx), gapPx);
             e9ui_hstack_addFixed(row, btnUnbind, unbindW);
         }
@@ -1583,28 +1566,16 @@ hotkeys_makeConfigBody(hotkeys_config_modal_state_t *st, e9ui_context_t *ctx)
     if (controllerSelect) {
         e9ui_component_t *row = e9ui_hstack_make();
         e9ui_component_t *labelText = e9ui_text_make("Controller");
-        e9ui_component_t *labelBox = labelText ? e9ui_box_make(labelText) : NULL;
-        if (labelBox) {
-            e9ui_box_setWidth(labelBox, e9ui_dim_fixed, labelWidthPx);
-        }
+        e9ui_component_t *labelBox = e9ui_box_make(labelText);
+        e9ui_box_setWidth(labelBox, e9ui_dim_fixed, labelWidthPx);
         st->controllerSelect = controllerSelect;
-        if (row) {
-            int gapPx = e9ui_scale_px(ctx, 8);
-            e9ui_stack_addFixed(rightStack, e9ui_vspacer_make(10));
-            if (labelBox) {
-                e9ui_hstack_addFixed(row, labelBox, e9ui_scale_px(ctx, labelWidthPx));
-            } else if (labelText) {
-                e9ui_hstack_addFlex(row, labelText);
-            }
-            e9ui_hstack_addFixed(row, e9ui_spacer_make(gapPx), gapPx);
-            e9ui_hstack_addFlex(row, controllerSelect);
-            e9ui_stack_addFixed(rightStack, row);
-            e9ui_stack_addFixed(rightStack, e9ui_vspacer_make(rowGapPx));
-        } else {
-            e9ui_stack_addFixed(rightStack, e9ui_vspacer_make(10));
-            e9ui_stack_addFixed(rightStack, controllerSelect);
-            e9ui_stack_addFixed(rightStack, e9ui_vspacer_make(rowGapPx));
-        }
+        int gapPx = e9ui_scale_px(ctx, 8);
+        e9ui_stack_addFixed(rightStack, e9ui_vspacer_make(10));
+        e9ui_hstack_addFixed(row, labelBox, e9ui_scale_px(ctx, labelWidthPx));
+        e9ui_hstack_addFixed(row, e9ui_spacer_make(gapPx), gapPx);
+        e9ui_hstack_addFlex(row, controllerSelect);
+        e9ui_stack_addFixed(rightStack, row);
+        e9ui_stack_addFixed(rightStack, e9ui_vspacer_make(rowGapPx));
         hotkeys_configRebuildControllerOptions(st);
     }
 
@@ -1612,9 +1583,6 @@ hotkeys_makeConfigBody(hotkeys_config_modal_state_t *st, e9ui_context_t *ctx)
     e9ui_stack_addFixed(rightStack, e9ui_vspacer_make(72));
 
     e9ui_component_t *columns = e9ui_hstack_make();
-    if (!columns) {
-        return NULL;
-    }
     int colGapPx = e9ui_scale_px(ctx, 16);
     if (colGapPx < 8) {
         colGapPx = 8;
@@ -1626,47 +1594,29 @@ hotkeys_makeConfigBody(hotkeys_config_modal_state_t *st, e9ui_context_t *ctx)
     e9ui_component_t *scroll = e9ui_scroll_make(columns);
     st->scroll = scroll;
 
-    e9ui_component_t *content = e9ui_box_make(scroll ? scroll : columns);
-    if (content) {
-        e9ui_box_setPadding(content, 20);
-    } else {
-        content = scroll ? scroll : columns;
-    }
+    e9ui_component_t *content = e9ui_box_make(scroll);
+    e9ui_box_setPadding(content, 20);
 
     e9ui_component_t *btnSave = e9ui_button_make("Save", hotkeys_configSaveClicked, st);
     e9ui_component_t *btnDefaults = e9ui_button_make("Defaults", hotkeys_configDefaultsClicked, st);
     e9ui_component_t *btnCancel = e9ui_button_make("Cancel", hotkeys_configCancelClicked, st);
     st->btnSave = btnSave;
     st->btnDefaults = btnDefaults;
-    if (btnSave) {
-        e9ui_button_setTheme(btnSave, e9ui_theme_button_preset_green());
-        e9ui_button_setGlowPulse(btnSave, 0);
-    }
-    if (btnCancel) {
-        e9ui_button_setTheme(btnCancel, e9ui_theme_button_preset_red());
-    }
+    e9ui_button_setTheme(btnSave, e9ui_theme_button_preset_green());
+    e9ui_button_setGlowPulse(btnSave, 0);
+    e9ui_button_setTheme(btnCancel, e9ui_theme_button_preset_red());
 
     e9ui_component_t *footer = e9ui_flow_make();
-    if (footer) {
-        e9ui_flow_setPadding(footer, 0);
-        e9ui_flow_setSpacing(footer, 8);
-        e9ui_flow_setWrap(footer, 0);
-        if (btnSave) {
-            e9ui_flow_add(footer, btnSave);
-        }
-        if (btnDefaults) {
-            e9ui_flow_add(footer, btnDefaults);
-        }
-        if (btnCancel) {
-            e9ui_flow_add(footer, btnCancel);
-        }
-    }
+    e9ui_flow_setPadding(footer, 0);
+    e9ui_flow_setSpacing(footer, 8);
+    e9ui_flow_setWrap(footer, 0);
+    e9ui_flow_add(footer, btnSave);
+    e9ui_flow_add(footer, btnDefaults);
+    e9ui_flow_add(footer, btnCancel);
 
-    e9ui_component_t *layout = footer ? e9ui_overlay_make(content, footer) : content;
-    if (footer && layout) {
-        e9ui_overlay_setAnchor(layout, e9ui_anchor_bottom_right);
-        e9ui_overlay_setMargin(layout, 12);
-    }
+    e9ui_component_t *layout = e9ui_overlay_make(content, footer);
+    e9ui_overlay_setAnchor(layout, e9ui_anchor_bottom_right);
+    e9ui_overlay_setMargin(layout, 12);
 
     e9ui_component_t *container = (e9ui_component_t *)alloc_calloc(1, sizeof(*container));
     if (!container) {
