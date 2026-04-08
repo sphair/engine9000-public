@@ -33,6 +33,10 @@
 #include "e9ui_text.h"
 #include "e9ui_textbox.h"
 #include "libretro_host.h"
+#include "platform.h"
+#include "settings.h"
+#include "strutil.h"
+#include "tinyfiledialogs.h"
 
 #define AMIGA_MEMVIEW_TITLE "ENGINE9000 DEBUGGER - RAM"
 #define AMIGA_MEMVIEW_DEFAULT_ROW_BYTES 40u
@@ -61,6 +65,8 @@
 #define AMIGA_MEMVIEW_REG_BPL1PTH 0x0e0u
 #define AMIGA_MEMVIEW_BPLPTR_COUNT 8
 #define AMIGA_MEMVIEW_AUTO_CANDIDATE_MAX 64
+#define AMIGA_MEMVIEW_EXPORT_MAX_RANGES 64
+#define AMIGA_MEMVIEW_EXPORT_CHUNK 65536u
 
 typedef struct amiga_memview_state amiga_memview_state_t;
 
@@ -188,6 +194,9 @@ amiga_memview_clampZoomLevel(int zoomLevel);
 
 static int
 amiga_memview_leftGutterPx(const amiga_memview_state_t *ui, const e9ui_context_t *ctx, TTF_Font *font);
+
+static int
+amiga_memview_ramTypeFromBaseAddr(uint32_t baseAddr);
 
 static void
 amiga_memview_seekBarLayout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_rect_t bounds);
@@ -461,6 +470,44 @@ amiga_memview_widthSeekTooltip(float percent, char *out, size_t cap, void *user)
     snprintf(out, cap, "Width %u words (%u bytes)", (unsigned)(rowBytes / 2u), (unsigned)rowBytes);
 }
 
+static int
+amiga_memview_handleWidthKey(amiga_memview_state_t *ui, SDL_Keycode key, SDL_Keymod mod)
+{
+    uint32_t nextRowBytes = 0u;
+
+    if (!ui) {
+        return 0;
+    }
+
+    (void)mod;
+    nextRowBytes = ui->rowBytes;
+    switch (key) {
+    case SDLK_LEFT:
+    case SDLK_DOWN:
+        nextRowBytes = ui->rowBytes > 2u ? ui->rowBytes - 2u : 2u;
+        break;
+    case SDLK_RIGHT:
+    case SDLK_UP:
+        nextRowBytes = ui->rowBytes + 2u;
+        break;
+    case SDLK_HOME:
+        nextRowBytes = 2u;
+        break;
+    case SDLK_END:
+        nextRowBytes = AMIGA_MEMVIEW_MAX_ROW_BYTES;
+        break;
+    default:
+        return 0;
+    }
+
+    nextRowBytes = amiga_memview_clampRowBytes(nextRowBytes);
+    if (nextRowBytes == ui->rowBytes) {
+        return 1;
+    }
+    amiga_memview_setView(ui, ui->baseAddr, nextRowBytes, 1);
+    return 1;
+}
+
 static float
 amiga_memview_zoomSeekPercent(int zoomLevel)
 {
@@ -559,8 +606,6 @@ static int
 amiga_memview_widthSeekHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event_t *ev)
 {
     amiga_memview_state_t *ui = &amiga_memview_stateSingleton;
-    uint32_t nextRowBytes = 0u;
-    int shift = 0;
 
     if (!self || !ctx || !ev) {
         return 0;
@@ -569,30 +614,7 @@ amiga_memview_widthSeekHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, 
         return 0;
     }
     if (ev->type == SDL_KEYDOWN && e9ui_getFocus(ctx) == self) {
-        shift = (ev->key.keysym.mod & KMOD_SHIFT) ? 1 : 0;
-        nextRowBytes = ui->rowBytes;
-        switch (ev->key.keysym.sym) {
-        case SDLK_LEFT:
-        case SDLK_DOWN:
-            nextRowBytes = ui->rowBytes > (uint32_t)(shift ? 16u : 2u) ?
-                ui->rowBytes - (uint32_t)(shift ? 16u : 2u) : 2u;
-            break;
-        case SDLK_RIGHT:
-        case SDLK_UP:
-            nextRowBytes = ui->rowBytes + (uint32_t)(shift ? 16u : 2u);
-            break;
-        case SDLK_HOME:
-            nextRowBytes = 2u;
-            break;
-        case SDLK_END:
-            nextRowBytes = AMIGA_MEMVIEW_MAX_ROW_BYTES;
-            break;
-        default:
-            nextRowBytes = 0u;
-            break;
-        }
-        if (nextRowBytes != 0u) {
-            amiga_memview_setView(ui, ui->baseAddr, nextRowBytes, 1);
+        if (amiga_memview_handleWidthKey(ui, ev->key.keysym.sym, ev->key.keysym.mod)) {
             return 1;
         }
     }
@@ -1299,6 +1321,316 @@ amiga_memview_onAuto(e9ui_context_t *ctx, void *user)
 {
     (void)ctx;
     amiga_memview_applyAuto((amiga_memview_state_t*)user, 1);
+}
+
+static int
+amiga_memview_copyConfigName(char *out, size_t cap, const char *configPath)
+{
+    const char *base = NULL;
+    const char *slash = NULL;
+    const char *back = NULL;
+    const char *dot = NULL;
+
+    if (!out || cap == 0u || !configPath || !configPath[0]) {
+        return 0;
+    }
+
+    slash = strrchr(configPath, '/');
+    back = strrchr(configPath, '\\');
+    base = slash > back ? slash : back;
+    base = base ? base + 1 : configPath;
+    if (!base || !base[0]) {
+        return 0;
+    }
+
+    strutil_strlcpy(out, cap, base);
+    if (out[0] == '\0') {
+        return 0;
+    }
+    dot = strrchr(out, '.');
+    if (dot && dot > out) {
+        * (char*)dot = '\0';
+    }
+    if (out[0] == '\0') {
+        return 0;
+    }
+    return 1;
+}
+
+static const char *
+amiga_memview_ramTypeFileTag(int ramType)
+{
+    switch (ramType) {
+    case amiga_memview_ram_type_chip:
+        return "chip";
+    case amiga_memview_ram_type_slow:
+        return "slow";
+    case amiga_memview_ram_type_fast:
+        return "fast";
+    default:
+        return "other";
+    }
+}
+
+static int
+amiga_memview_buildExportFileName(char *out, size_t cap, const char *configName, int ramType)
+{
+    char stem[PATH_MAX];
+    const char *tag = amiga_memview_ramTypeFileTag(ramType);
+    size_t stemLen = 0u;
+
+    if (!out || cap == 0u || !configName || !configName[0] || !tag || !tag[0]) {
+        return 0;
+    }
+    strutil_join3Trunc(stem, sizeof(stem), configName, "-", tag);
+    stemLen = strlen(configName) + 1u + strlen(tag);
+    if (strlen(stem) != stemLen) {
+        return 0;
+    }
+    strutil_join2Trunc(out, cap, stem, ".bin");
+    if (strlen(out) != stemLen + 4u) {
+        return 0;
+    }
+    return 1;
+}
+
+static int
+amiga_memview_collectExportRanges(target_memory_range_t *outRanges, size_t cap, size_t *outCount)
+{
+    size_t count = 0u;
+    size_t write = 0u;
+
+    *outCount = 0u;
+    if (!target || !target->memoryTrackGetRanges) {
+        return 0;
+    }
+    if (!target->memoryTrackGetRanges(outRanges, cap, &count) || count == 0u) {
+        return 0;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (outRanges[i].size == 0u) {
+            continue;
+        }
+        outRanges[write++] = outRanges[i];
+    }
+    *outCount = write;
+    return write > 0u ? 1 : 0;
+}
+
+static int
+amiga_memview_buildOverwriteMessage(char *out, size_t cap, const char *const *paths, int pathCount)
+{
+    size_t pos = 0u;
+    const char *header = "These files already exist:\n";
+    const char *footer = "\n\nOverwrite these RAM dumps?";
+
+    if (!out || cap == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (strlen(header) >= cap) {
+        return 0;
+    }
+    memcpy(out, header, strlen(header) + 1u);
+    pos = strlen(header);
+    for (int i = 0; i < pathCount; ++i) {
+        size_t pathLen = 0u;
+
+        if (!paths[i] || !paths[i][0]) {
+            continue;
+        }
+        pathLen = strlen(paths[i]);
+        if (pos + pathLen >= cap) {
+            return 0;
+        }
+        memcpy(out + pos, paths[i], pathLen);
+        pos += pathLen;
+        out[pos] = '\0';
+        if (i + 1 < pathCount) {
+            if (pos + 1u >= cap) {
+                return 0;
+            }
+            out[pos++] = '\n';
+            out[pos] = '\0';
+        }
+    }
+    if (pos + strlen(footer) >= cap) {
+        return 0;
+    }
+    memcpy(out + pos, footer, strlen(footer) + 1u);
+    return 1;
+}
+
+static int
+amiga_memview_writeExportType(amiga_memview_state_t *ui,
+                              const target_memory_range_t *ranges,
+                              size_t rangeCount,
+                              int ramType,
+                              const char *finalPath)
+{
+    uint8_t buffer[AMIGA_MEMVIEW_EXPORT_CHUNK];
+    char tempPath[PATH_MAX];
+    FILE *out = NULL;
+    int wroteAny = 0;
+
+    if (!ui || !ranges || rangeCount == 0u || !finalPath || !finalPath[0]) {
+        return 0;
+    }
+    strutil_join2Trunc(tempPath, sizeof(tempPath), finalPath, ".tmp");
+    if (strlen(tempPath) != strlen(finalPath) + 4u) {
+        return 0;
+    }
+
+    out = fopen(tempPath, "wb");
+    if (!out) {
+        return 0;
+    }
+
+    for (size_t i = 0; i < rangeCount; ++i) {
+        uint32_t addr = 0u;
+        uint32_t remaining = 0u;
+
+        if (ranges[i].size == 0u || amiga_memview_ramTypeFromBaseAddr(ranges[i].baseAddr) != ramType) {
+            continue;
+        }
+
+        addr = ranges[i].baseAddr;
+        remaining = ranges[i].size;
+        wroteAny = 1;
+        while (remaining > 0u) {
+            size_t chunkSize = remaining < (uint32_t)sizeof(buffer) ? (size_t)remaining : sizeof(buffer);
+
+            if (!amiga_memview_readRange(ui, addr, buffer, chunkSize)) {
+                fclose(out);
+                remove(tempPath);
+                return 0;
+            }
+            if (fwrite(buffer, 1u, chunkSize, out) != chunkSize) {
+                fclose(out);
+                remove(tempPath);
+                return 0;
+            }
+            addr += (uint32_t)chunkSize;
+            remaining -= (uint32_t)chunkSize;
+        }
+    }
+
+    if (fclose(out) != 0) {
+        remove(tempPath);
+        return 0;
+    }
+    if (!wroteAny) {
+        remove(tempPath);
+        return 1;
+    }
+    if (!debugger_platform_replaceFile(tempPath, finalPath)) {
+        remove(tempPath);
+        return 0;
+    }
+    return 1;
+}
+
+static void
+amiga_memview_onSave(e9ui_context_t *ctx, void *user)
+{
+    amiga_memview_state_t *ui = (amiga_memview_state_t*)user;
+    target_memory_range_t ranges[AMIGA_MEMVIEW_EXPORT_MAX_RANGES];
+    char defaultDir[PATH_MAX];
+    char fileName[PATH_MAX];
+    char configName[PATH_MAX];
+    char exportPaths[amiga_memview_ram_type_count][PATH_MAX];
+    const char *overwritePaths[amiga_memview_ram_type_count];
+    const char *folder = NULL;
+    const char *configPath = NULL;
+    const char *defaultPath = NULL;
+    size_t rangeCount = 0u;
+    int exportTypes[amiga_memview_ram_type_count];
+    int exportTypeCount = 0;
+    int overwriteCount = 0;
+
+    (void)ctx;
+    if (!ui) {
+        return;
+    }
+
+    configPath = libretro_host_getRomPath();
+    if (!configPath || !amiga_memview_copyConfigName(configName, sizeof(configName), configPath)) {
+        e9ui_showTransientMessage("RAM SAVE FAILED");
+        return;
+    }
+    if (!amiga_memview_collectExportRanges(ranges, countof(ranges), &rangeCount) || rangeCount == 0u) {
+        e9ui_showTransientMessage("RAM SAVE FAILED");
+        return;
+    }
+
+    if (debugger.libretro.saveDir[0] && settings_pathExistsDir(debugger.libretro.saveDir)) {
+        defaultPath = debugger.libretro.saveDir;
+    } else if (configPath && configPath[0]) {
+        defaultPath = configPath;
+    } else if (platform_getCurrentDir(defaultDir, sizeof(defaultDir))) {
+        defaultPath = defaultDir;
+    } else {
+        defaultPath = ".";
+    }
+    folder = platform_selectFolderDialog("Select RAM dump folder", defaultPath);
+    if (!folder || !folder[0]) {
+        return;
+    }
+    if (!settings_pathExistsDir(folder)) {
+        e9ui_showTransientMessage("RAM SAVE FAILED");
+        return;
+    }
+
+    for (int ramType = 0; ramType < amiga_memview_ram_type_count; ++ramType) {
+        int present = 0;
+
+        for (size_t i = 0; i < rangeCount; ++i) {
+            if (ranges[i].size != 0u && amiga_memview_ramTypeFromBaseAddr(ranges[i].baseAddr) == ramType) {
+                present = 1;
+                break;
+            }
+        }
+        if (!present) {
+            continue;
+        }
+        if (!amiga_memview_buildExportFileName(fileName, sizeof(fileName), configName, ramType) ||
+            !debugger_platform_pathJoin(exportPaths[ramType],
+                                        sizeof(exportPaths[ramType]),
+                                        folder,
+                                        fileName)) {
+            e9ui_showTransientMessage("RAM SAVE FAILED");
+            return;
+        }
+        exportTypes[exportTypeCount++] = ramType;
+        if (settings_pathExistsFile(exportPaths[ramType])) {
+            overwritePaths[overwriteCount++] = exportPaths[ramType];
+        }
+    }
+
+    if (exportTypeCount == 0) {
+        e9ui_showTransientMessage("RAM SAVE FAILED");
+        return;
+    }
+
+    if (overwriteCount > 0) {
+        char message[1024];
+
+        if (!amiga_memview_buildOverwriteMessage(message, sizeof(message), overwritePaths, overwriteCount) ||
+            !tinyfd_messageBox("Overwrite RAM dumps?", message, "yesno", "warning", 0)) {
+            return;
+        }
+    }
+
+    for (int i = 0; i < exportTypeCount; ++i) {
+        int ramType = exportTypes[i];
+
+        if (!amiga_memview_writeExportType(ui, ranges, rangeCount, ramType, exportPaths[ramType])) {
+            e9ui_showTransientMessage("RAM SAVE FAILED");
+            return;
+        }
+    }
+
+    e9ui_showTransientMessage("RAM SAVED");
 }
 
 static void
@@ -3363,6 +3695,9 @@ amiga_memview_canvasHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, con
             return 1;
         }
         if (ev->key.keysym.sym == SDLK_LEFT) {
+            if ((ev->key.keysym.mod & KMOD_SHIFT) != 0) {
+                return amiga_memview_handleWidthKey(ui, ev->key.keysym.sym, ev->key.keysym.mod);
+            }
             hscrollBounds = amiga_memview_hscrollBounds(ui, self);
             if (hscrollBounds.w < 1) {
                 hscrollBounds.w = 1;
@@ -3372,6 +3707,9 @@ amiga_memview_canvasHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, con
             return 1;
         }
         if (ev->key.keysym.sym == SDLK_RIGHT) {
+            if ((ev->key.keysym.mod & KMOD_SHIFT) != 0) {
+                return amiga_memview_handleWidthKey(ui, ev->key.keysym.sym, ev->key.keysym.mod);
+            }
             hscrollBounds = amiga_memview_hscrollBounds(ui, self);
             if (hscrollBounds.w < 1) {
                 hscrollBounds.w = 1;
@@ -3480,9 +3818,11 @@ amiga_memview_buildRoot(amiga_memview_state_t *ui)
     e9ui_component_t *addressLabel = NULL;
     e9ui_component_t *widthLabel = NULL;
     e9ui_component_t *zoomLabel = NULL;
+    e9ui_component_t *saveButton = NULL;
     TTF_Font *toolbarFont = NULL;
     int gapSmall = 0;
     int autoButtonW = 0;
+    int saveButtonW = 0;
     int checkboxAddrW = 0;
     int checkboxOverviewW = 0;
     int labelAddrW = 0;
@@ -3516,6 +3856,7 @@ amiga_memview_buildRoot(amiga_memview_state_t *ui)
     zoomLabel = e9ui_text_make("Zoom");
     legend = amiga_memview_makeLegend(ui);
     autoButton = e9ui_button_make("Auto", amiga_memview_onAuto, ui);
+    saveButton = e9ui_button_make("Save", amiga_memview_onSave, ui);
     ui->autoButton = autoButton;
     showAddress = e9ui_checkbox_make("Addr", ui->showAddressColumn, amiga_memview_onShowAddressColumnChanged, ui);
     showOverview = e9ui_checkbox_make("Overview", ui->showOverviewColumn, amiga_memview_onShowOverviewColumnChanged, ui);
@@ -3538,13 +3879,16 @@ amiga_memview_buildRoot(amiga_memview_state_t *ui)
 			           &ui->zoomSeekDefaultHandleEvent);
 
     e9ui_button_setMini(autoButton, 1);
+    e9ui_button_setMini(saveButton, 1);
     e9ui_button_setLargestLabel(autoButton, "Auto (64/64)");
     amiga_memview_syncAutoButtonLabel(ui);
 
     toolbarFont = e9ui->theme.text.source ? e9ui->theme.text.source : ui->ctx.font;
     gapSmall = e9ui_scale_px(&ui->ctx, 6);
     autoButtonW = e9ui_scale_px(&ui->ctx, 92);
+    saveButtonW = e9ui_scale_px(&ui->ctx, 72);
     e9ui_button_measure(autoButton, &ui->ctx, &autoButtonW, &textH);
+    e9ui_button_measure(saveButton, &ui->ctx, &saveButtonW, &textH);
     e9ui_checkbox_measure(showAddress, &ui->ctx, &checkboxAddrW, &textH);
     e9ui_checkbox_measure(showOverview, &ui->ctx, &checkboxOverviewW, &textH);
     labelAddrW = amiga_memview_measureToolbarTextWidth(&ui->ctx, toolbarFont, "Address", 8, 64);
@@ -3603,6 +3947,7 @@ amiga_memview_buildRoot(amiga_memview_state_t *ui)
     e9ui_child_add(toolbar, groupWidthItem, NULL);
     e9ui_child_add(toolbar, groupZoomItem, NULL);
     e9ui_child_add(toolbar, groupLegendItem, NULL);
+    e9ui_child_add(toolbar, amiga_memview_makeToolbarItem(saveButton, saveButtonW), NULL);
 
     toolbarBox = e9ui_box_make(toolbar);
 
