@@ -182,37 +182,6 @@ transition_slide_run(e9ui_component_t *from, e9ui_component_t *to, int w, int h)
         item->comp->bounds = item->start;
     }
 
-    if (to && items) {
-        transition_slide_bounds_t *snap = NULL;
-        size_t snapCount = 0;
-        size_t snapCap = 0;
-        transition_slide_collectBounds(to, &snap, &snapCount, &snapCap);
-        e9ui->root = to;
-        e9ui->fullscreen = NULL;
-        e9ui_updateStateTree(to);
-        if (to->layout) {
-            e9ui_rect_t full = (e9ui_rect_t){0, 0, w, h};
-            to->layout(to, &e9ui->ctx, full);
-        }
-        for (size_t i = 0; i < count; ++i) {
-            items[i].target = items[i].comp->bounds;
-            items[i].end = items[i].target;
-        }
-        transition_slide_restoreBounds(snap, snapCount);
-        alloc_free(snap);
-        e9ui->root = prevRoot;
-        e9ui->fullscreen = prevFullscreen;
-
-        for (size_t i = 0; i < count; ++i) {
-            transition_slide_item_t *item = &items[i];
-            int offscreenX = item->start.x;
-            item->start = item->target;
-            item->end = item->target;
-            item->start.x = offscreenX;
-            item->comp->bounds = item->start;
-        }
-    }
-
     SDL_SetTextureBlendMode(fromTex, SDL_BLENDMODE_BLEND);
     const int frames = 20;
     const double frameMs = 1000.0 / 60.0;

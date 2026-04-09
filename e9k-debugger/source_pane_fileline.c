@@ -464,7 +464,10 @@ source_pane_fileline_addBreakpointsForLine(const char *path, int lineNo)
     int changed = 0;
     for (int i = 0; i < resolvedCount; ++i) {
         uint32_t runtimeAddr = resolvedAddrs[i];
-        (void)base_map_debugToRuntime(BASE_MAP_SECTION_TEXT, runtimeAddr, &runtimeAddr);
+        if (!(debugger_toolchainUsesHunkAddr2line() &&
+              base_map_getMode() == BASE_MAP_MODE_STACK)) {
+            (void)base_map_debugToRuntime(BASE_MAP_SECTION_TEXT, runtimeAddr, &runtimeAddr);
+        }
 
         machine_breakpoint_t *bp = machine_findBreakpointByAddr(&debugger.machine, runtimeAddr);
         if (!bp) {

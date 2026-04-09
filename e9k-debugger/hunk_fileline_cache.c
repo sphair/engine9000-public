@@ -26,6 +26,8 @@ typedef struct hunk_fileline_cache_entry {
     char *path;
     int line;
     uint32_t addr;
+    size_t sectionIndex;
+    int hasSectionIndex;
 } hunk_fileline_cache_entry_t;
 
 typedef struct hunk_fileline_cache_state {
@@ -45,6 +47,9 @@ typedef struct hunk_fileline_cache_text_section {
     size_t index;
     uint32_t size;
 } hunk_fileline_cache_text_section_t;
+
+static int
+hunk_fileline_cache_parseTextSectionIndex(const char *sectionName, size_t fallbackIndex, size_t *outIndex);
 
 static const char *
 hunk_fileline_cache_basename(const char *path)
@@ -168,6 +173,8 @@ hunk_fileline_cache_ensureCapacity(int minCap)
         nextEntries[i].path = NULL;
         nextEntries[i].line = 0;
         nextEntries[i].addr = 0;
+        nextEntries[i].sectionIndex = 0u;
+        nextEntries[i].hasSectionIndex = 0;
     }
     hunk_fileline_cache_state.entries = nextEntries;
     hunk_fileline_cache_state.entryCap = nextCap;
@@ -175,7 +182,7 @@ hunk_fileline_cache_ensureCapacity(int minCap)
 }
 
 static int
-hunk_fileline_cache_addEntry(const char *path, int line, uint32_t addr)
+hunk_fileline_cache_addEntry(const char *path, int line, uint32_t addr, size_t sectionIndex, int hasSectionIndex)
 {
     if (!path || !path[0] || line <= 0) {
         return 0;
@@ -193,7 +200,9 @@ hunk_fileline_cache_addEntry(const char *path, int line, uint32_t addr)
         if (!hunk_fileline_cache_fileMatches(entry->path, resolved)) {
             continue;
         }
-        if (entry->addr == addr) {
+        if (entry->addr == addr &&
+            entry->sectionIndex == sectionIndex &&
+            entry->hasSectionIndex == hasSectionIndex) {
             return 1;
         }
     }
@@ -208,7 +217,57 @@ hunk_fileline_cache_addEntry(const char *path, int line, uint32_t addr)
     entry->path = pathDup;
     entry->line = line;
     entry->addr = addr;
+    entry->sectionIndex = sectionIndex;
+    entry->hasSectionIndex = hasSectionIndex ? 1 : 0;
     return 1;
+}
+
+static int
+hunk_fileline_cache_parseTextSectionToken(const char *sectionName, size_t *outIndex, int *outHasSectionIndex)
+{
+    if (outIndex) {
+        *outIndex = 0u;
+    }
+    if (outHasSectionIndex) {
+        *outHasSectionIndex = 0;
+    }
+    if (!sectionName || !*sectionName) {
+        return 0;
+    }
+    if (strcmp(sectionName, ".text") == 0) {
+        if (outHasSectionIndex) {
+            *outHasSectionIndex = 1;
+        }
+        return 1;
+    }
+    size_t sectionIndex = 0u;
+    if (!hunk_fileline_cache_parseTextSectionIndex(sectionName, 0u, &sectionIndex)) {
+        return 0;
+    }
+    if (outIndex) {
+        *outIndex = sectionIndex;
+    }
+    if (outHasSectionIndex) {
+        *outHasSectionIndex = 1;
+    }
+    return 1;
+}
+
+static uint32_t
+hunk_fileline_cache_mapEntryAddr(const hunk_fileline_cache_entry_t *entry)
+{
+    if (!entry) {
+        return 0u;
+    }
+
+    uint32_t resolvedAddr = entry->addr & 0x00ffffffu;
+    if (entry->hasSectionIndex && base_map_getMode() == BASE_MAP_MODE_STACK) {
+        uint32_t runtimeAddr = resolvedAddr;
+        if (base_map_debugToRuntimeWithIndex(entry->sectionIndex, resolvedAddr, &runtimeAddr)) {
+            return runtimeAddr & 0x00ffffffu;
+        }
+    }
+    return resolvedAddr;
 }
 
 static int
@@ -444,7 +503,11 @@ hunk_fileline_cache_buildFromSectionSweep(const char *elfPath)
                                                              &resolvedLine) &&
                 resolvedLine > 0 &&
                 resolvedFile[0]) {
-                (void)hunk_fileline_cache_addEntry(resolvedFile, resolvedLine, offset);
+                (void)hunk_fileline_cache_addEntry(resolvedFile,
+                                                  resolvedLine,
+                                                  offset,
+                                                  section->index,
+                                                  1);
             }
             if (offset > 0x00fffffdu) {
                 break;
@@ -487,6 +550,8 @@ hunk_fileline_cache_buildFromSymbols(const char *elfPath)
     while (fgets(lineBuf, sizeof(lineBuf), fp)) {
         char *tokens[16];
         int count = 0;
+        size_t sectionIndex = 0u;
+        int hasSectionIndex = 0;
         char *cursor = lineBuf;
         while (*cursor && isspace((unsigned char)*cursor)) {
             ++cursor;
@@ -518,7 +583,7 @@ hunk_fileline_cache_buildFromSymbols(const char *elfPath)
         }
         int textSymbol = 0;
         for (int i = 1; i < count; ++i) {
-            if (strcmp(tokens[i], ".text") == 0 || strncmp(tokens[i], ".text.", 6) == 0) {
+            if (hunk_fileline_cache_parseTextSectionToken(tokens[i], &sectionIndex, &hasSectionIndex)) {
                 textSymbol = 1;
                 break;
             }
@@ -531,15 +596,23 @@ hunk_fileline_cache_buildFromSymbols(const char *elfPath)
             continue;
         }
         uint32_t addr24 = (uint32_t)(symAddr & 0x00ffffffu);
+        uint32_t queryAddr = addr24;
+        if (hasSectionIndex && base_map_getMode() == BASE_MAP_MODE_STACK) {
+            (void)base_map_debugToRuntimeWithIndex(sectionIndex, addr24, &queryAddr);
+        }
         char resolvedFile[PATH_MAX];
         int resolvedLine = 0;
-        if (!addr2line_resolve((uint64_t)addr24, resolvedFile, sizeof(resolvedFile), &resolvedLine)) {
+        if (!addr2line_resolve((uint64_t)queryAddr, resolvedFile, sizeof(resolvedFile), &resolvedLine)) {
             continue;
         }
         if (resolvedLine <= 0 || !resolvedFile[0]) {
             continue;
         }
-        (void)hunk_fileline_cache_addEntry(resolvedFile, resolvedLine, addr24);
+        (void)hunk_fileline_cache_addEntry(resolvedFile,
+                                          resolvedLine,
+                                          addr24,
+                                          sectionIndex,
+                                          hasSectionIndex);
     }
     pclose(fp);
     return 1;
@@ -573,20 +646,46 @@ hunk_fileline_cache_buildFromDisassembly(const char *elfPath)
     }
 
     char lineBuf[2048];
+    size_t currentSectionIndex = 0u;
+    int haveCurrentSectionIndex = 0;
     while (fgets(lineBuf, sizeof(lineBuf), fp)) {
+        if (strncmp(lineBuf, "Disassembly of section ", 23) == 0) {
+            char sectionName[64];
+            const char *name = lineBuf + 23;
+            size_t len = 0u;
+            while (name[len] && name[len] != ':' && name[len] != '\n' &&
+                   len + 1u < sizeof(sectionName)) {
+                sectionName[len] = name[len];
+                len++;
+            }
+            sectionName[len] = '\0';
+            haveCurrentSectionIndex = 0;
+            (void)hunk_fileline_cache_parseTextSectionToken(sectionName,
+                                                            &currentSectionIndex,
+                                                            &haveCurrentSectionIndex);
+            continue;
+        }
         uint32_t addr24 = 0;
         if (!hunk_fileline_cache_parseAddressBeforeColon(lineBuf, &addr24)) {
             continue;
         }
+        uint32_t queryAddr = addr24;
+        if (haveCurrentSectionIndex && base_map_getMode() == BASE_MAP_MODE_STACK) {
+            (void)base_map_debugToRuntimeWithIndex(currentSectionIndex, addr24, &queryAddr);
+        }
         char resolvedFile[PATH_MAX];
         int resolvedLine = 0;
-        if (!addr2line_resolve((uint64_t)addr24, resolvedFile, sizeof(resolvedFile), &resolvedLine)) {
+        if (!addr2line_resolve((uint64_t)queryAddr, resolvedFile, sizeof(resolvedFile), &resolvedLine)) {
             continue;
         }
         if (resolvedLine <= 0 || !resolvedFile[0]) {
             continue;
         }
-        (void)hunk_fileline_cache_addEntry(resolvedFile, resolvedLine, addr24);
+        (void)hunk_fileline_cache_addEntry(resolvedFile,
+                                          resolvedLine,
+                                          addr24,
+                                          currentSectionIndex,
+                                          haveCurrentSectionIndex);
     }
 
     pclose(fp);
@@ -650,7 +749,7 @@ hunk_fileline_cache_findAll(const char *filePath, int lineNo, uint32_t **outAddr
         if (!hunk_fileline_cache_fileMatches(entry->path, filePath)) {
             continue;
         }
-        matches[writeIndex++] = entry->addr;
+        matches[writeIndex++] = hunk_fileline_cache_mapEntryAddr(entry);
     }
 
     qsort(matches, (size_t)writeIndex, sizeof(*matches), hunk_fileline_cache_compareAddrs);

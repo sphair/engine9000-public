@@ -487,9 +487,6 @@ addr2line_resolveDetailed(uint64_t addr, char *out_file, size_t file_cap, int *o
                 } else {
                     got_addr = (gotAddr == queryAddr) ? 1 : 0;
                 }
-                if (!got_addr) {
-                    got_addr = 1;
-                }
             } else if (addr2line_parseAddressLine(line, &gotAddr, &gotIndex, &hasIndex) &&
                        !hasIndex &&
                        gotAddr == queryAddr) {

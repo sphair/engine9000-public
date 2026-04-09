@@ -1280,6 +1280,14 @@ console_cmd_resolveSymbol(const char *elf, const char *symbol, uint32_t *out_add
         if (!console_cmd_parseHex(tokens[0], &addr)) {
             continue;
         }
+        if (debugger_toolchainUsesHunkAddr2line() &&
+            base_map_getMode() == BASE_MAP_MODE_STACK &&
+            count >= 3) {
+            uint32_t runtimeAddr = addr;
+            if (base_map_symbolToRuntimeHunk(tokens[2], addr, &runtimeAddr)) {
+                addr = runtimeAddr;
+            }
+        }
         *out_addr = addr;
         pclose(fp);
         return 1;
@@ -1484,7 +1492,10 @@ console_cmd_break(int argc, char **argv)
                 }
                 ok = console_cmd_resolveFileLine(elf, file_buf, line_no, &addr);
                 if (ok) {
-                    (void)base_map_debugToRuntime(BASE_MAP_SECTION_TEXT, addr, &addr);
+                    if (!(debugger_toolchainUsesHunkAddr2line() &&
+                          base_map_getMode() == BASE_MAP_MODE_STACK)) {
+                        (void)base_map_debugToRuntime(BASE_MAP_SECTION_TEXT, addr, &addr);
+                    }
                 }
             }
         }
@@ -1516,7 +1527,10 @@ console_cmd_break(int argc, char **argv)
         return 0;
     }
     if (debugger.symbolFileKind != DEBUGGER_SYMBOL_FILE_KIND_TEXT_MAP) {
-        (void)base_map_debugToRuntime(BASE_MAP_SECTION_TEXT, addr, &addr);
+        if (!(debugger_toolchainUsesHunkAddr2line() &&
+              base_map_getMode() == BASE_MAP_MODE_STACK)) {
+            (void)base_map_debugToRuntime(BASE_MAP_SECTION_TEXT, addr, &addr);
+        }
     }
     machine_breakpoint_t *bp = machine_addBreakpoint(&debugger.machine, addr, 1);
     if (!bp) {
