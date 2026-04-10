@@ -90,6 +90,23 @@ debugger_getTestRestartCount(void)
     return debugger_testRestartCount;
 }
 
+int
+debugger_onCoreReset(void)
+{
+    if (base_map_getMode() != BASE_MAP_MODE_STACK) {
+        return 1;
+    }
+
+    base_map_reset();
+    debugger.machine.textBaseAddr = 0;
+    debugger.machine.dataBaseAddr = 0;
+    debugger.machine.bssBaseAddr = 0;
+    print_eval_invalidateCache();
+    hunk_fileline_cache_clear();
+    addr2line_stop();
+    return 0;
+}
+
 void
 debugger_onSetDebugBaseFromCore(uint32_t section, uint32_t base)
 {

@@ -3324,9 +3324,12 @@ libretro_host_resetCore(void)
     if (libretro_host.debugResetKnownPcs) {
         libretro_host.debugResetKnownPcs();
     }
+    int reinstallBreakpoints = debugger_onCoreReset();
     const machine_breakpoint_t *bps = NULL;
     int bpCount = 0;
-    if (machine_getBreakpoints(&debugger.machine, &bps, &bpCount) && bps && bpCount > 0) {
+    if (reinstallBreakpoints &&
+        machine_getBreakpoints(&debugger.machine, &bps, &bpCount) &&
+        bps && bpCount > 0) {
         for (int i = 0; i < bpCount; ++i) {
             if (!bps[i].enabled) {
                 continue;

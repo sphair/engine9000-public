@@ -809,7 +809,10 @@ breakpoints_updateRecords(breakpoints_list_state_t *st, const machine_breakpoint
     }
 
     for (int i = 0; i < count; ++i) {
-        const machine_breakpoint_t *bp = &bps[i];
+        machine_breakpoint_t *bp = (machine_breakpoint_t*)&bps[i];
+        if (!bp->func[0] || (!bp->file[0] && bp->line <= 0)) {
+            breakpoints_resolveLocation(bp);
+        }
         breakpoints_record_t *rec = breakpoints_recordFind(st, bp->number);
 
         if (!rec) {
@@ -819,13 +822,6 @@ breakpoints_updateRecords(breakpoints_list_state_t *st, const machine_breakpoint
         } else {
             if (memcmp(&rec->data, bp, sizeof(rec->data)) != 0) {
                 memcpy(&rec->data, bp, sizeof(rec->data));
-                changed = 1;
-            }
-        }
-        if (!rec->data.func[0] || (!rec->data.file[0] && rec->data.line <= 0)) {
-            machine_breakpoint_t before = rec->data;
-            breakpoints_resolveLocation(&rec->data);
-            if (memcmp(&before, &rec->data, sizeof(rec->data)) != 0) {
                 changed = 1;
             }
         }

@@ -185,6 +185,9 @@ int
 debugger_main(int argc, char **argv);
 
 int
+debugger_onCoreReset(void);
+
+int
 debugger_platform_pathJoin(char *out, size_t cap, const char *dir, const char *name);
 
 int
