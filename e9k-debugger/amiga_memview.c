@@ -15,6 +15,7 @@
 #include <SDL_ttf.h>
 
 #include "alloc.h"
+#include "amiga_custom_regs.h"
 #include "amiga_memview.h"
 #include "aux_window.h"
 #include "config.h"
@@ -1395,6 +1396,27 @@ amiga_memview_buildExportFileName(char *out, size_t cap, const char *configName,
 }
 
 static int
+amiga_memview_buildCustomRegsFileName(char *out, size_t cap, const char *configName)
+{
+    char stem[PATH_MAX];
+    size_t stemLen = 0u;
+
+    if (!out || cap == 0u || !configName || !configName[0]) {
+        return 0;
+    }
+    strutil_join2Trunc(stem, sizeof(stem), configName, "-custom-regs");
+    stemLen = strlen(configName) + strlen("-custom-regs");
+    if (strlen(stem) != stemLen) {
+        return 0;
+    }
+    strutil_join2Trunc(out, cap, stem, ".txt");
+    if (strlen(out) != stemLen + 4u) {
+        return 0;
+    }
+    return 1;
+}
+
+static int
 amiga_memview_collectExportRanges(target_memory_range_t *outRanges, size_t cap, size_t *outCount)
 {
     size_t count = 0u;
@@ -1462,6 +1484,73 @@ amiga_memview_buildOverwriteMessage(char *out, size_t cap, const char *const *pa
 }
 
 static int
+amiga_memview_writeCustomRegsExport(FILE *out)
+{
+    const e9k_debug_ami_custom_reg_state_t *regs = libretro_host_debugAmiGetCustomRegs();
+
+    if (!out) {
+        return 0;
+    }
+
+    if (fputs("=== CUSTOM CHIPSET REGISTERS ===\n", out) < 0) {
+        return 0;
+    }
+    if (!regs) {
+        if (fputs("UNAVAILABLE\n", out) < 0) {
+            return 0;
+        }
+        return 1;
+    }
+
+    for (uint16_t regOffset = 0u; regOffset <= 0x01feu; regOffset += 2u) {
+        const char *regName = amiga_custom_regs_nameForOffset(regOffset);
+        uint16_t regValue = amiga_memview_regValue(regs, regOffset);
+
+        if (!regName || !regName[0]) {
+            regName = "UNKNOWN";
+        }
+        if (fprintf(out, "$DFF%03X %-10s $%04X\n", (unsigned)regOffset, regName, (unsigned)regValue) < 0) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static int
+amiga_memview_writeCustomRegsExportPath(const char *finalPath)
+{
+    char tempPath[PATH_MAX];
+    FILE *out = NULL;
+
+    if (!finalPath || !finalPath[0]) {
+        return 0;
+    }
+    strutil_join2Trunc(tempPath, sizeof(tempPath), finalPath, ".tmp");
+    if (strlen(tempPath) != strlen(finalPath) + 4u) {
+        return 0;
+    }
+    out = fopen(tempPath, "wb");
+    if (!out) {
+        return 0;
+    }
+    if (!amiga_memview_writeCustomRegsExport(out)) {
+        fclose(out);
+        remove(tempPath);
+        return 0;
+    }
+    if (fclose(out) != 0) {
+        remove(tempPath);
+        return 0;
+    }
+    if (!debugger_platform_replaceFile(tempPath, finalPath)) {
+        remove(tempPath);
+        return 0;
+    }
+    return 1;
+}
+
+static int
 amiga_memview_writeExportType(amiga_memview_state_t *ui,
                               const target_memory_range_t *ranges,
                               size_t rangeCount,
@@ -1514,7 +1603,6 @@ amiga_memview_writeExportType(amiga_memview_state_t *ui,
             remaining -= (uint32_t)chunkSize;
         }
     }
-
     if (fclose(out) != 0) {
         remove(tempPath);
         return 0;
@@ -1537,9 +1625,11 @@ amiga_memview_onSave(e9ui_context_t *ctx, void *user)
     target_memory_range_t ranges[AMIGA_MEMVIEW_EXPORT_MAX_RANGES];
     char defaultDir[PATH_MAX];
     char fileName[PATH_MAX];
+    char regsFileName[PATH_MAX];
     char configName[PATH_MAX];
     char exportPaths[amiga_memview_ram_type_count][PATH_MAX];
-    const char *overwritePaths[amiga_memview_ram_type_count];
+    char customRegsPath[PATH_MAX];
+    const char *overwritePaths[amiga_memview_ram_type_count + 1];
     const char *folder = NULL;
     const char *configPath = NULL;
     const char *defaultPath = NULL;
@@ -1612,6 +1702,15 @@ amiga_memview_onSave(e9ui_context_t *ctx, void *user)
         return;
     }
 
+    if (!amiga_memview_buildCustomRegsFileName(regsFileName, sizeof(regsFileName), configName) ||
+        !debugger_platform_pathJoin(customRegsPath, sizeof(customRegsPath), folder, regsFileName)) {
+        e9ui_showTransientMessage("RAM SAVE FAILED");
+        return;
+    }
+    if (settings_pathExistsFile(customRegsPath)) {
+        overwritePaths[overwriteCount++] = customRegsPath;
+    }
+
     if (overwriteCount > 0) {
         char message[1024];
 
@@ -1628,6 +1727,10 @@ amiga_memview_onSave(e9ui_context_t *ctx, void *user)
             e9ui_showTransientMessage("RAM SAVE FAILED");
             return;
         }
+    }
+    if (!amiga_memview_writeCustomRegsExportPath(customRegsPath)) {
+        e9ui_showTransientMessage("RAM SAVE FAILED");
+        return;
     }
 
     e9ui_showTransientMessage("RAM SAVED");
@@ -3654,11 +3757,6 @@ amiga_memview_canvasHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, con
         my < self->bounds.y + self->bounds.h) {
         int wheelX = ev->wheel.x;
         int wheelY = ev->wheel.y;
-
-        if (ev->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
-            wheelX = -wheelX;
-            wheelY = -wheelY;
-        }
         if (wheelX != 0) {
             hscrollBounds = amiga_memview_hscrollBounds(ui, self);
             if (hscrollBounds.w < 1) {
