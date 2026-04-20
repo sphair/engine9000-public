@@ -77,9 +77,24 @@ typedef struct e9k_debug_ami_blitter_vis_span {
     uint16_t x;
     uint16_t y;
     uint16_t xEnd;
+    uint16_t widthWords;
+    uint16_t sourceRowBytes;
+    int16_t sourceModulo;
     uint32_t blitId;
     uint32_t sourceAddr;
+    uint32_t sourceDataAddr;
+    uint32_t channelAAddr;
+    uint32_t channelBAddr;
+    uint32_t channelCAddr;
+    uint32_t channelDAddr;
+    int16_t channelAModulo;
+    int16_t channelBModulo;
+    int16_t channelCModulo;
+    int16_t channelDModulo;
+    uint8_t sourceChannelsMask;
     uint8_t sourceIsCopper;
+    uint8_t sourceDescending;
+    uint8_t lineMode;
 } e9k_debug_ami_blitter_vis_span_t;
 
 typedef e9k_debug_ami_blitter_vis_span_t e9k_debug_ami_blitter_vis_point_t;
@@ -256,10 +271,21 @@ typedef void (*e9k_debug_geo_register_log_frame_callback_t)(const e9k_debug_geo_
 #define E9K_WATCH_OP_OLD_VALUE_EQ         (1u << 4) // (5) Existing value == operand
 #define E9K_WATCH_OP_ACCESS_SIZE          (1u << 5) // (6) Access size (operand: 8/16/32 bits)
 #define E9K_WATCH_OP_ADDR_COMPARE_MASK    (1u << 6) // (7) Address compare mask (operand: mask)
+#define E9K_WATCH_OP_ACCESS_SOURCE        (1u << 7) // (8) Access source (operand: E9K_WATCH_ACCESS_SOURCE_*)
 
 // Access kind for watchbreak reporting.
 #define E9K_WATCH_ACCESS_READ             1u
 #define E9K_WATCH_ACCESS_WRITE            2u
+
+// Access source for watchbreak reporting.
+#define E9K_WATCH_ACCESS_SOURCE_UNKNOWN   0u
+#define E9K_WATCH_ACCESS_SOURCE_CPU       1u
+#define E9K_WATCH_ACCESS_SOURCE_DMA       2u
+#define E9K_WATCH_ACCESS_SOURCE_BLITTER   3u
+#define E9K_WATCH_ACCESS_SOURCE_COPPER    4u
+#define E9K_WATCH_ACCESS_SOURCE_AUDIO     5u
+#define E9K_WATCH_ACCESS_SOURCE_VIDEO     6u
+#define E9K_WATCH_ACCESS_SOURCE_PERIPHERAL 7u
 
 typedef struct e9k_debug_watchpoint
 {
@@ -270,6 +296,7 @@ typedef struct e9k_debug_watchpoint
     uint32_t old_value_operand; // (5) operand value
     uint32_t size_operand;      // (6) operand size, 8/16/32 (bits)
     uint32_t addr_mask_operand; // (7) operand mask, 0 => always match
+    uint32_t access_source_operand; // (8) operand source, 0 => unspecified
 } e9k_debug_watchpoint_t;
 
 typedef struct e9k_debug_watchbreak
@@ -284,6 +311,7 @@ typedef struct e9k_debug_watchbreak
     uint32_t old_value_operand;
     uint32_t size_operand;      // 8/16/32 (bits)
     uint32_t addr_mask_operand;
+    uint32_t access_source_operand;
 
     // Access details.
     uint32_t access_addr;       // address used for the access (base)
@@ -292,6 +320,8 @@ typedef struct e9k_debug_watchbreak
     uint32_t value;             // value read/written (size-truncated)
     uint32_t old_value;         // existing value (if known; for reads, equals value)
     uint32_t old_value_valid;   // 1 if old_value is valid
+    uint32_t access_source;     // E9K_WATCH_ACCESS_SOURCE_*
+    uint32_t access_source_detail; // core-specific detail, 0 if unused
 } e9k_debug_watchbreak_t;
 
 

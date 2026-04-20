@@ -185,11 +185,20 @@ e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldVa
 void
 e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
 
+void
+e9k_debug_memhook_afterReadWithSource(uint32_t addr24, uint32_t value, uint32_t sizeBits, uint32_t accessSource);
+
 int
 e9k_debug_memhook_beforeWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid);
 
+int
+e9k_debug_memhook_beforeWriteWithSource(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t accessSource);
+
 void
 e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid);
+
+void
+e9k_debug_memhook_afterWriteWithSource(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t accessSource);
 
 // Optional host callback invoked when the target writes a new relocatable base.
 void

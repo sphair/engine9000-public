@@ -23,6 +23,7 @@
 #include "protect.h"
 #include "hunk_fileline_cache.h"
 #include "symbol_text_map.h"
+#include "target.h"
 
 
 typedef int (*console_cmd_handler_t)(int argc, char **argv);
@@ -60,6 +61,10 @@ static int console_cmd_protect(int argc, char **argv);
 static int console_cmd_diff(int argc, char **argv);
 static int console_cmd_symbols(int argc, char **argv);
 static int console_cmd_parseHex(const char *s, uint32_t *out);
+static const char *console_cmd_watchUsage(void);
+static uint32_t console_cmd_watchSourceMaskForTarget(void);
+static int console_cmd_parseWatchSource(const char *src, uint32_t *outSource);
+static const char *console_cmd_watchSourceList(void);
 
 static const console_cmd_entry_t console_cmd[] = {
     { "help",  "h", "help [command]", "Show available commands or detailed help.", console_cmd_help, NULL },
@@ -78,10 +83,104 @@ static const console_cmd_entry_t console_cmd[] = {
     { "symbols", "y", "symbols export <path>\nsymbols load <path>\nsymbols save\nsymbols list\nsymbols show <symbol>\nsymbols lookup <addr>\nsymbols add <symbol> <addr> <function|variable|unknown>\nsymbols delete <symbol>\nsymbols reset", "Export, load, and edit text-map symbols.", console_cmd_symbols, NULL },
     { "train", NULL, "train <from> <to> [size=8|16|32]\ntrain ignore\ntrain clear", "Train by breaking on a value transition (from/to accept decimal or 0x... or $...).", console_cmd_train, NULL },    
     { "transition", NULL, "transition <slide|explode|doom|flip|rbar|random|cycle|none>", "Set the transition mode for startup and fullscreen.", console_cmd_transition, console_cmd_completeTransition },
-    { "watch", "wa", "watch [addr|symbol] [r|w|rw] [size=8|16|32] [mask=0x...|$...] [val=0x...|$...] [old=0x...|$...] [diff=0x...|$...]\nwatch del <idx> \nwatch clear", "Set or list watchpoints.", console_cmd_watch, NULL },    
+    { "watch", "wa", NULL, "Set or list watchpoints.", console_cmd_watch, NULL },    
     { "write", NULL, "write <dest> <value>", "Write a hex value to an address or symbol.", console_cmd_write, console_cmd_completeWrite },
 
 };
+
+static const char *
+console_cmd_watchUsage(void)
+{
+    static char usage[256];
+    const char *base = "watch [addr|symbol] [r|w|rw] [size=8|16|32] [mask=0x...|$...] [val=0x...|$...] [old=0x...|$...] [diff=0x...|$...]";
+    const char *sources = console_cmd_watchSourceList();
+
+    if (sources && *sources) {
+        snprintf(usage, sizeof(usage), "%s [src=%s]\nwatch del <idx>\nwatch clear", base, sources);
+    } else {
+        snprintf(usage, sizeof(usage), "%s\nwatch del <idx>\nwatch clear", base);
+    }
+    return usage;
+}
+
+static uint32_t
+console_cmd_watchSourceMaskForTarget(void)
+{
+    if (target == target_amiga()) {
+        return (1u << E9K_WATCH_ACCESS_SOURCE_CPU) |
+               (1u << E9K_WATCH_ACCESS_SOURCE_BLITTER) |
+               (1u << E9K_WATCH_ACCESS_SOURCE_COPPER);
+    }
+    if (target == target_neogeo()) {
+        return (1u << E9K_WATCH_ACCESS_SOURCE_CPU);
+    }
+    return 0u;
+}
+
+static int
+console_cmd_parseWatchSource(const char *src, uint32_t *outSource)
+{
+    uint32_t source = 0u;
+    uint32_t supportedMask = console_cmd_watchSourceMaskForTarget();
+
+    if (!src || !*src || !outSource) {
+        return 0;
+    }
+
+    if (strcasecmp(src, "cpu") == 0) {
+        source = E9K_WATCH_ACCESS_SOURCE_CPU;
+    } else if (strcasecmp(src, "blitter") == 0) {
+        source = E9K_WATCH_ACCESS_SOURCE_BLITTER;
+    } else if (strcasecmp(src, "copper") == 0) {
+        source = E9K_WATCH_ACCESS_SOURCE_COPPER;
+    } else {
+        return 0;
+    }
+
+    if ((supportedMask & (1u << source)) == 0u) {
+        return 0;
+    }
+
+    *outSource = source;
+    return 1;
+}
+
+static const char *
+console_cmd_watchSourceList(void)
+{
+    static char list[128];
+    uint32_t mask = console_cmd_watchSourceMaskForTarget();
+
+    list[0] = '\0';
+
+    if (mask & (1u << E9K_WATCH_ACCESS_SOURCE_CPU)) {
+        strncat(list, "cpu|", sizeof(list) - strlen(list) - 1);
+    }
+    if (mask & (1u << E9K_WATCH_ACCESS_SOURCE_BLITTER)) {
+        strncat(list, "blitter|", sizeof(list) - strlen(list) - 1);
+    }
+    if (mask & (1u << E9K_WATCH_ACCESS_SOURCE_COPPER)) {
+        strncat(list, "copper|", sizeof(list) - strlen(list) - 1);
+    }
+    if (mask & (1u << E9K_WATCH_ACCESS_SOURCE_AUDIO)) {
+        strncat(list, "audio|", sizeof(list) - strlen(list) - 1);
+    }
+    if (mask & (1u << E9K_WATCH_ACCESS_SOURCE_VIDEO)) {
+        strncat(list, "video|", sizeof(list) - strlen(list) - 1);
+    }
+    if (mask & (1u << E9K_WATCH_ACCESS_SOURCE_PERIPHERAL)) {
+        strncat(list, "peripheral|", sizeof(list) - strlen(list) - 1);
+    }
+
+    {
+        size_t len = strlen(list);
+        if (len > 0 && list[len - 1] == '|') {
+            list[len - 1] = '\0';
+        }
+    }
+
+    return list;
+}
 
 typedef struct console_completion {
     char **items;
@@ -1376,10 +1475,14 @@ console_cmd_help(int argc, char **argv)
         debug_printf("Commands:\n");
         for (size_t i = 0; i < sizeof(console_cmd) / sizeof(console_cmd[0]); ++i) {
             const console_cmd_entry_t *cmd = &console_cmd[i];
+            const char *usage = cmd->usage;
+            if (cmd->name && strcmp(cmd->name, "watch") == 0) {
+                usage = console_cmd_watchUsage();
+            }
             if (cmd->shortcut) {
-                debug_printf("  %s (%s)\n", cmd->name, cmd->shortcut, cmd->usage);
+                debug_printf("  %s (%s)\n", cmd->name, cmd->shortcut, usage);
             } else {
-                debug_printf("  %s\n", cmd->name, cmd->usage);
+                debug_printf("  %s\n", cmd->name, usage);
             }
         }
         return 1;
@@ -1389,7 +1492,13 @@ console_cmd_help(int argc, char **argv)
         debug_error("help: unknown command '%s'", argv[1]);
         return 0;
     }
-    debug_printf("\n%s\n\n%s\n", cmd->help, cmd->usage);
+    {
+        const char *usage = cmd->usage;
+        if (cmd->name && strcmp(cmd->name, "watch") == 0) {
+            usage = console_cmd_watchUsage();
+        }
+        debug_printf("\n%s\n\n%s\n", cmd->help, usage ? usage : "");
+    }
     return 1;
 }
 
@@ -1557,6 +1666,8 @@ console_cmd_watchList(void)
     uint64_t enabled = 0;
     (void)libretro_host_debugGetWatchpointEnabledMask(&enabled);
 
+    const char *watchSource = NULL;
+
     debug_printf("Watchpoints (enabled=0x%016llX):\n", (unsigned long long)enabled);
     for (size_t i = 0; i < count; ++i) {
         const e9k_debug_watchpoint_t *wp = &wps[i];
@@ -1591,6 +1702,35 @@ console_cmd_watchList(void)
         }
         if (wp->op_mask & E9K_WATCH_OP_VALUE_NEQ_OLD) {
             debug_printf(" diff=0x%08X", (unsigned)wp->diff_operand);
+        }
+        if (wp->op_mask & E9K_WATCH_OP_ACCESS_SOURCE) {
+            switch (wp->access_source_operand) {
+            case E9K_WATCH_ACCESS_SOURCE_CPU:
+                watchSource = "cpu";
+                break;
+            case E9K_WATCH_ACCESS_SOURCE_DMA:
+                watchSource = "dma";
+                break;
+            case E9K_WATCH_ACCESS_SOURCE_BLITTER:
+                watchSource = "blitter";
+                break;
+            case E9K_WATCH_ACCESS_SOURCE_COPPER:
+                watchSource = "copper";
+                break;
+            case E9K_WATCH_ACCESS_SOURCE_AUDIO:
+                watchSource = "audio";
+                break;
+            case E9K_WATCH_ACCESS_SOURCE_VIDEO:
+                watchSource = "video";
+                break;
+            case E9K_WATCH_ACCESS_SOURCE_PERIPHERAL:
+                watchSource = "peripheral";
+                break;
+            default:
+                watchSource = "unknown";
+                break;
+            }
+            debug_printf(" src=%s", watchSource);
         }
         debug_printf("\n");
     }
@@ -1650,6 +1790,7 @@ console_cmd_watch(int argc, char **argv)
     uint32_t old_value_operand = 0;
     uint32_t size_operand = 0;
     uint32_t addr_mask_operand = 0;
+    uint32_t access_source_operand = 0;
     int have_rw = 0;
 
     for (int i = 2; i < argc; ++i) {
@@ -1732,6 +1873,20 @@ console_cmd_watch(int argc, char **argv)
             diff_operand = v;
             continue;
         }
+        if (strncasecmp(tok, "src=", 4) == 0 || strncasecmp(tok, "source=", 7) == 0) {
+            const char *src = tok + (tok[1] == 'r' || tok[1] == 'R' ? 4 : 7);
+            if (!console_cmd_parseWatchSource(src, &access_source_operand)) {
+                const char *validSources = console_cmd_watchSourceList();
+                if (validSources && *validSources) {
+                    debug_error("watch: invalid source '%s' (expected %s for current target)", src, validSources);
+                } else {
+                    debug_error("watch: source filters are not supported for current target");
+                }
+                return 0;
+            }
+            op_mask |= E9K_WATCH_OP_ACCESS_SOURCE;
+            continue;
+        }
         if (strncasecmp(tok, "neq=", 4) == 0) {
             uint32_t v = 0;
             if (!console_cmd_parseU32Strict(tok + 4, &v)) {
@@ -1752,7 +1907,7 @@ console_cmd_watch(int argc, char **argv)
     }
 
     uint32_t index = 0;
-    if (!libretro_host_debugAddWatchpoint(addr, op_mask, diff_operand, value_operand, old_value_operand, size_operand, addr_mask_operand, &index)) {
+    if (!libretro_host_debugAddWatchpoint(addr, op_mask, diff_operand, value_operand, old_value_operand, size_operand, addr_mask_operand, access_source_operand, &index)) {
         debug_error("watch: failed to add (table full or unsupported)");
         return 0;
     }
@@ -1832,7 +1987,7 @@ console_cmd_train(int argc, char **argv)
     op_mask |= E9K_WATCH_OP_VALUE_EQ;
 
     uint32_t index = 0;
-    if (!libretro_host_debugAddWatchpoint(0, op_mask, 0, to, from, size_operand, 0, &index)) {
+    if (!libretro_host_debugAddWatchpoint(0, op_mask, 0, to, from, size_operand, 0, 0, &index)) {
         debug_error("train: failed to add watchpoint (table full or unsupported)");
         return 0;
     }

@@ -360,6 +360,9 @@ e9ui_getFullscreenComponent(void);
 e9ui_component_t *
 e9ui_getOverlayHost(void);
 
+e9ui_component_t *
+e9ui_getSelectionScopeForOwner(const e9ui_component_t *owner);
+
 int
 e9ui_isFullscreenComponent(const e9ui_component_t *comp);
 
@@ -371,6 +374,9 @@ e9ui_shutdown(void);
 
 void
 e9ui_setDisableVariable(e9ui_component_t *comp, const int *stateFlag, int disableWhenTrue);
+
+void
+e9ui_setDisabled(e9ui_component_t *comp, int disabled);
 
 void
 e9ui_setHiddenVariable(e9ui_component_t *comp, const int *var, int hideWhenTrue);

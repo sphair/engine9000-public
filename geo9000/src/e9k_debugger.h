@@ -70,7 +70,7 @@ e9k_debugger_writeMemory(uint32_t addr, uint32_t value, size_t size);
 
 // Watchpoint table and watchbreak reporting.
 void     e9k_debugger_reset_watchpoints(void);
-int      e9k_debugger_add_watchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand);
+int      e9k_debugger_add_watchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand, uint32_t access_source_operand);
 void     e9k_debugger_remove_watchpoint(uint32_t index);
 size_t   e9k_debugger_read_watchpoints(e9k_debug_watchpoint_t *out, size_t cap);
 uint64_t e9k_debugger_get_watchpoint_enabled_mask(void);

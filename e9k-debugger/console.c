@@ -10,10 +10,221 @@
 #include "e9ui_scrollbar.h"
 #include "debugger.h"
 
+#include <string.h>
+
 typedef struct e9ui_console_state {
     int bucketConsole;
     e9ui_scrollbar_state_t scrollbar;
 } console_state_t;
+
+typedef struct console_wrap_metrics {
+    int visualLineCount;
+    int topVisualIndex;
+} console_wrap_metrics_t;
+
+static int
+console_getTopIndex(int count, int visibleLines);
+
+static int
+console_utf8ByteOffsetForChars(const char *text, int chars)
+{
+    int count = 0;
+    int offset = 0;
+    const unsigned char *p = (const unsigned char *)text;
+    while (p && *p && count < chars) {
+        if ((*p & 0xc0u) != 0x80u) {
+            count++;
+        }
+        p++;
+        offset++;
+    }
+    return offset;
+}
+
+static int
+console_utf8CharCount(const char *text)
+{
+    int count = 0;
+    const unsigned char *p = (const unsigned char *)text;
+    while (p && *p) {
+        if ((*p & 0xc0u) != 0x80u) {
+            count++;
+        }
+        p++;
+    }
+    return count;
+}
+
+static int
+console_measureUtf8(TTF_Font *font, const char *text, int measureWidth, int *extent, int *count)
+{
+    if (extent) {
+        *extent = 0;
+    }
+    if (count) {
+        *count = 0;
+    }
+    if (!font || !text) {
+        return -1;
+    }
+    if (!*text) {
+        return 0;
+    }
+    if (measureWidth <= 0) {
+        return 0;
+    }
+
+    int fullW = 0;
+    if (TTF_SizeUTF8(font, text, &fullW, NULL) == 0 && fullW <= measureWidth) {
+        if (extent) {
+            *extent = fullW;
+        }
+        if (count) {
+            *count = console_utf8CharCount(text);
+        }
+        return 0;
+    }
+
+    int totalChars = console_utf8CharCount(text);
+    int lo = 1;
+    int hi = totalChars;
+    int bestChars = 0;
+    int bestExtent = 0;
+
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        int byteCount = console_utf8ByteOffsetForChars(text, mid);
+        if (byteCount <= 0) {
+            hi = mid - 1;
+            continue;
+        }
+
+        char *scratch = alloc_alloc((size_t)byteCount + 1);
+        if (!scratch) {
+            return -1;
+        }
+        memcpy(scratch, text, (size_t)byteCount);
+        scratch[byteCount] = '\0';
+
+        int w = 0;
+        int ok = (TTF_SizeUTF8(font, scratch, &w, NULL) == 0) ? 1 : 0;
+        alloc_free(scratch);
+        if (!ok) {
+            return -1;
+        }
+
+        if (w <= measureWidth) {
+            bestChars = mid;
+            bestExtent = w;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+
+    if (extent) {
+        *extent = bestExtent;
+    }
+    if (count) {
+        *count = bestChars;
+    }
+    return 0;
+}
+
+static int
+console_wrapSegmentBytes(TTF_Font *font, const char *text, int wrapWidth)
+{
+    size_t textLen = 0;
+    int fitChars = 0;
+    int fitBytes = 0;
+    int bestBreak = -1;
+
+    if (!text || !*text) {
+        return 0;
+    }
+    if (!font || wrapWidth <= 0) {
+        return (int)strlen(text);
+    }
+
+    textLen = strlen(text);
+    if (console_measureUtf8(font, text, wrapWidth, NULL, &fitChars) != 0) {
+        return (int)textLen;
+    }
+    if (fitChars <= 0) {
+        fitChars = 1;
+    }
+
+    fitBytes = console_utf8ByteOffsetForChars(text, fitChars);
+    if (fitBytes <= 0) {
+        fitBytes = 1;
+    }
+    if ((size_t)fitBytes >= textLen) {
+        return (int)textLen;
+    }
+
+    for (int i = 0; i < fitBytes; i++) {
+        if (text[i] == ' ' || text[i] == '\t') {
+            bestBreak = i;
+        }
+    }
+    if (bestBreak > 0) {
+        return bestBreak;
+    }
+
+    return fitBytes;
+}
+
+static const char *
+console_skipWrapWhitespace(const char *text)
+{
+    const char *p = text;
+    while (p && (*p == ' ' || *p == '\t')) {
+        p++;
+    }
+    return p;
+}
+
+static int
+console_countWrappedLine(TTF_Font *font, const char *text, int wrapWidth)
+{
+    int count = 0;
+    const char *p = text;
+
+    if (!p || !*p) {
+        return 1;
+    }
+
+    while (*p) {
+        int segmentBytes = console_wrapSegmentBytes(font, p, wrapWidth);
+        if (segmentBytes <= 0) {
+            segmentBytes = 1;
+        }
+        count++;
+        p += segmentBytes;
+        p = console_skipWrapWhitespace(p);
+    }
+
+    return count > 0 ? count : 1;
+}
+
+static console_wrap_metrics_t
+console_getWrapMetrics(TTF_Font *font, int wrapWidth, int visibleLines)
+{
+    console_wrap_metrics_t metrics = { 0, 0 };
+
+    for (int i = 0; i < debugger.console.n; ++i) {
+        int phys = linebuf_phys_index(&debugger.console, i);
+        const char *line = debugger.console.lines[phys];
+        metrics.visualLineCount += console_countWrappedLine(font, line ? line : "", wrapWidth);
+    }
+
+    if (metrics.visualLineCount < 1) {
+        metrics.visualLineCount = 1;
+    }
+
+    metrics.topVisualIndex = console_getTopIndex(metrics.visualLineCount, visibleLines);
+    return metrics;
+}
 
 static int
 console_lineHeightPx(e9ui_context_t *ctx, TTF_Font *font)
@@ -104,6 +315,7 @@ console_render(e9ui_component_t *self, e9ui_context_t *ctx)
     if (hitW < 0) {
         hitW = 0;
     }
+    int wrapWidth = hitW > 0 ? hitW : 1;
     int y = self->bounds.y + 4;
     int availH = self->bounds.h - pad - 10;
     if (availH < lh) {
@@ -113,20 +325,63 @@ console_render(e9ui_component_t *self, e9ui_context_t *ctx)
     if (visLines < 1) {
         visLines = 1;
     }
-    int count = debugger.console.n;
-    int start = console_getTopIndex(count, visLines);
-    int end = start + visLines;
-    if (end > count) {
-        end = count;
-    }
-    for (int i=start; i<end; ++i) {
+    console_wrap_metrics_t metrics = console_getWrapMetrics(useFont, wrapWidth, visLines);
+    int renderStart = metrics.topVisualIndex;
+    int renderEnd = renderStart + visLines;
+    int visualIndex = 0;
+
+    for (int i = 0; i < debugger.console.n; ++i) {
         int phys = linebuf_phys_index(&debugger.console, i);
         const char *ln = debugger.console.lines[phys];
         unsigned char iserr = debugger.console.is_err[phys];
         SDL_Color colc = iserr ? (SDL_Color){220,120,120,255} : (SDL_Color){200,200,200,255};
-        e9ui_drawSelectableText(ctx, self, useFont, ln ? ln : "", colc, textX, y, lh,
-                                hitW, &st->bucketConsole, 0, 1);
-        y += lh; if (y > self->bounds.y + self->bounds.h - 10) break;
+        const char *line = ln ? ln : "";
+        const char *p = line;
+
+        if (!*p) {
+            if (visualIndex >= renderStart && visualIndex < renderEnd) {
+                e9ui_drawSelectableText(ctx, self, useFont, "", colc, textX, y, lh,
+                                        hitW, &st->bucketConsole, 0, 1);
+                y += lh;
+            }
+            visualIndex++;
+            if (visualIndex >= renderEnd || y > self->bounds.y + self->bounds.h - 10) {
+                break;
+            }
+            continue;
+        }
+
+        while (*p) {
+            int segmentBytes = console_wrapSegmentBytes(useFont, p, wrapWidth);
+            if (segmentBytes <= 0) {
+                segmentBytes = 1;
+            }
+
+            if (visualIndex >= renderStart && visualIndex < renderEnd) {
+                char *segment = alloc_alloc((size_t)segmentBytes + 1);
+                if (!segment) {
+                    return;
+                }
+                memcpy(segment, p, (size_t)segmentBytes);
+                segment[segmentBytes] = '\0';
+                e9ui_drawSelectableText(ctx, self, useFont, segment, colc, textX, y, lh,
+                                        hitW, &st->bucketConsole, 0, 1);
+                alloc_free(segment);
+                y += lh;
+            }
+
+            visualIndex++;
+            p += segmentBytes;
+            p = console_skipWrapWhitespace(p);
+
+            if (visualIndex >= renderEnd || y > self->bounds.y + self->bounds.h - 10) {
+                break;
+            }
+        }
+
+        if (visualIndex >= renderEnd || y > self->bounds.y + self->bounds.h - 10) {
+            break;
+        }
     }
 
     e9ui_scrollbar_render(self,
@@ -135,9 +390,9 @@ console_render(e9ui_component_t *self, e9ui_context_t *ctx)
                           1,
                           visLines,
                           1,
-                          count,
+                          metrics.visualLineCount,
                           0,
-                          start);
+                          metrics.topVisualIndex);
 }
 
 static int
@@ -148,9 +403,15 @@ console_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_even
 
     if (self && ctx && st &&
         (ev->type == SDL_MOUSEMOTION || ev->type == SDL_MOUSEBUTTONDOWN || ev->type == SDL_MOUSEBUTTONUP)) {
-        int count = debugger.console.n;
+        TTF_Font *useFont = e9ui->theme.text.console ? e9ui->theme.text.console : (ctx ? ctx->font : NULL);
         int visibleLines = console_visibleLines(self, ctx, NULL);
-        int topIndex = console_getTopIndex(count, visibleLines);
+        int pad = 10;
+        int hitW = self->bounds.w - pad * 2;
+        if (hitW < 1) {
+            hitW = 1;
+        }
+        console_wrap_metrics_t metrics = console_getWrapMetrics(useFont, hitW, visibleLines);
+        int topIndex = metrics.topVisualIndex;
         int scrollX = 0;
         if (e9ui_scrollbar_handleEvent(self,
                                        ctx,
@@ -159,11 +420,11 @@ console_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_even
                                        1,
                                        visibleLines,
                                        1,
-                                       count,
+                                       metrics.visualLineCount,
                                        &scrollX,
                                        &topIndex,
                                        &st->scrollbar)) {
-            console_setTopIndex(count, visibleLines, topIndex);
+            console_setTopIndex(metrics.visualLineCount, visibleLines, topIndex);
             return 1;
         }
     }
@@ -172,7 +433,16 @@ console_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_even
         SDL_Keycode kc = ev->key.keysym.sym;
         if (kc == SDLK_PAGEUP) { debugger.consoleScrollLines += 8; return 1; }
         if (kc == SDLK_PAGEDOWN) { debugger.consoleScrollLines -= 8; if (debugger.consoleScrollLines < 0) debugger.consoleScrollLines = 0; return 1; }
-        if (kc == SDLK_HOME) { debugger.consoleScrollLines = debugger.console.n; return 1; }
+        if (kc == SDLK_HOME) {
+            TTF_Font *useFont = e9ui->theme.text.console ? e9ui->theme.text.console : (ctx ? ctx->font : NULL);
+            int pad = 10;
+            int hitW = self->bounds.w - pad * 2;
+            if (hitW < 1) {
+                hitW = 1;
+            }
+            debugger.consoleScrollLines = console_getWrapMetrics(useFont, hitW, 1).visualLineCount;
+            return 1;
+        }
         if (kc == SDLK_END) { debugger.consoleScrollLines = 0; return 1; }
     } else if (ev->type == SDL_MOUSEWHEEL) {
         if (!ctx) {
@@ -185,11 +455,17 @@ console_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_even
             return 0;
         }
         int linesPerWheel = 3;
-        int count = debugger.console.n;
         int visibleLines = console_visibleLines(self, ctx, NULL);
-        int topIndex = console_getTopIndex(count, visibleLines);
+        TTF_Font *useFont = e9ui->theme.text.console ? e9ui->theme.text.console : (ctx ? ctx->font : NULL);
+        int pad = 10;
+        int hitW = self->bounds.w - pad * 2;
+        if (hitW < 1) {
+            hitW = 1;
+        }
+        console_wrap_metrics_t metrics = console_getWrapMetrics(useFont, hitW, visibleLines);
+        int topIndex = metrics.topVisualIndex;
         topIndex += linesPerWheel * ev->wheel.y;
-        console_setTopIndex(count, visibleLines, topIndex);
+        console_setTopIndex(metrics.visualLineCount, visibleLines, topIndex);
         return 1;
     }
     return 0;

@@ -795,7 +795,7 @@ custom_blitterVisTakeFetchPixelStart(int plane, int fm)
 
 static int REGPARAM3 custom_wput_1(int, uaecptr, uae_u32, int) REGPARAM;
 #if E9K_HACK_DEBUGGER_RUNTIME
-static int REGPARAM3 custom_wput_1_protected(int, uaecptr, uae_u32, int) REGPARAM;
+static int REGPARAM3 custom_wput_1_protected(int, uaecptr, uae_u32, int, uint32_t) REGPARAM;
 #endif
 
 /*
@@ -977,7 +977,7 @@ bool alloc_cycle_blitter(int hpos, uaecptr *ptr, int chnum, int add)
 		uaecptr pt = spr[spnum].pt;
 		spr[spnum].pt = *ptr + 2 + add;
 #if E9K_HACK_DEBUGGER_RUNTIME
-		custom_wput_1_protected(hpos, rga, v, 1);
+		custom_wput_1_protected(hpos, rga, v, 1, E9K_WATCH_ACCESS_SOURCE_BLITTER);
 #else
 		custom_wput_1(hpos, rga, v, 1);
 #endif
@@ -2891,7 +2891,7 @@ static void setup_fmodes(int hpos, uae_u16 con0)
 
 static int REGPARAM2 custom_wput_1(int hpos, uaecptr addr, uae_u32 value, int noget);
 #if E9K_HACK_DEBUGGER_RUNTIME
-static int REGPARAM2 custom_wput_1_protected(int hpos, uaecptr addr, uae_u32 value, int noget);
+static int REGPARAM2 custom_wput_1_protected(int hpos, uaecptr addr, uae_u32 value, int noget, uint32_t accessSource);
 #endif
 
 static uae_u16 get_strobe_reg(int slot)
@@ -3083,7 +3083,7 @@ static int bplsprchipsetbug(int nr, int fm, int hpos)
 
 	if (creg < 0x110 || creg >= 0x120) {
 #if E9K_HACK_DEBUGGER_RUNTIME
-		custom_wput_1_protected(hpos, creg, v2, 1);
+		custom_wput_1_protected(hpos, creg, v2, 1, E9K_WATCH_ACCESS_SOURCE_UNKNOWN);
 #else
 		custom_wput_1(hpos, creg, v2, 1);
 #endif
@@ -9209,7 +9209,7 @@ static void immediate_copper(int num)
 				break;
 			}
 #if E9K_HACK_DEBUGGER_RUNTIME
-			custom_wput_1_protected(0, cop_state.ir[0], cop_state.ir[1], 0);
+			custom_wput_1_protected(0, cop_state.ir[0], cop_state.ir[1], 0, E9K_WATCH_ACCESS_SOURCE_COPPER);
 #else
 			custom_wput_1 (0, cop_state.ir[0], cop_state.ir[1], 0);
 #endif
@@ -11213,7 +11213,7 @@ static int custom_wput_copper(int hpos, uaecptr pt, uaecptr addr, uae_u32 value,
 #endif
 	copper_access = 1;
 #if E9K_HACK_DEBUGGER_RUNTIME
-	v = custom_wput_1_protected(hpos, addr, value, noget);
+	v = custom_wput_1_protected(hpos, addr, value, noget, E9K_WATCH_ACCESS_SOURCE_COPPER);
 #else
 	v = custom_wput_1(hpos, addr, value, noget);
 #endif
@@ -15909,7 +15909,7 @@ writeonly:
 			debug_wputpeek(0xdff000 + addr, l);
 #endif
 #if E9K_HACK_DEBUGGER_RUNTIME
-			r = custom_wput_1_protected(hpos, addr, l, 1);
+			r = custom_wput_1_protected(hpos, addr, l, 1, E9K_WATCH_ACCESS_SOURCE_UNKNOWN);
 #else
 			r = custom_wput_1(hpos, addr, l, 1);
 #endif
@@ -16377,7 +16377,7 @@ static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int n
 }
 
 #if E9K_HACK_DEBUGGER_RUNTIME
-static int REGPARAM2 custom_wput_1_protected(int hpos, uaecptr addr, uae_u32 value, int noget)
+static int REGPARAM2 custom_wput_1_protected(int hpos, uaecptr addr, uae_u32 value, int noget, uint32_t accessSource)
 {
 	uaecptr regaddr = addr & 0x1FE;
 	uae_u32 filtered = value & 0xffff;
@@ -16387,7 +16387,7 @@ static int REGPARAM2 custom_wput_1_protected(int hpos, uaecptr addr, uae_u32 val
 		return 0;
 	}
 	int result = custom_wput_1(hpos, regaddr, filtered, noget);
-	e9k_debug_memhook_afterWrite(addr24, filtered, oldv, 16u, 1);
+	e9k_debug_memhook_afterWriteWithSource(addr24, filtered, oldv, 16u, 1, accessSource);
 	return result;
 }
 #endif
@@ -16409,11 +16409,20 @@ static void REGPARAM2 custom_wput(uaecptr addr, uae_u32 value)
 		debug_invalid_reg(addr, -2, value);
 #endif
 		addr &= ~1;
+#if E9K_HACK_DEBUGGER_RUNTIME
+		custom_wput_1_protected(hpos, addr, (value >> 8) | (value & 0xff00), 0, E9K_WATCH_ACCESS_SOURCE_CPU);
+		custom_wput_1_protected(hpos, addr + 2, (value << 8) | (value & 0x00ff), 0, E9K_WATCH_ACCESS_SOURCE_CPU);
+#else
 		custom_wput_1(hpos, addr, (value >> 8) | (value & 0xff00), 0);
 		custom_wput_1(hpos, addr + 2, (value << 8) | (value & 0x00ff), 0);
+#endif
 		return;
 	}
+#if E9K_HACK_DEBUGGER_RUNTIME
+	custom_wput_1_protected(hpos, addr, value, 0, E9K_WATCH_ACCESS_SOURCE_CPU);
+#else
 	custom_wput_1(hpos, addr, value, 0);
+#endif
 }
 
 static void REGPARAM2 custom_bput (uaecptr addr, uae_u32 value)

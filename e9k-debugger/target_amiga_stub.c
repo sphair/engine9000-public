@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "target.h"
+#include "amiga_blit_info.h"
 #include "amiga_memview.h"
 #include "custom_amiga.h"
 #include "custom_log.h"
@@ -385,6 +386,14 @@ amiga_memview_isOpen(void)
 }
 
 void
+amiga_memview_setViewIfOpen(uint32_t baseAddr, uint32_t rowBytes, int resetScroll)
+{
+    (void)baseAddr;
+    (void)rowBytes;
+    (void)resetScroll;
+}
+
+void
 amiga_memview_setMainWindowFocused(int focused)
 {
     (void)focused;
@@ -403,6 +412,59 @@ amiga_memview_persistConfig(FILE *file)
 
 int
 amiga_memview_loadConfigProperty(const char *prop, const char *value)
+{
+    (void)prop;
+    (void)value;
+    return 0;
+}
+
+int
+amiga_blit_info_init(void)
+{
+    return 0;
+}
+
+void
+amiga_blit_info_shutdown(void)
+{
+}
+
+void
+amiga_blit_info_toggle(void)
+{
+}
+
+int
+amiga_blit_info_isOpen(void)
+{
+    return 0;
+}
+
+void
+amiga_blit_info_show(const e9k_debug_ami_blitter_vis_point_t *info)
+{
+    (void)info;
+}
+
+void
+amiga_blit_info_setMainWindowFocused(int focused)
+{
+    (void)focused;
+}
+
+void
+amiga_blit_info_render(void)
+{
+}
+
+void
+amiga_blit_info_persistConfig(FILE *file)
+{
+    (void)file;
+}
+
+int
+amiga_blit_info_loadConfigProperty(const char *prop, const char *value)
 {
     (void)prop;
     (void)value;

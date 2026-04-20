@@ -72,16 +72,26 @@ e9ui_link_render(e9ui_component_t *self, e9ui_context_t *ctx)
     SDL_Color hover = { 205, 225, 255, 255 };
     SDL_Color disabled = { 160, 160, 160, 255 };
     SDL_Color color = self->disabled ? disabled : (st->hover ? hover : normal);
-    int tw = 0, th = 0;
-    SDL_Texture *tex = e9ui_text_cache_getUTF8(ctx->renderer, font, st->text, color, &tw, &th);
-    if (tex) {
-        int textY = self->bounds.y + (self->bounds.h - th) / 2;
-        if (textY < self->bounds.y) {
-            textY = self->bounds.y;
-        }
-        SDL_Rect rect = { self->bounds.x, textY, tw, th };
-        SDL_RenderCopy(ctx->renderer, tex, NULL, &rect);
+    int th = 0;
+    if (TTF_SizeUTF8(font, st->text, NULL, &th) < 0 || th <= 0) {
+        th = TTF_FontHeight(font);
     }
+    int textY = self->bounds.y + (self->bounds.h - th) / 2;
+    if (textY < self->bounds.y) {
+        textY = self->bounds.y;
+    }
+    e9ui_text_select_drawText(ctx,
+                              self,
+                              font,
+                              st->text,
+                              color,
+                              self->bounds.x,
+                              textY,
+                              self->bounds.h,
+                              self->bounds.w,
+                              self,
+                              0,
+                              1);
 }
 
 static void
@@ -162,6 +172,9 @@ e9ui_link_onClick(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_mouse_
         return;
     }
     if (self->disabled || !st->cb) {
+        return;
+    }
+    if (e9ui_text_select_hasSelection()) {
         return;
     }
     st->cb(ctx, st->user);

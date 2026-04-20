@@ -81,7 +81,7 @@ E9K_DEBUG_EXPORT void e9k_debug_set_debug_option(e9k_debug_option_t option, uint
 E9K_DEBUG_EXPORT void e9k_debug_set_neogeo_register_log_frame_callback(e9k_debug_geo_register_log_frame_callback_t cb, void *user) { e9k_debugger_setRegisterLogFrameCallback(cb, user); }
 #endif
 E9K_DEBUG_EXPORT void e9k_debug_reset_watchpoints(void) { e9k_debugger_reset_watchpoints(); }
-E9K_DEBUG_EXPORT int e9k_debug_add_watchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand) { return e9k_debugger_add_watchpoint(addr, op_mask, diff_operand, value_operand, old_value_operand, size_operand, addr_mask_operand); }
+E9K_DEBUG_EXPORT int e9k_debug_add_watchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand, uint32_t access_source_operand) { return e9k_debugger_add_watchpoint(addr, op_mask, diff_operand, value_operand, old_value_operand, size_operand, addr_mask_operand, access_source_operand); }
 E9K_DEBUG_EXPORT void e9k_debug_remove_watchpoint(uint32_t index) { e9k_debugger_remove_watchpoint(index); }
 E9K_DEBUG_EXPORT size_t e9k_debug_read_watchpoints(e9k_debug_watchpoint_t *out, size_t cap) { return e9k_debugger_read_watchpoints(out, cap); }
 E9K_DEBUG_EXPORT uint64_t e9k_debug_get_watchpoint_enabled_mask(void) { return e9k_debugger_get_watchpoint_enabled_mask(); }

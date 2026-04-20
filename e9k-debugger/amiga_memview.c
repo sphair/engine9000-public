@@ -4372,6 +4372,17 @@ amiga_memview_isOpen(void)
 }
 
 void
+amiga_memview_setViewIfOpen(uint32_t baseAddr, uint32_t rowBytes, int resetScroll)
+{
+    amiga_memview_state_t *ui = &amiga_memview_stateSingleton;
+
+    if (!ui->windowState.open) {
+        return;
+    }
+    amiga_memview_setView(ui, baseAddr, rowBytes, resetScroll);
+}
+
+void
 amiga_memview_setMainWindowFocused(int focused)
 {
     (void)focused;

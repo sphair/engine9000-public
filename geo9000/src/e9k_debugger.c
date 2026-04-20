@@ -642,7 +642,8 @@ mask_value(uint32_t value, uint32_t size_bits)
 }
 
 static int
-watchpoint_match(const e9k_debug_watchpoint_t *wp, uint32_t access_addr, uint32_t access_kind, uint32_t access_size_bits, uint32_t value, uint32_t old_value, int old_value_valid)
+watchpoint_match(const e9k_debug_watchpoint_t *wp, uint32_t access_addr, uint32_t access_kind, uint32_t access_size_bits,
+                 uint32_t value, uint32_t old_value, int old_value_valid, uint32_t access_source)
 {
     uint32_t op = wp->op_mask;
     if (!(op & (E9K_WATCH_OP_READ | E9K_WATCH_OP_WRITE))) {
@@ -678,6 +679,15 @@ watchpoint_match(const e9k_debug_watchpoint_t *wp, uint32_t access_addr, uint32_
             return 0;
         }
         if (access_size_bits != wp->size_operand) {
+            return 0;
+        }
+    }
+
+    if (op & E9K_WATCH_OP_ACCESS_SOURCE) {
+        if (wp->access_source_operand == E9K_WATCH_ACCESS_SOURCE_UNKNOWN) {
+            return 0;
+        }
+        if (access_source != wp->access_source_operand) {
             return 0;
         }
     }
@@ -722,7 +732,8 @@ e9k_debugger_reset_watchpoints(void)
 }
 
 int
-e9k_debugger_add_watchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand)
+e9k_debugger_add_watchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand,
+                            uint32_t size_operand, uint32_t addr_mask_operand, uint32_t access_source_operand)
 {
     for (uint32_t i = 0; i < E9K_WATCHPOINT_COUNT; ++i) {
         uint64_t bit = (uint64_t)1u << i;
@@ -739,6 +750,7 @@ e9k_debugger_add_watchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_opera
         s_wps[i].old_value_operand = old_value_operand;
         s_wps[i].size_operand = size_operand;
         s_wps[i].addr_mask_operand = addr_mask_operand;
+        s_wps[i].access_source_operand = access_source_operand;
         s_wps_enabled_mask |= bit;
         return (int)i;
     }
@@ -796,7 +808,8 @@ e9k_debugger_consume_watchbreak(e9k_debug_watchbreak_t *out)
 }
 
 static void
-watchbreak_request(uint32_t index, uint32_t access_addr, uint32_t access_kind, uint32_t access_size_bits, uint32_t value, uint32_t old_value, int old_value_valid)
+watchbreak_request(uint32_t index, uint32_t access_addr, uint32_t access_kind, uint32_t access_size_bits, uint32_t value,
+                   uint32_t old_value, int old_value_valid, uint32_t access_source)
 {
     if (s_watchbreak_pending) {
         return;
@@ -815,12 +828,15 @@ watchbreak_request(uint32_t index, uint32_t access_addr, uint32_t access_kind, u
     s_watchbreak.old_value_operand = wp->old_value_operand;
     s_watchbreak.size_operand = wp->size_operand;
     s_watchbreak.addr_mask_operand = wp->addr_mask_operand;
+    s_watchbreak.access_source_operand = wp->access_source_operand;
     s_watchbreak.access_addr = access_addr;
     s_watchbreak.access_kind = access_kind;
     s_watchbreak.access_size = access_size_bits;
     s_watchbreak.value = mask_value(value, access_size_bits);
     s_watchbreak.old_value = mask_value(old_value, access_size_bits);
     s_watchbreak.old_value_valid = old_value_valid ? 1u : 0u;
+    s_watchbreak.access_source = access_source;
+    s_watchbreak.access_source_detail = 0u;
 
     s_watchbreak_pending = 1;
     s_watchbreak_requested = 1;
@@ -846,8 +862,8 @@ e9k_debugger_watchpoint_read(uint32_t addr, uint32_t value, uint32_t size_bits)
         if ((s_wps_enabled_mask & ((uint64_t)1u << index)) == 0) {
             continue;
         }
-        if (watchpoint_match(&s_wps[index], addr, E9K_WATCH_ACCESS_READ, size_bits, value, value, 1)) {
-            watchbreak_request(index, addr, E9K_WATCH_ACCESS_READ, size_bits, value, value, 1);
+        if (watchpoint_match(&s_wps[index], addr, E9K_WATCH_ACCESS_READ, size_bits, value, value, 1, E9K_WATCH_ACCESS_SOURCE_CPU)) {
+            watchbreak_request(index, addr, E9K_WATCH_ACCESS_READ, size_bits, value, value, 1, E9K_WATCH_ACCESS_SOURCE_CPU);
             return;
         }
     }
@@ -870,8 +886,8 @@ e9k_debugger_watchpoint_write(uint32_t addr, uint32_t value, uint32_t old_value,
         if ((s_wps_enabled_mask & ((uint64_t)1u << index)) == 0) {
             continue;
         }
-        if (watchpoint_match(&s_wps[index], addr, E9K_WATCH_ACCESS_WRITE, size_bits, value, old_value, old_value_valid)) {
-            watchbreak_request(index, addr, E9K_WATCH_ACCESS_WRITE, size_bits, value, old_value, old_value_valid);
+        if (watchpoint_match(&s_wps[index], addr, E9K_WATCH_ACCESS_WRITE, size_bits, value, old_value, old_value_valid, E9K_WATCH_ACCESS_SOURCE_CPU)) {
+            watchbreak_request(index, addr, E9K_WATCH_ACCESS_WRITE, size_bits, value, old_value, old_value_valid, E9K_WATCH_ACCESS_SOURCE_CPU);
             return;
         }
     }

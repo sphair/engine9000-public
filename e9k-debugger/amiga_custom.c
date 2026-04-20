@@ -412,6 +412,7 @@ amiga_custom_addWriteWatchpoint(uint32_t addr24)
                                             0,
                                             16,
                                             0x00ffffffu,
+                                            0,
                                             &index) ? 1 : 0;
 }
 

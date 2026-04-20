@@ -36,6 +36,7 @@
 #include "input_record.h"
 #include "smoke_test.h"
 #include "ui_test.h"
+#include "amiga_blit_info.h"
 #include "amiga_custom.h"
 #include "shader_ui.h"
 #include "amiga_custom_log.h"
@@ -651,6 +652,7 @@ debugger_cleanup(void)
   }
   amiga_custom_log_shutdown();
   amiga_custom_shutdown();
+  amiga_blit_info_shutdown();
   libretro_host_shutdown();
   emu_geo_shutdown();
   addr2line_stop();

@@ -14,6 +14,7 @@ typedef struct e9ui_text_select_run {
     TTF_Font *font;
     e9ui_component_t *owner;
     void *bucket;
+    void *scope;
     int dragOnly;
     int textX;
     int textY;
@@ -26,6 +27,7 @@ typedef struct e9ui_text_select_run {
 } e9ui_text_select_run_t;
 
 typedef struct e9ui_text_select_bucket_state {
+    void *scope;
     void *bucket;
     uint32_t prevHash;
     uint32_t currHash;
@@ -50,9 +52,11 @@ typedef struct e9ui_text_select_state {
     int activeIndex;
     int activePos;
     void *activeBucket;
+    void *activeScope;
     int pendingRun;
     int pendingIndex;
     void *pendingBucket;
+    void *pendingScope;
     int pendingAny;
     int pendingX;
     int pendingY;
@@ -60,6 +64,7 @@ typedef struct e9ui_text_select_state {
     int lastClickX;
     int lastClickY;
     void *lastClickBucket;
+    void *lastClickScope;
     unsigned int frameId;
     e9ui_text_select_bucket_state_t *bucketStates;
     int bucketCount;
@@ -110,6 +115,7 @@ text_select_resetSelection(e9ui_text_select_state_t *st)
     st->anchorPos = -1;
     st->activePos = -1;
     st->activeBucket = NULL;
+    st->activeScope = NULL;
 }
 
 static void
@@ -121,6 +127,7 @@ text_select_clearInteraction(e9ui_text_select_state_t *st)
     text_select_resetSelection(st);
     st->pendingRun = -1;
     st->pendingBucket = NULL;
+    st->pendingScope = NULL;
     st->pendingAny = 0;
 }
 
@@ -132,11 +139,15 @@ text_select_clearPending(e9ui_text_select_state_t *st)
     }
     st->pendingRun = -1;
     st->pendingBucket = NULL;
+    st->pendingScope = NULL;
     st->pendingAny = 0;
 }
 
 static int
-text_select_bucketPosForRun(const e9ui_text_select_state_t *st, int runIndex, void *bucket);
+text_select_bucketPosForRunInScope(const e9ui_text_select_state_t *st,
+                                   int runIndex,
+                                   void *scope,
+                                   void *bucket);
 
 static int
 text_select_isWordChar(char ch)
@@ -178,7 +189,7 @@ text_select_selectWord(e9ui_text_select_state_t *st, int runIndex, int index)
     while (end < run->textLen && text_select_isWordChar(run->text[end])) {
         end += 1;
     }
-    int pos = text_select_bucketPosForRun(st, runIndex, run->bucket);
+    int pos = text_select_bucketPosForRunInScope(st, runIndex, run->scope, run->bucket);
     if (pos < 0) {
         return 0;
     }
@@ -190,6 +201,7 @@ text_select_selectWord(e9ui_text_select_state_t *st, int runIndex, int index)
     st->anchorPos = pos;
     st->activePos = pos;
     st->activeBucket = run->bucket;
+    st->activeScope = run->scope;
     return 1;
 }
 
@@ -246,14 +258,14 @@ text_select_hashInt(uint32_t hash, int value)
 }
 
 static e9ui_text_select_bucket_state_t *
-text_select_bucketStateFind(e9ui_text_select_state_t *st, void *bucket)
+text_select_bucketStateFind(e9ui_text_select_state_t *st, void *scope, void *bucket)
 {
     if (!st || !bucket) {
         return NULL;
     }
     for (int i = 0; i < st->bucketCount; ++i) {
         e9ui_text_select_bucket_state_t *state = &st->bucketStates[i];
-        if (state->bucket == bucket) {
+        if (state->scope == scope && state->bucket == bucket) {
             return state;
         }
     }
@@ -261,12 +273,12 @@ text_select_bucketStateFind(e9ui_text_select_state_t *st, void *bucket)
 }
 
 static e9ui_text_select_bucket_state_t *
-text_select_bucketStateEnsure(e9ui_text_select_state_t *st, void *bucket)
+text_select_bucketStateEnsure(e9ui_text_select_state_t *st, void *scope, void *bucket)
 {
     if (!st || !bucket) {
         return NULL;
     }
-    e9ui_text_select_bucket_state_t *state = text_select_bucketStateFind(st, bucket);
+    e9ui_text_select_bucket_state_t *state = text_select_bucketStateFind(st, scope, bucket);
     if (state) {
         return state;
     }
@@ -282,6 +294,7 @@ text_select_bucketStateEnsure(e9ui_text_select_state_t *st, void *bucket)
     }
     state = &st->bucketStates[st->bucketCount++];
     memset(state, 0, sizeof(*state));
+    state->scope = scope;
     state->bucket = bucket;
     state->prevHash = 0;
     state->currHash = 0;
@@ -296,9 +309,9 @@ text_select_bucketStateEnsure(e9ui_text_select_state_t *st, void *bucket)
 }
 
 static e9ui_text_select_bucket_state_t *
-text_select_bucketStateTouch(e9ui_text_select_state_t *st, void *bucket)
+text_select_bucketStateTouch(e9ui_text_select_state_t *st, void *scope, void *bucket)
 {
-    e9ui_text_select_bucket_state_t *state = text_select_bucketStateEnsure(st, bucket);
+    e9ui_text_select_bucket_state_t *state = text_select_bucketStateEnsure(st, scope, bucket);
     if (!state) {
         return NULL;
     }
@@ -374,6 +387,7 @@ static int
 text_select_addRun(e9ui_text_select_state_t *st,
                    e9ui_component_t *owner,
                    void *bucket,
+                   void *scope,
                    TTF_Font *font,
                    const char *text,
                    int dragOnly,
@@ -413,6 +427,7 @@ text_select_addRun(e9ui_text_select_state_t *st,
     run->font = font;
     run->owner = owner;
     run->bucket = bucket ? bucket : owner;
+    run->scope = scope;
     run->dragOnly = dragOnly ? 1 : 0;
     run->textX = textX;
     run->textY = textY;
@@ -426,7 +441,10 @@ text_select_addRun(e9ui_text_select_state_t *st,
 }
 
 static int
-text_select_bucketPosForRun(const e9ui_text_select_state_t *st, int runIndex, void *bucket)
+text_select_bucketPosForRunInScope(const e9ui_text_select_state_t *st,
+                                   int runIndex,
+                                   void *scope,
+                                   void *bucket)
 {
     if (!st || runIndex < 0 || runIndex >= st->runCount) {
         return -1;
@@ -436,7 +454,7 @@ text_select_bucketPosForRun(const e9ui_text_select_state_t *st, int runIndex, vo
     }
     int pos = -1;
     for (int i = 0; i <= runIndex; ++i) {
-        if (st->runs[i].bucket == bucket) {
+        if (st->runs[i].scope == scope && st->runs[i].bucket == bucket) {
             pos++;
         }
     }
@@ -496,9 +514,13 @@ text_select_drawHighlight(e9ui_context_t *ctx, int runIndex, e9ui_text_select_ru
                                         &endIndex, &startPos, &endPos)) {
         return;
     }
-    int runPos = text_select_bucketPosForRun(&text_select_state, runIndex,
-                                             text_select_state.activeBucket);
+    int runPos = text_select_bucketPosForRunInScope(&text_select_state, runIndex,
+                                                    text_select_state.activeScope,
+                                                    text_select_state.activeBucket);
     if (runPos < startPos || runPos > endPos) {
+        return;
+    }
+    if (text_select_state.activeScope && run->scope != text_select_state.activeScope) {
         return;
     }
     if (text_select_state.activeBucket && run->bucket != text_select_state.activeBucket) {
@@ -537,14 +559,14 @@ text_select_drawHighlight(e9ui_context_t *ctx, int runIndex, e9ui_text_select_ru
 }
 
 static int
-text_select_findRunAt(e9ui_text_select_state_t *st, int x, int y, void *bucket, int *outIndex)
+text_select_findRunAt(e9ui_text_select_state_t *st, int x, int y, void *scope, int *outIndex)
 {
     if (!st || st->runCount <= 0) {
         return -1;
     }
     for (int i = st->runCount - 1; i >= 0; --i) {
         e9ui_text_select_run_t *run = &st->runs[i];
-        if (bucket && run->bucket != bucket) {
+        if (scope && run->scope != scope) {
             continue;
         }
         if (y < run->lineY || y >= run->lineY + run->lineHeight) {
@@ -569,7 +591,11 @@ text_select_findRunAt(e9ui_text_select_state_t *st, int x, int y, void *bucket, 
 }
 
 static int
-text_select_findClosestRun(e9ui_text_select_state_t *st, int y, void *bucket, int *outDist)
+text_select_findClosestRun(e9ui_text_select_state_t *st,
+                           int y,
+                           void *scope,
+                           void *bucket,
+                           int *outDist)
 {
     if (!st || st->runCount <= 0) {
         if (outDist) {
@@ -581,6 +607,9 @@ text_select_findClosestRun(e9ui_text_select_state_t *st, int y, void *bucket, in
     int bestDist = 0;
     for (int i = 0; i < st->runCount; ++i) {
         e9ui_text_select_run_t *run = &st->runs[i];
+        if (scope && run->scope != scope) {
+            continue;
+        }
         if (bucket && run->bucket != bucket) {
             continue;
         }
@@ -681,7 +710,7 @@ e9ui_text_select_endFrame(e9ui_context_t *ctx)
     (void)ctx;
     e9ui_text_select_state_t *st = &text_select_state;
     if (st->activeBucket) {
-        e9ui_text_select_bucket_state_t *bucket = text_select_bucketStateFind(st, st->activeBucket);
+        e9ui_text_select_bucket_state_t *bucket = text_select_bucketStateFind(st, st->activeScope, st->activeBucket);
         int invalidate = 0;
         if (!bucket || bucket->lastFrame != st->frameId) {
             invalidate = 1;
@@ -720,6 +749,7 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
             text_select_resetSelection(&text_select_state);
             text_select_state.pendingRun = -1;
             text_select_state.pendingBucket = NULL;
+            text_select_state.pendingScope = NULL;
             text_select_state.pendingAny = 0;
         }
         return 0;
@@ -727,8 +757,9 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
     if (ev->type == SDL_MOUSEBUTTONDOWN && ev->button.button == SDL_BUTTON_LEFT) {
         int mx = ev->button.x;
         int my = ev->button.y;
+        void *pointerScope = ctx ? (void *)ctx->pointerOwner : NULL;
         int index = 0;
-        int runIndex = text_select_findRunAt(&text_select_state, mx, my, NULL, &index);
+        int runIndex = text_select_findRunAt(&text_select_state, mx, my, pointerScope, &index);
         if (modal && runIndex >= 0) {
             e9ui_component_t *owner = text_select_state.runs[runIndex].owner;
             if (!text_select_componentContains(modal, owner)) {
@@ -736,15 +767,19 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
             }
         }
         void *bucket = NULL;
+        void *scope = NULL;
         if (runIndex >= 0) {
             bucket = text_select_state.runs[runIndex].bucket;
+            scope = text_select_state.runs[runIndex].scope;
         }
         Uint32 now = e9ui_getTicks(ctx);
         int slop = ctx ? e9ui_scale_px(ctx, 4) : 4;
         int dx = mx - text_select_state.lastClickX;
         int dy = my - text_select_state.lastClickY;
         int isDouble = 0;
-        if (bucket && text_select_state.lastClickBucket == bucket &&
+        if (bucket &&
+            text_select_state.lastClickBucket == bucket &&
+            text_select_state.lastClickScope == scope &&
             text_select_state.lastClickMs > 0 &&
             now - text_select_state.lastClickMs <= 350 &&
             dx * dx + dy * dy <= slop * slop) {
@@ -754,9 +789,21 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
         text_select_state.lastClickX = mx;
         text_select_state.lastClickY = my;
         text_select_state.lastClickBucket = bucket;
+        text_select_state.lastClickScope = scope;
+        if (pointerScope && runIndex < 0) {
+            text_select_resetSelection(&text_select_state);
+            text_select_state.pendingAny = 1;
+            text_select_state.pendingX = mx;
+            text_select_state.pendingY = my;
+            text_select_state.pendingRun = -1;
+            text_select_state.pendingBucket = NULL;
+            text_select_state.pendingScope = pointerScope;
+            return 1;
+        }
         if (modal && runIndex < 0 && text_select_pointInComponent(modal, mx, my)) {
             text_select_state.pendingRun = -1;
             text_select_state.pendingBucket = NULL;
+            text_select_state.pendingScope = NULL;
             text_select_state.pendingAny = 0;
             return 0;
         }
@@ -773,11 +820,13 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
         if (runIndex < 0) {
             text_select_state.pendingRun = -1;
             text_select_state.pendingBucket = NULL;
+            text_select_state.pendingScope = NULL;
             return 0;
         }
         text_select_state.pendingRun = runIndex;
         text_select_state.pendingIndex = index;
         text_select_state.pendingBucket = text_select_state.runs[runIndex].bucket;
+        text_select_state.pendingScope = text_select_state.runs[runIndex].scope;
         return 1;
     }
     if (ev->type == SDL_MOUSEMOTION) {
@@ -788,8 +837,9 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
             int dx = mx - text_select_state.pendingX;
             int dy = my - text_select_state.pendingY;
             if (dx * dx + dy * dy >= slop * slop) {
+                void *scope = text_select_state.pendingScope;
                 int index = 0;
-                int runIndex = text_select_findRunAt(&text_select_state, mx, my, NULL, &index);
+                int runIndex = text_select_findRunAt(&text_select_state, mx, my, scope, &index);
                 if (modal && runIndex >= 0) {
                     e9ui_component_t *owner = text_select_state.runs[runIndex].owner;
                     if (!text_select_componentContains(modal, owner)) {
@@ -801,12 +851,14 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
                 }
                 text_select_state.selecting = 1;
                 text_select_state.activeBucket = text_select_state.runs[runIndex].bucket;
+                text_select_state.activeScope = text_select_state.runs[runIndex].scope;
                 text_select_state.pendingAny = 0;
             }
         }
         if (text_select_state.selecting) {
+            void *scope = text_select_state.activeScope;
             int index = 0;
-            int runIndex = text_select_findRunAt(&text_select_state, mx, my, NULL, &index);
+            int runIndex = text_select_findRunAt(&text_select_state, mx, my, scope, &index);
             if (modal && runIndex >= 0) {
                 e9ui_component_t *owner = text_select_state.runs[runIndex].owner;
                 if (!text_select_componentContains(modal, owner)) {
@@ -821,7 +873,7 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
                 return 0;
             }
             if (runIndex < 0 || text_select_state.runs[runIndex].bucket != bucket) {
-                runIndex = text_select_findClosestRun(&text_select_state, my, bucket, NULL);
+                runIndex = text_select_findClosestRun(&text_select_state, my, scope, bucket, NULL);
                 if (runIndex >= 0) {
                     e9ui_text_select_run_t *run = &text_select_state.runs[runIndex];
                     int relX = mx - run->textX;
@@ -839,6 +891,7 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
             }
             int anchorRun = text_select_findClosestRun(&text_select_state,
                                                        text_select_state.pendingY,
+                                                       scope,
                                                        bucket, NULL);
             if (anchorRun < 0) {
                 anchorRun = runIndex;
@@ -855,12 +908,13 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
                 }
                 anchorIndex = text_select_indexFromX(&text_select_state, run, relX);
             }
-            int anchorPos = text_select_bucketPosForRun(&text_select_state, anchorRun, bucket);
-            int activePos = text_select_bucketPosForRun(&text_select_state, runIndex, bucket);
+            int anchorPos = text_select_bucketPosForRunInScope(&text_select_state, anchorRun, scope, bucket);
+            int activePos = text_select_bucketPosForRunInScope(&text_select_state, runIndex, scope, bucket);
             if (anchorPos < 0 || activePos < 0) {
                 return 0;
             }
             text_select_state.activeBucket = bucket;
+            text_select_state.activeScope = scope;
             text_select_state.anchorRun = anchorRun;
             text_select_state.anchorIndex = anchorIndex;
             text_select_state.anchorPos = anchorPos;
@@ -874,6 +928,7 @@ e9ui_text_select_handleEvent(e9ui_context_t *ctx, const e9ui_event_t *ev)
         text_select_state.selecting = 0;
         text_select_state.pendingRun = -1;
         text_select_state.pendingBucket = NULL;
+        text_select_state.pendingScope = NULL;
         text_select_state.pendingAny = 0;
         return 1;
     }
@@ -909,8 +964,12 @@ e9ui_text_select_copyToClipboard(void)
     size_t total = 0;
     for (int i = 0; i < text_select_state.runCount; ++i) {
         e9ui_text_select_run_t *run = &text_select_state.runs[i];
-        int runPos = text_select_bucketPosForRun(&text_select_state, i,
-                                                 text_select_state.activeBucket);
+        int runPos = text_select_bucketPosForRunInScope(&text_select_state, i,
+                                                        text_select_state.activeScope,
+                                                        text_select_state.activeBucket);
+        if (text_select_state.activeScope && run->scope != text_select_state.activeScope) {
+            continue;
+        }
         if (text_select_state.activeBucket && run->bucket != text_select_state.activeBucket) {
             continue;
         }
@@ -948,8 +1007,12 @@ e9ui_text_select_copyToClipboard(void)
     size_t pos = 0;
     for (int i = 0; i < text_select_state.runCount; ++i) {
         e9ui_text_select_run_t *run = &text_select_state.runs[i];
-        int runPos = text_select_bucketPosForRun(&text_select_state, i,
-                                                 text_select_state.activeBucket);
+        int runPos = text_select_bucketPosForRunInScope(&text_select_state, i,
+                                                        text_select_state.activeScope,
+                                                        text_select_state.activeBucket);
+        if (text_select_state.activeScope && run->scope != text_select_state.activeScope) {
+            continue;
+        }
         if (text_select_state.activeBucket && run->bucket != text_select_state.activeBucket) {
             continue;
         }
@@ -1008,8 +1071,12 @@ e9ui_text_select_getSelectionText(char *dst, int dstLen)
     int total = 0;
     for (int i = 0; i < text_select_state.runCount; ++i) {
         e9ui_text_select_run_t *run = &text_select_state.runs[i];
-        int runPos = text_select_bucketPosForRun(&text_select_state, i,
-                                                 text_select_state.activeBucket);
+        int runPos = text_select_bucketPosForRunInScope(&text_select_state, i,
+                                                        text_select_state.activeScope,
+                                                        text_select_state.activeBucket);
+        if (text_select_state.activeScope && run->scope != text_select_state.activeScope) {
+            continue;
+        }
         if (text_select_state.activeBucket && run->bucket != text_select_state.activeBucket) {
             continue;
         }
@@ -1046,8 +1113,12 @@ e9ui_text_select_getSelectionText(char *dst, int dstLen)
     int pos = 0;
     for (int i = 0; i < text_select_state.runCount; ++i) {
         e9ui_text_select_run_t *run = &text_select_state.runs[i];
-        int runPos = text_select_bucketPosForRun(&text_select_state, i,
-                                                 text_select_state.activeBucket);
+        int runPos = text_select_bucketPosForRunInScope(&text_select_state, i,
+                                                        text_select_state.activeScope,
+                                                        text_select_state.activeBucket);
+        if (text_select_state.activeScope && run->scope != text_select_state.activeScope) {
+            continue;
+        }
         if (text_select_state.activeBucket && run->bucket != text_select_state.activeBucket) {
             continue;
         }
@@ -1157,12 +1228,13 @@ e9ui_text_select_drawText(e9ui_context_t *ctx,
         hitW = 0;
     }
     if (selectable) {
-        int runIndex = text_select_addRun(&text_select_state, owner, bucket, font, text, dragOnly,
+        void *scope = e9ui_getSelectionScopeForOwner(owner);
+        int runIndex = text_select_addRun(&text_select_state, owner, bucket, scope, font, text, dragOnly,
                                           tw, th,
                                           x, y, y, lineHeight, x, hitW);
         if (runIndex >= 0) {
             e9ui_text_select_run_t *run = &text_select_state.runs[runIndex];
-            e9ui_text_select_bucket_state_t *state = text_select_bucketStateTouch(&text_select_state, run->bucket);
+            e9ui_text_select_bucket_state_t *state = text_select_bucketStateTouch(&text_select_state, run->scope, run->bucket);
             if (state) {
                 uint32_t runHash = 2166136261u;
                 if (run->textLen > 0) {

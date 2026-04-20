@@ -7,6 +7,7 @@
  */
 
 #include "config.h"
+#include "amiga_blit_info.h"
 #include "amiga_memview.h"
 #include "crt.h"
 #include "amiga_custom.h"
@@ -174,6 +175,7 @@ config_persistConfig(FILE *f)
     amiga_custom_log_persistConfig(f);
     amiga_custom_persistConfig(f);
     amiga_memview_persistConfig(f);
+    amiga_blit_info_persistConfig(f);
     shader_ui_persistConfig(f);
     hex_convert_persistConfig(f);
     settings_persistConfig(f);
@@ -364,6 +366,11 @@ config_loadConfigFile(const char *path)
         if (strncmp(key, "comp.amiga_memview.", 19) == 0) {
             const char *prop = key + 19;
             amiga_memview_loadConfigProperty(prop, value);
+            continue;
+        }
+        if (strncmp(key, "comp.amiga_blit_info.", 21) == 0) {
+            const char *prop = key + 21;
+            amiga_blit_info_loadConfigProperty(prop, value);
             continue;
         }
         if (strncmp(key, "comp.shader_ui.", 15) == 0) {

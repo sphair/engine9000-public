@@ -27,6 +27,8 @@ typedef struct e9ui_context {
     int           cursorOverride;
     void         *cursorCaptureOwner;
     SDL_Cursor   *cursorCapture;
+    struct e9ui_component *pointerOwner;
+    Uint8         pointerOwnerButton;
     float         dpiScale; 
     struct e9ui_component *_focus;
     int                  focusClickHandled;

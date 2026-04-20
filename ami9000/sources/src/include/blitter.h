@@ -10,6 +10,7 @@
 #define UAE_BLITTER_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include "uae/types.h"
 
 #ifndef E9K_HACK_MEMVIS
@@ -73,7 +74,24 @@ extern uint32_t blitter_getDebugWritesLastFrame(void);
 extern uint32_t blitter_getDebugWriteBytesThisFrame(void);
 extern uint32_t blitter_getDebugWriteBytesLastFrame(void);
 extern uint32_t blitter_getDebugFrameCounter(void);
-extern int blitter_getDebugBlitSourceInfo(uint32_t blitId, uaecptr *sourceAddr, int *sourceIsCopper);
+extern int blitter_getDebugBlitInfo(uint32_t blitId,
+	uaecptr *sourceAddr,
+	int *sourceIsCopper,
+	uaecptr *sourceDataAddr,
+	uaecptr *channelAAddr,
+	uaecptr *channelBAddr,
+	uaecptr *channelCAddr,
+	uaecptr *channelDAddr,
+	int16_t *channelAModulo,
+	int16_t *channelBModulo,
+	int16_t *channelCModulo,
+	int16_t *channelDModulo,
+	uint16_t *widthWords,
+	uint16_t *sourceRowBytes,
+	int16_t *sourceModulo,
+	uint8_t *sourceChannelsMask,
+	int *sourceDescending,
+	int *lineMode);
 #if E9K_HACK_MEMVIS
 extern void blitter_debugSnapshotFrame(void);
 extern size_t blitter_debugReadSnapshotBlitIds(uaecptr addr, uint32_t *out, size_t wordCount);

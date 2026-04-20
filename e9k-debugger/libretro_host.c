@@ -59,7 +59,7 @@ typedef void (*e9k_debug_remove_breakpoint_fn_t)(uint32_t addr);
 typedef void (*e9k_debug_add_temp_breakpoint_fn_t)(uint32_t addr);
 typedef void (*e9k_debug_remove_temp_breakpoint_fn_t)(uint32_t addr);
 typedef void (*e9k_debug_reset_watchpoints_fn_t)(void);
-typedef int (*e9k_debug_add_watchpoint_fn_t)(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand);
+typedef int (*e9k_debug_add_watchpoint_fn_t)(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand, uint32_t access_source_operand);
 typedef void (*e9k_debug_remove_watchpoint_fn_t)(uint32_t index);
 typedef size_t (*e9k_debug_read_watchpoints_fn_t)(e9k_debug_watchpoint_t *out, size_t cap);
 typedef uint64_t (*e9k_debug_get_watchpoint_enabled_mask_fn_t)(void);
@@ -2544,7 +2544,8 @@ libretro_host_debugResetWatchpoints(void)
 }
 
 bool
-libretro_host_debugAddWatchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand, uint32_t *out_index)
+libretro_host_debugAddWatchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand,
+                                 uint32_t size_operand, uint32_t addr_mask_operand, uint32_t access_source_operand, uint32_t *out_index)
 {
     if (out_index) {
         *out_index = 0;
@@ -2552,7 +2553,7 @@ libretro_host_debugAddWatchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_
     if (!libretro_host.debugAddWatchpoint) {
         return false;
     }
-    int r = libretro_host.debugAddWatchpoint(addr, op_mask, diff_operand, value_operand, old_value_operand, size_operand, addr_mask_operand);
+    int r = libretro_host.debugAddWatchpoint(addr, op_mask, diff_operand, value_operand, old_value_operand, size_operand, addr_mask_operand, access_source_operand);
     if (r < 0) {
         return false;
     }

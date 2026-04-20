@@ -29,6 +29,29 @@
 #include "settings.h"
 #include "debugger.h"
 
+static const char *
+runtime_watchAccessSourceName(uint32_t accessSource)
+{
+    switch (accessSource) {
+    case E9K_WATCH_ACCESS_SOURCE_CPU:
+        return "cpu";
+    case E9K_WATCH_ACCESS_SOURCE_DMA:
+        return "dma";
+    case E9K_WATCH_ACCESS_SOURCE_BLITTER:
+        return "blitter";
+    case E9K_WATCH_ACCESS_SOURCE_COPPER:
+        return "copper";
+    case E9K_WATCH_ACCESS_SOURCE_AUDIO:
+        return "audio";
+    case E9K_WATCH_ACCESS_SOURCE_VIDEO:
+        return "video";
+    case E9K_WATCH_ACCESS_SOURCE_PERIPHERAL:
+        return "peripheral";
+    default:
+        return "unknown";
+    }
+}
+
 void
 runtime_onVblank(void *user)
 {
@@ -187,14 +210,15 @@ runtime_runLoop(void)
                             continue;
                         }
                         const char *kind = watchbreak.access_kind == E9K_WATCH_ACCESS_WRITE ? "write" : "read";
+                        const char *source = runtime_watchAccessSourceName(watchbreak.access_source);
                         if (watchbreak.old_value_valid) {
-                            debug_printf("watchbreak: wp[%u] %s addr=0x%06X value=0x%08X old=0x%08X\n",
-                                        (unsigned)watchbreak.index, kind,
+                            debug_printf("watchbreak: wp[%u] %s/%s addr=0x%06X value=0x%08X old=0x%08X\n",
+                                        (unsigned)watchbreak.index, kind, source,
                                         (unsigned)(watchbreak.access_addr & 0x00ffffffu),
                                         (unsigned)watchbreak.value, (unsigned)watchbreak.old_value);
                         } else {
-                            debug_printf("watchbreak: wp[%u] %s addr=0x%06X value=0x%08X\n",
-                                        (unsigned)watchbreak.index, kind,
+                            debug_printf("watchbreak: wp[%u] %s/%s addr=0x%06X value=0x%08X\n",
+                                        (unsigned)watchbreak.index, kind, source,
                                         (unsigned)(watchbreak.access_addr & 0x00ffffffu),
                                         (unsigned)watchbreak.value);
                         }

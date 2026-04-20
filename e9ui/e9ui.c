@@ -41,6 +41,9 @@
 #include "debug_font.h"
 #endif
 
+static int
+e9ui_componentTreeContainsPointer(const e9ui_component_t *root, const void *target);
+
 #ifdef E9UI_ENABLE_GAMEPAD
 typedef enum e9ui_controller_device_type
 {
@@ -421,6 +424,35 @@ e9ui_getOverlayHost(void)
     return e9ui->overlayRoot;
 }
 
+e9ui_component_t *
+e9ui_getSelectionScopeForOwner(const e9ui_component_t *owner)
+{
+    e9ui_child_reverse_iterator iter;
+    e9ui_component_t *contentRoot = NULL;
+
+    if (!e9ui || !owner) {
+        return NULL;
+    }
+
+    if (e9ui->overlayRoot && e9ui_child_iterateChildrenReverse(e9ui->overlayRoot, &iter)) {
+        for (e9ui_child_reverse_iterator *it = e9ui_child_iteratePrev(&iter);
+             it;
+             it = e9ui_child_iteratePrev(&iter)) {
+            if (!it->child) {
+                continue;
+            }
+            if (e9ui_componentTreeContainsPointer(it->child, owner)) {
+                return it->child;
+            }
+        }
+    }
+    contentRoot = e9ui_activeContentRoot();
+    if (e9ui_componentTreeContainsPointer(contentRoot, owner)) {
+        return contentRoot;
+    }
+    return NULL;
+}
+
 static void
 e9ui_sceneUpdateState(void)
 {
@@ -481,8 +513,58 @@ e9ui_resetRendererOverlayState(e9ui_context_t *ctx)
 }
 
 static int
+e9ui_pointInBounds(const e9ui_component_t *comp, int x, int y);
+
+static void
+e9ui_pointerOwnerClearIfStale(e9ui_context_t *ctx);
+
+static e9ui_component_t *
+e9ui_pointerOwnerForPoint(int x, int y)
+{
+    if (!e9ui) {
+        return NULL;
+    }
+    e9ui_child_reverse_iterator iter;
+    if (e9ui->overlayRoot && e9ui_child_iterateChildrenReverse(e9ui->overlayRoot, &iter)) {
+        for (e9ui_child_reverse_iterator *it = e9ui_child_iteratePrev(&iter);
+             it;
+             it = e9ui_child_iteratePrev(&iter)) {
+            if (!it->child || e9ui_getHidden(it->child)) {
+                continue;
+            }
+            if (e9ui_pointInBounds(it->child, x, y)) {
+                return it->child;
+            }
+        }
+    }
+    return e9ui_activeContentRoot();
+}
+
+static int
 e9ui_sceneProcessEvent(const e9ui_event_t *ev)
 {
+    e9ui_pointerOwnerClearIfStale(&e9ui->ctx);
+    if (ev &&
+        (ev->type == SDL_MOUSEMOTION ||
+         ev->type == SDL_MOUSEBUTTONUP) &&
+        e9ui->ctx.pointerOwner) {
+        int consumed = e9ui_event_process(e9ui->ctx.pointerOwner, &e9ui->ctx, ev);
+        if (ev->type == SDL_MOUSEBUTTONUP &&
+            ev->button.button == e9ui->ctx.pointerOwnerButton) {
+            e9ui->ctx.pointerOwner = NULL;
+            e9ui->ctx.pointerOwnerButton = 0;
+        }
+        return consumed;
+    }
+    if (ev && ev->type == SDL_MOUSEBUTTONDOWN) {
+        e9ui_component_t *pointerOwner = e9ui_pointerOwnerForPoint(ev->button.x, ev->button.y);
+        if (pointerOwner) {
+            e9ui->ctx.pointerOwner = pointerOwner;
+            e9ui->ctx.pointerOwnerButton = ev->button.button;
+            return e9ui_event_process(pointerOwner, &e9ui->ctx, ev);
+        }
+        return 0;
+    }
     if (e9ui->overlayRoot) {
         int allow_multiple = 0;
         int consumed = 0;
@@ -578,6 +660,18 @@ e9ui_focusClearIfStale(e9ui_context_t *ctx)
     }
     if (!e9ui_captureOwnerIsLive(ctx, ctx->_focus)) {
         ctx->_focus = NULL;
+    }
+}
+
+static void
+e9ui_pointerOwnerClearIfStale(e9ui_context_t *ctx)
+{
+    if (!ctx || !ctx->pointerOwner) {
+        return;
+    }
+    if (!e9ui_captureOwnerIsLive(ctx, ctx->pointerOwner)) {
+        ctx->pointerOwner = NULL;
+        ctx->pointerOwnerButton = 0;
     }
 }
 
@@ -2083,16 +2177,6 @@ e9ui_pointerBlockedByOverlayRecursive(e9ui_component_t *comp, int x, int y)
     return 0;
 }
 
-static int
-e9ui_pointerBlockedByOverlayAtCurrentMouse(void)
-{
-    e9ui_component_t *overlayRoot = e9ui_getOverlayHost();
-    if (!overlayRoot) {
-        return 0;
-    }
-    return e9ui_pointerBlockedByOverlayRecursive(overlayRoot, e9ui->ctx.mouseX, e9ui->ctx.mouseY);
-}
-
 void
 e9ui_drawTooltip(const e9ui_context_t *ctx, const char *text, int baseX, int baseY)
 {
@@ -2808,9 +2892,6 @@ e9ui_processEvents(void)
             if (e9ui_textbox_selectOverlayHandleEvent(&e9ui->ctx, &ev)) {
                 continue;
             }
-            if (!e9ui_pointerBlockedByOverlayAtCurrentMouse()) {
-                e9ui_text_select_handleEvent(&e9ui->ctx, &ev);
-            }
         }
         else if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP) {
             if (!mainWindowId || ev.button.windowID != mainWindowId) {
@@ -2829,9 +2910,6 @@ e9ui_processEvents(void)
             }
             if (e9ui_textbox_selectOverlayHandleEvent(&e9ui->ctx, &ev)) {
                 continue;
-            }
-            if (!e9ui_pointerBlockedByOverlayAtCurrentMouse()) {
-                e9ui_text_select_handleEvent(&e9ui->ctx, &ev);
             }
         }
         else if (ev.type == SDL_MOUSEWHEEL) {
@@ -3012,6 +3090,11 @@ e9ui_processEvents(void)
         }
         // For mouse and other events, bubble through tree for hit-testing and focus updates
         (void)e9ui_sceneProcessEvent(&ev);
+        if (ev.type == SDL_MOUSEMOTION ||
+            ev.type == SDL_MOUSEBUTTONDOWN ||
+            ev.type == SDL_MOUSEBUTTONUP) {
+            (void)e9ui_text_select_handleEvent(&e9ui->ctx, &ev);
+        }
         if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT && !e9ui->ctx.focusClickHandled) {
             e9ui_setFocus(&e9ui->ctx, NULL);
         }

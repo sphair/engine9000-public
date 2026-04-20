@@ -126,7 +126,7 @@ bool
 libretro_host_debugResetWatchpoints(void);
 
 bool
-libretro_host_debugAddWatchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand, uint32_t *out_index);
+libretro_host_debugAddWatchpoint(uint32_t addr, uint32_t op_mask, uint32_t diff_operand, uint32_t value_operand, uint32_t old_value_operand, uint32_t size_operand, uint32_t addr_mask_operand, uint32_t access_source_operand, uint32_t *out_index);
 
 bool
 libretro_host_debugRemoveWatchpoint(uint32_t index);
