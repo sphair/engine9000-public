@@ -109,7 +109,8 @@ console_cmd_watchSourceMaskForTarget(void)
     if (target == target_amiga()) {
         return (1u << E9K_WATCH_ACCESS_SOURCE_CPU) |
                (1u << E9K_WATCH_ACCESS_SOURCE_BLITTER) |
-               (1u << E9K_WATCH_ACCESS_SOURCE_COPPER);
+               (1u << E9K_WATCH_ACCESS_SOURCE_COPPER) |
+               (1u << E9K_WATCH_ACCESS_SOURCE_DISK);
     }
     if (target == target_neogeo()) {
         return (1u << E9K_WATCH_ACCESS_SOURCE_CPU);
@@ -133,6 +134,8 @@ console_cmd_parseWatchSource(const char *src, uint32_t *outSource)
         source = E9K_WATCH_ACCESS_SOURCE_BLITTER;
     } else if (strcasecmp(src, "copper") == 0) {
         source = E9K_WATCH_ACCESS_SOURCE_COPPER;
+    } else if (strcasecmp(src, "disk") == 0 || strcasecmp(src, "floppy") == 0) {
+        source = E9K_WATCH_ACCESS_SOURCE_DISK;
     } else {
         return 0;
     }
@@ -161,6 +164,9 @@ console_cmd_watchSourceList(void)
     }
     if (mask & (1u << E9K_WATCH_ACCESS_SOURCE_COPPER)) {
         strncat(list, "copper|", sizeof(list) - strlen(list) - 1);
+    }
+    if (mask & (1u << E9K_WATCH_ACCESS_SOURCE_DISK)) {
+        strncat(list, "disk|", sizeof(list) - strlen(list) - 1);
     }
     if (mask & (1u << E9K_WATCH_ACCESS_SOURCE_AUDIO)) {
         strncat(list, "audio|", sizeof(list) - strlen(list) - 1);
@@ -1725,6 +1731,9 @@ console_cmd_watchList(void)
                 break;
             case E9K_WATCH_ACCESS_SOURCE_PERIPHERAL:
                 watchSource = "peripheral";
+                break;
+            case E9K_WATCH_ACCESS_SOURCE_DISK:
+                watchSource = "disk";
                 break;
             default:
                 watchSource = "unknown";

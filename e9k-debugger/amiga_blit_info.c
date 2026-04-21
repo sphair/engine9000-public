@@ -172,8 +172,9 @@ amiga_blit_info_formatSize(char *out, size_t cap, const e9k_debug_ami_blitter_vi
     }
     snprintf(out,
              cap,
-             "width=%u words  row=%u bytes  modulo=%d",
+             "size=%u x %u  row=%u bytes  modulo=%d",
              (unsigned)info->widthWords,
+             (unsigned)info->heightLines,
              (unsigned)info->sourceRowBytes,
              (int)info->sourceModulo);
 }
@@ -190,7 +191,8 @@ amiga_blit_info_formatFlags(char *out, size_t cap, const e9k_debug_ami_blitter_v
     }
     snprintf(out,
              cap,
-             "line=%s  descending=%s  source=%s",
+             "minterm=%02x  line=%s  descending=%s  source=%s",
+             (unsigned)info->minterm,
              info->lineMode ? "yes" : "no",
              info->sourceDescending ? "yes" : "no",
              info->sourceIsCopper ? "copper" : "cpu");

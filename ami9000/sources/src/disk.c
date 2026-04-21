@@ -38,6 +38,9 @@ int disk_debug_track = -1;
 #include "savestate.h"
 #include "cia.h"
 #include "debug.h"
+#if E9K_HACK_DEBUGGER_RUNTIME
+#include "e9k_debug.h"
+#endif
 #ifdef FDI2RAW
 #include "fdi2raw.h"
 #endif
@@ -58,6 +61,16 @@ int disk_debug_track = -1;
 #endif
 #include "crc32.h"
 #include "inputrecord.h"
+
+#if E9K_HACK_DEBUGGER_RUNTIME
+static void
+disk_e9kChipmemDmaWput(uaecptr addr, uae_u32 value)
+{
+	uint32_t previousSource = memory_e9kChipmemSetWriteSource(E9K_WATCH_ACCESS_SOURCE_DISK);
+	chipmem_wput_indirect(addr, value);
+	memory_e9kChipmemRestoreWriteSource(previousSource);
+}
+#endif
 #include "amax.h"
 #ifdef RETROPLATFORM
 #include "rp.h"
@@ -4326,7 +4339,11 @@ static int doreaddma(void)
 			if (currprefs.floppy_speed > 100 && fifo_inuse[0] && fifo_inuse[1] && fifo_inuse[2]) {
 				while (fifo_inuse[0]) {
 					uae_u16 w = DSKDATR(0);
+	#if E9K_HACK_DEBUGGER_RUNTIME
+					disk_e9kChipmemDmaWput(dskpt, w);
+	#else
 					chipmem_wput_indirect (dskpt, w);
+	#endif
 					dskpt += 2;
 				}
 			}
@@ -5177,7 +5194,11 @@ static void DSKLEN_2(uae_u16 v, int hpos)
 					}
 #endif
 				} else {
+	#if E9K_HACK_DEBUGGER_RUNTIME
+					disk_e9kChipmemDmaWput(dskpt, 0);
+	#else
 					chipmem_wput_indirect(dskpt, 0);
+	#endif
 				}
 				dskpt += 2;
 			}

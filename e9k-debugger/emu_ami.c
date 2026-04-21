@@ -137,9 +137,11 @@ typedef struct emu_ami_blitter_vis_retained_pixel {
     int16_t channelCModulo;
     int16_t channelDModulo;
     uint16_t widthWords;
+    uint16_t heightLines;
     uint16_t sourceRowBytes;
     int16_t sourceModulo;
     uint8_t sourceChannelsMask;
+    uint8_t minterm;
     uint8_t sourceDescending;
     uint8_t lineMode;
     uint8_t historyCount;
@@ -162,9 +164,11 @@ typedef struct emu_ami_blitter_vis_hit {
     int16_t channelCModulo;
     int16_t channelDModulo;
     uint16_t widthWords;
+    uint16_t heightLines;
     uint16_t sourceRowBytes;
     int16_t sourceModulo;
     uint8_t sourceChannelsMask;
+    uint8_t minterm;
     uint8_t sourceIsCopper;
     uint8_t sourceDescending;
     uint8_t lineMode;
@@ -1152,9 +1156,11 @@ emu_ami_blitterVisCopyPointFromHit(e9k_debug_ami_blitter_vis_point_t *outPoint, 
     outPoint->channelCModulo = hit->channelCModulo;
     outPoint->channelDModulo = hit->channelDModulo;
     outPoint->widthWords = hit->widthWords;
+    outPoint->heightLines = hit->heightLines;
     outPoint->sourceRowBytes = hit->sourceRowBytes;
     outPoint->sourceModulo = hit->sourceModulo;
     outPoint->sourceChannelsMask = hit->sourceChannelsMask;
+    outPoint->minterm = hit->minterm;
     outPoint->sourceIsCopper = hit->sourceIsCopper;
     outPoint->sourceDescending = hit->sourceDescending;
     outPoint->lineMode = hit->lineMode;
@@ -1293,9 +1299,11 @@ emu_ami_blitterVisHitsAtPoint(const SDL_Rect *dst,
             hit.channelCModulo = meta.channelCModulo;
             hit.channelDModulo = meta.channelDModulo;
             hit.widthWords = meta.widthWords;
+            hit.heightLines = meta.heightLines;
             hit.sourceRowBytes = meta.sourceRowBytes;
             hit.sourceModulo = meta.sourceModulo;
             hit.sourceChannelsMask = meta.sourceChannelsMask;
+            hit.minterm = meta.minterm;
             hit.sourceDescending = meta.sourceDescending;
             hit.lineMode = meta.lineMode;
             (void)emu_ami_blitterVisAppendHit(outHits, &hitCount, hitCap, &hit);
@@ -1328,9 +1336,11 @@ emu_ami_blitterVisHitsAtPoint(const SDL_Rect *dst,
             hit.channelCModulo = emu_ami_blitterVisCache.points[i].channelCModulo;
             hit.channelDModulo = emu_ami_blitterVisCache.points[i].channelDModulo;
             hit.widthWords = emu_ami_blitterVisCache.points[i].widthWords;
+            hit.heightLines = emu_ami_blitterVisCache.points[i].heightLines;
             hit.sourceRowBytes = emu_ami_blitterVisCache.points[i].sourceRowBytes;
             hit.sourceModulo = emu_ami_blitterVisCache.points[i].sourceModulo;
             hit.sourceChannelsMask = emu_ami_blitterVisCache.points[i].sourceChannelsMask;
+            hit.minterm = emu_ami_blitterVisCache.points[i].minterm;
             hit.sourceDescending = emu_ami_blitterVisCache.points[i].sourceDescending;
             hit.lineMode = emu_ami_blitterVisCache.points[i].lineMode;
             (void)emu_ami_blitterVisAppendHit(outHits, &hitCount, hitCap, &hit);
@@ -2236,9 +2246,11 @@ emu_ami_renderBlitterVisOverlay(e9ui_context_t *ctx, SDL_Rect *dst)
                 retainedPixel->channelCModulo = emu_ami_blitterVisCache.points[i].channelCModulo;
                 retainedPixel->channelDModulo = emu_ami_blitterVisCache.points[i].channelDModulo;
                 retainedPixel->widthWords = emu_ami_blitterVisCache.points[i].widthWords;
+                retainedPixel->heightLines = emu_ami_blitterVisCache.points[i].heightLines;
                 retainedPixel->sourceRowBytes = emu_ami_blitterVisCache.points[i].sourceRowBytes;
                 retainedPixel->sourceModulo = emu_ami_blitterVisCache.points[i].sourceModulo;
                 retainedPixel->sourceChannelsMask = emu_ami_blitterVisCache.points[i].sourceChannelsMask;
+                retainedPixel->minterm = emu_ami_blitterVisCache.points[i].minterm;
                 retainedPixel->sourceDescending = emu_ami_blitterVisCache.points[i].sourceDescending;
                 retainedPixel->lineMode = emu_ami_blitterVisCache.points[i].lineMode;
             }

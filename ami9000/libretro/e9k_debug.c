@@ -1536,9 +1536,11 @@ e9k_debug_ami_blitter_vis_read_spans(e9k_debug_ami_blitter_vis_span_t *out, size
 	uae_u32 lastBlitId = 0;
 	int lastSourceIsCopper = 0;
 	uint16_t lastWidthWords = 0;
+	uint16_t lastHeightLines = 0;
 	uint16_t lastSourceRowBytes = 0;
 	int16_t lastSourceModulo = 0;
 	uint8_t lastSourceChannelsMask = 0;
+	uint8_t lastMinterm = 0;
 	int lastSourceDescending = 0;
 	int lastLineMode = 0;
 	int lastSourceValid = 0;
@@ -1577,9 +1579,11 @@ e9k_debug_ami_blitter_vis_read_spans(e9k_debug_ami_blitter_vis_span_t *out, size
 					&lastChannelCModulo,
 					&lastChannelDModulo,
 					&lastWidthWords,
+					&lastHeightLines,
 					&lastSourceRowBytes,
 					&lastSourceModulo,
 					&lastSourceChannelsMask,
+					&lastMinterm,
 					&lastSourceDescending,
 					&lastLineMode);
 				lastBlitId = blitId;
@@ -1588,6 +1592,7 @@ e9k_debug_ami_blitter_vis_read_spans(e9k_debug_ami_blitter_vis_span_t *out, size
 			out[written].y = spans[i].y;
 			out[written].xEnd = spans[i].xEnd;
 			out[written].widthWords = lastSourceValid ? lastWidthWords : 0u;
+			out[written].heightLines = lastSourceValid ? lastHeightLines : 0u;
 			out[written].sourceRowBytes = lastSourceValid ? lastSourceRowBytes : 0u;
 			out[written].sourceModulo = lastSourceValid ? lastSourceModulo : 0;
 			out[written].blitId = blitId;
@@ -1602,6 +1607,7 @@ e9k_debug_ami_blitter_vis_read_spans(e9k_debug_ami_blitter_vis_span_t *out, size
 			out[written].channelCModulo = lastSourceValid ? lastChannelCModulo : 0;
 			out[written].channelDModulo = lastSourceValid ? lastChannelDModulo : 0;
 			out[written].sourceChannelsMask = lastSourceValid ? lastSourceChannelsMask : 0u;
+			out[written].minterm = lastSourceValid ? lastMinterm : 0u;
 			out[written].sourceIsCopper = lastSourceValid && lastSourceIsCopper ? 1u : 0u;
 			out[written].sourceDescending = lastSourceValid && lastSourceDescending ? 1u : 0u;
 			out[written].lineMode = lastSourceValid && lastLineMode ? 1u : 0u;

@@ -87,9 +87,11 @@ extern int blitter_getDebugBlitInfo(uint32_t blitId,
 	int16_t *channelCModulo,
 	int16_t *channelDModulo,
 	uint16_t *widthWords,
+	uint16_t *heightLines,
 	uint16_t *sourceRowBytes,
 	int16_t *sourceModulo,
 	uint8_t *sourceChannelsMask,
+	uint8_t *minterm,
 	int *sourceDescending,
 	int *lineMode);
 #if E9K_HACK_MEMVIS

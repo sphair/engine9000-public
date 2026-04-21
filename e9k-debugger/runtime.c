@@ -47,6 +47,8 @@ runtime_watchAccessSourceName(uint32_t accessSource)
         return "video";
     case E9K_WATCH_ACCESS_SOURCE_PERIPHERAL:
         return "peripheral";
+    case E9K_WATCH_ACCESS_SOURCE_DISK:
+        return "disk";
     default:
         return "unknown";
     }

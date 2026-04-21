@@ -863,6 +863,14 @@ extern void (REGPARAM3 *chipmem_bput_indirect)(uaecptr, uae_u32) REGPARAM;
 extern int (REGPARAM3 *chipmem_check_indirect)(uaecptr, uae_u32) REGPARAM;
 extern uae_u8 *(REGPARAM3 *chipmem_xlate_indirect)(uaecptr) REGPARAM;
 
+#if E9K_HACK_DEBUGGER_RUNTIME
+extern uint32_t
+memory_e9kChipmemSetWriteSource(uint32_t source);
+
+extern void
+memory_e9kChipmemRestoreWriteSource(uint32_t previousSource);
+#endif
+
 #ifdef NATMEM_OFFSET
 
 typedef struct shmpiece_reg {

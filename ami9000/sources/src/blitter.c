@@ -159,9 +159,11 @@ typedef struct blitter_debug_blit_meta
 	uae_s16 channelCModulo;
 	uae_s16 channelDModulo;
 	uae_u16 widthWords;
+	uae_u16 heightLines;
 	uae_u16 sourceRowBytes;
 	uae_s16 sourceModulo;
 	uae_u8 sourceChannelsMask;
+	uae_u8 minterm;
 	uae_u8 sourceIsCopper;
 	uae_u8 sourceDescending;
 	uae_u8 lineMode;
@@ -745,9 +747,11 @@ blitter_debugRecordBlitInfo(uint32_t blitId,
 	uae_s16 channelCModulo,
 	uae_s16 channelDModulo,
 	uae_u16 widthWords,
+	uae_u16 heightLines,
 	uae_u16 sourceRowBytes,
 	uae_s16 sourceModulo,
 	uae_u8 sourceChannelsMask,
+	uae_u8 minterm,
 	int sourceDescending,
 	int lineMode)
 {
@@ -769,9 +773,11 @@ blitter_debugRecordBlitInfo(uint32_t blitId,
 		.channelCModulo = channelCModulo,
 		.channelDModulo = channelDModulo,
 		.widthWords = widthWords,
+		.heightLines = heightLines,
 		.sourceRowBytes = sourceRowBytes,
 		.sourceModulo = sourceModulo,
 		.sourceChannelsMask = sourceChannelsMask,
+		.minterm = minterm,
 		.sourceIsCopper = sourceIsCopper ? 1u : 0u,
 		.sourceDescending = sourceDescending ? 1u : 0u,
 		.lineMode = lineMode ? 1u : 0u,
@@ -1006,9 +1012,11 @@ blitter_getDebugBlitInfo(uint32_t blitId,
 	int16_t *channelCModulo,
 	int16_t *channelDModulo,
 	uint16_t *widthWords,
+	uint16_t *heightLines,
 	uint16_t *sourceRowBytes,
 	int16_t *sourceModulo,
 	uint8_t *sourceChannelsMask,
+	uint8_t *minterm,
 	int *sourceDescending,
 	int *lineMode)
 {
@@ -1048,6 +1056,9 @@ blitter_getDebugBlitInfo(uint32_t blitId,
 	if (widthWords) {
 		*widthWords = 0;
 	}
+	if (heightLines) {
+		*heightLines = 0;
+	}
 	if (sourceRowBytes) {
 		*sourceRowBytes = 0;
 	}
@@ -1056,6 +1067,9 @@ blitter_getDebugBlitInfo(uint32_t blitId,
 	}
 	if (sourceChannelsMask) {
 		*sourceChannelsMask = 0;
+	}
+	if (minterm) {
+		*minterm = 0;
 	}
 	if (sourceDescending) {
 		*sourceDescending = 0;
@@ -1108,6 +1122,9 @@ blitter_getDebugBlitInfo(uint32_t blitId,
 	if (widthWords) {
 		*widthWords = blitter_debugBlitMeta[blitId].widthWords;
 	}
+	if (heightLines) {
+		*heightLines = blitter_debugBlitMeta[blitId].heightLines;
+	}
 	if (sourceRowBytes) {
 		*sourceRowBytes = blitter_debugBlitMeta[blitId].sourceRowBytes;
 	}
@@ -1116,6 +1133,9 @@ blitter_getDebugBlitInfo(uint32_t blitId,
 	}
 	if (sourceChannelsMask) {
 		*sourceChannelsMask = blitter_debugBlitMeta[blitId].sourceChannelsMask;
+	}
+	if (minterm) {
+		*minterm = blitter_debugBlitMeta[blitId].minterm;
 	}
 	if (sourceDescending) {
 		*sourceDescending = blitter_debugBlitMeta[blitId].sourceDescending ? 1 : 0;
@@ -1334,6 +1354,9 @@ blitter_debugRestoreWritesOlderThan(uint32_t frameAge)
 void
 blitter_chipmem_wput_indirect(uaecptr addr, uae_u32 w)
 {
+#if E9K_HACK_DEBUGGER_RUNTIME
+	uint32_t previousSource = memory_e9kChipmemSetWriteSource(E9K_WATCH_ACCESS_SOURCE_BLITTER);
+#endif
 #if E9K_HACK_BLITTER_VIS
 	if (blitter_debugWriteEnabled) {
 		if (blitter_destinationWriteEnabled) {
@@ -1350,6 +1373,9 @@ blitter_chipmem_wput_indirect(uaecptr addr, uae_u32 w)
 		chipmem_wput_indirect(addr, w);
 	
 #endif
+#if E9K_HACK_DEBUGGER_RUNTIME
+	memory_e9kChipmemRestoreWriteSource(previousSource);
+#endif
 	regs.chipset_latch_rw = w;
 }
 
@@ -1360,27 +1386,10 @@ static void blit_chipmem_agnus_wput(uaecptr addr, uae_u32 w, uae_u32 typemask)
 		if (blit_dof) {
 			w = regs.chipset_latch_rw;
 		}
-#if E9K_HACK_DEBUGGER_RUNTIME
-		uae_u32 addr24 = (uae_u32)(addr & 0x00ffffffu);
-		uae_u32 filtered = w & 0xffffu;
-		uae_u32 oldv = 0;
-		int oldvalid = 0;
-		if (chipmem_check_indirect && chipmem_check_indirect(addr, 2)) {
-			oldv = blitter_chipmem_wget_indirect(addr);
-			oldvalid = 1;
-		}
-		if (!e9k_debug_memhook_filterWrite(addr24, 16u, oldv, oldvalid, &filtered)) {
-			return;
-		}
-		w = filtered;
-#endif
 #ifdef DEBUGGER
 		debug_putpeekdma_chipram(addr, w, typemask, 0x000, 0x054);
 #endif
 		blitter_chipmem_wput_indirect(addr, w);
-#if E9K_HACK_DEBUGGER_RUNTIME
-		e9k_debug_memhook_afterWriteWithSource(addr24, w, oldv, 16u, oldvalid, E9K_WATCH_ACCESS_SOURCE_BLITTER);
-#endif
 	}
 }
 
@@ -2911,9 +2920,11 @@ void do_blitter(int hpos, int copper, uaecptr pc)
 			(uae_s16)blt_info.bltcmod,
 			(uae_s16)blt_info.bltdmod,
 			(uae_u16)blt_info.hblitsize,
+			(uae_u16)blt_info.vblitsize,
 			blitter_debugSourceRowBytes(),
 			blitter_debugSourceModulo(),
 			blitter_debugSourceChannelsMask(),
+			(uae_u8)(bltcon0 & 0xff),
 			blitdesc,
 			blitline);
 	}

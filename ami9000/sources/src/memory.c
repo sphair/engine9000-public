@@ -47,6 +47,26 @@
 #define E9K_HACK_DEBUGGER_RUNTIME 0
 #endif
 
+#if E9K_HACK_DEBUGGER_RUNTIME
+#include "e9k_debug.h"
+
+static uint32_t memory_e9kChipmemWriteSource = E9K_WATCH_ACCESS_SOURCE_UNKNOWN;
+
+uint32_t
+memory_e9kChipmemSetWriteSource(uint32_t source)
+{
+	uint32_t previousSource = memory_e9kChipmemWriteSource;
+	memory_e9kChipmemWriteSource = source;
+	return previousSource;
+}
+
+void
+memory_e9kChipmemRestoreWriteSource(uint32_t previousSource)
+{
+	memory_e9kChipmemWriteSource = previousSource;
+}
+#endif
+
 #ifdef __LIBRETRO__
 extern bool retro_message;
 extern char retro_message_msg[1024];
@@ -837,8 +857,19 @@ static void REGPARAM2 chipmem_agnus_lput (uaecptr addr, uae_u32 l)
 	addr &= chipmem_full_mask;
 	if (addr >= chipmem_full_size - 3)
 		return;
+#if E9K_HACK_DEBUGGER_RUNTIME
+	uae_u32 filtered = l;
+	uae_u32 oldv = do_get_mem_long((uae_u32 *)(chipmem_bank.baseaddr + addr));
+	if (!e9k_debug_memhook_filterWrite((uint32_t)(addr & 0x00ffffffu), 32u, oldv, 1, &filtered)) {
+		return;
+	}
+	l = filtered;
+#endif
 	m = (uae_u32 *)(chipmem_bank.baseaddr + addr);
 	do_put_mem_long (m, l);
+#if E9K_HACK_DEBUGGER_RUNTIME
+	e9k_debug_memhook_afterWriteWithSource((uint32_t)(addr & 0x00ffffffu), l, oldv, 32u, 1, memory_e9kChipmemWriteSource);
+#endif
 }
 
 void REGPARAM2 chipmem_agnus_wput (uaecptr addr, uae_u32 w)
@@ -848,8 +879,19 @@ void REGPARAM2 chipmem_agnus_wput (uaecptr addr, uae_u32 w)
 	addr &= chipmem_full_mask;
 	if (addr >= chipmem_full_size - 1)
 		return;
+#if E9K_HACK_DEBUGGER_RUNTIME
+	uae_u32 filtered = w & 0xffffu;
+	uae_u32 oldv = (uae_u32)do_get_mem_word((uae_u16 *)(chipmem_bank.baseaddr + addr));
+	if (!e9k_debug_memhook_filterWrite((uint32_t)(addr & 0x00ffffffu), 16u, oldv, 1, &filtered)) {
+		return;
+	}
+	w = filtered;
+#endif
 	m = (uae_u16 *)(chipmem_bank.baseaddr + addr);
 	do_put_mem_word (m, w);
+#if E9K_HACK_DEBUGGER_RUNTIME
+	e9k_debug_memhook_afterWriteWithSource((uint32_t)(addr & 0x00ffffffu), w, oldv, 16u, 1, memory_e9kChipmemWriteSource);
+#endif
 }
 
 static void REGPARAM2 chipmem_agnus_bput (uaecptr addr, uae_u32 b)
@@ -857,7 +899,18 @@ static void REGPARAM2 chipmem_agnus_bput (uaecptr addr, uae_u32 b)
 	addr &= chipmem_full_mask;
 	if (addr >= chipmem_full_size)
 		return;
+#if E9K_HACK_DEBUGGER_RUNTIME
+	uae_u32 filtered = b & 0xffu;
+	uae_u32 oldv = chipmem_bank.baseaddr[addr];
+	if (!e9k_debug_memhook_filterWrite((uint32_t)(addr & 0x00ffffffu), 8u, oldv, 1, &filtered)) {
+		return;
+	}
+	b = filtered;
+#endif
 	chipmem_bank.baseaddr[addr] = b;
+#if E9K_HACK_DEBUGGER_RUNTIME
+	e9k_debug_memhook_afterWriteWithSource((uint32_t)(addr & 0x00ffffffu), b, oldv, 8u, 1, memory_e9kChipmemWriteSource);
+#endif
 }
 
 static int REGPARAM2 chipmem_check (uaecptr addr, uae_u32 size)

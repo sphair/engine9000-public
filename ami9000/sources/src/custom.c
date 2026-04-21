@@ -13606,7 +13606,15 @@ static void dmal_emu(uae_u32 val)
 					}
 #endif
 				}
+	#if E9K_HACK_DEBUGGER_RUNTIME
+				{
+					uint32_t previousSource = memory_e9kChipmemSetWriteSource(E9K_WATCH_ACCESS_SOURCE_DISK);
+					chipmem_wput_indirect(pt, dat);
+					memory_e9kChipmemRestoreWriteSource(previousSource);
+				}
+	#else
 				chipmem_wput_indirect(pt, dat);
+	#endif
 				regs.chipset_latch_rw = last_custom_value = dat;
 			}
 		}

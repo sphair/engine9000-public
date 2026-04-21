@@ -78,6 +78,7 @@ typedef struct e9k_debug_ami_blitter_vis_span {
     uint16_t y;
     uint16_t xEnd;
     uint16_t widthWords;
+    uint16_t heightLines;
     uint16_t sourceRowBytes;
     int16_t sourceModulo;
     uint32_t blitId;
@@ -92,6 +93,7 @@ typedef struct e9k_debug_ami_blitter_vis_span {
     int16_t channelCModulo;
     int16_t channelDModulo;
     uint8_t sourceChannelsMask;
+    uint8_t minterm;
     uint8_t sourceIsCopper;
     uint8_t sourceDescending;
     uint8_t lineMode;
@@ -286,6 +288,7 @@ typedef void (*e9k_debug_geo_register_log_frame_callback_t)(const e9k_debug_geo_
 #define E9K_WATCH_ACCESS_SOURCE_AUDIO     5u
 #define E9K_WATCH_ACCESS_SOURCE_VIDEO     6u
 #define E9K_WATCH_ACCESS_SOURCE_PERIPHERAL 7u
+#define E9K_WATCH_ACCESS_SOURCE_DISK      8u
 
 typedef struct e9k_debug_watchpoint
 {
