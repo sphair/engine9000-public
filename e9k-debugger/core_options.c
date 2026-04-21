@@ -825,6 +825,7 @@ core_options_cloneWithDebuggerInput(int targetIndex,
     const char *requestedInputKey = debugger_input_bindings_categoryKey();
     const char *resolvedInputCategoryKey = requestedInputKey;
     target_iface_t *targetIface = target_getByIndex(targetIndex);
+    size_t visibleBaseDefCount = 0;
     int hasInputCategory = 0;
     for (size_t i = 0; i < baseCatCount; ++i) {
         const struct retro_core_option_v2_category *cat = &baseCats[i];
@@ -836,6 +837,17 @@ core_options_cloneWithDebuggerInput(int targetIndex,
             hasInputCategory = 1;
             break;
         }
+    }
+
+    for (size_t i = 0; i < baseDefCount; ++i) {
+        const struct retro_core_option_v2_definition *def = &baseDefs[i];
+        if (!def->key || !*def->key) {
+            continue;
+        }
+        if (targetIface && targetIface->coreOptionsHideOptionKey && targetIface->coreOptionsHideOptionKey(def->key)) {
+            continue;
+        }
+        visibleBaseDefCount++;
     }
 
     size_t syntheticDefCount = 0;
@@ -864,7 +876,7 @@ core_options_cloneWithDebuggerInput(int targetIndex,
     }
 
     size_t outCatsNeeded = baseCatCount + (hasInputCategory ? 0u : 1u);
-    size_t outDefsNeeded = baseDefCount + syntheticDefCount;
+    size_t outDefsNeeded = visibleBaseDefCount + syntheticDefCount;
 
     struct retro_core_option_v2_category *cats =
         (struct retro_core_option_v2_category *)alloc_calloc(outCatsNeeded + 1, sizeof(*cats));
@@ -888,11 +900,19 @@ core_options_cloneWithDebuggerInput(int targetIndex,
         resolvedInputCategoryKey = debugger_input_bindings_categoryKey();
     }
 
+    size_t nextBaseDef = 0;
     for (size_t i = 0; i < baseDefCount; ++i) {
-        core_options_cloneDefinition(&defs[i], &baseDefs[i]);
+        const struct retro_core_option_v2_definition *def = &baseDefs[i];
+        if (!def->key || !*def->key) {
+            continue;
+        }
+        if (targetIface && targetIface->coreOptionsHideOptionKey && targetIface->coreOptionsHideOptionKey(def->key)) {
+            continue;
+        }
+        core_options_cloneDefinition(&defs[nextBaseDef++], def);
     }
 
-    size_t nextDef = baseDefCount;
+    size_t nextDef = visibleBaseDefCount;
     for (size_t i = 0; i < debugger_input_bindings_specCount(); ++i) {
         size_t specIndex = i;
         if (targetIface && targetIface->coreOptionsMapDebuggerInputSpecIndex) {

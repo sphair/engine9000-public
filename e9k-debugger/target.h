@@ -95,6 +95,7 @@ typedef struct target_iface
     const char *(*romConfigGetActiveCustomOptionValue)(const char *key);
     void (*romConfigSetActiveCustomOptionValue)(const char *key, const char *value);
     void (*romConfigClearActiveCustomOptions)(void);
+    int (*coreOptionsHideOptionKey)(const char *key);
     int (*coreOptionsIsSyntheticOptionKey)(const char *key);
     size_t (*coreOptionsSyntheticDefCount)(void);
     const struct retro_core_option_v2_definition *(*coreOptionsSyntheticDefAt)(size_t index);

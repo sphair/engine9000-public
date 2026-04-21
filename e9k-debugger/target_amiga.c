@@ -26,6 +26,14 @@
 #include "file.h"
 #include "strutil.h"
 
+#ifndef RETRO_DEVICE_PUAE_JOYPAD
+#define RETRO_DEVICE_PUAE_JOYPAD RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 0)
+#endif
+
+#ifndef RETRO_DEVICE_PUAE_CD32PAD
+#define RETRO_DEVICE_PUAE_CD32PAD RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1)
+#endif
+
 typedef struct target_amiga_romselect_extra {
     e9ui_component_t *df0Select;
     e9ui_component_t *df1Select;
@@ -62,6 +70,19 @@ static const char *
 target_amiga_mouseCaptureOptionKey(void)
 {
     return "e9k_debugger_amiga_mouse_capture";
+}
+
+static const char *
+target_amiga_portDeviceOptionKeyAt(size_t index)
+{
+    static const char *keys[2] = {
+        "e9k_debugger_amiga_port1_device",
+        "e9k_debugger_amiga_port2_device"
+    };
+    if (index >= 2) {
+        return NULL;
+    }
+    return keys[index];
 }
 
 #define TARGET_AMIGA_FLOPPY_RECENTS_MAX 8
@@ -123,6 +144,7 @@ target_amiga_normalizeMouseCaptureOverrideValue(const char *value)
 
 static char target_amiga_activeRomMouseCaptureOverride[16];
 static int target_amiga_hasActiveRomMouseCaptureOverride = 0;
+static char target_amiga_activeRomPortDevice[2][16];
 static char target_amiga_activeRomFloppyRecents[2][TARGET_AMIGA_FLOPPY_RECENTS_MAX][PATH_MAX];
 static int target_amiga_settingsMediaInitiallyEmpty = 0;
 static int target_amiga_settingsMediaNeedsRestart = 0;
@@ -353,7 +375,7 @@ target_amiga_captureFloppyRecentsFromUae(void)
 static size_t
 target_amiga_romConfigCustomOptionCount(void)
 {
-    return 1 + (TARGET_AMIGA_FLOPPY_RECENTS_MAX * 2);
+    return 3 + (TARGET_AMIGA_FLOPPY_RECENTS_MAX * 2);
 }
 
 static const char *
@@ -362,7 +384,13 @@ target_amiga_romConfigCustomOptionKeyAt(size_t index)
     if (index == 0) {
         return target_amiga_mouseCaptureOptionKey();
     }
-    index--;
+    if (index == 1) {
+        return target_amiga_portDeviceOptionKeyAt(0);
+    }
+    if (index == 2) {
+        return target_amiga_portDeviceOptionKeyAt(1);
+    }
+    index -= 3;
     if (index < TARGET_AMIGA_FLOPPY_RECENTS_MAX) {
         return target_amiga_df0RecentOptionKeyAt(index);
     }
@@ -382,6 +410,12 @@ target_amiga_romConfigGetActiveCustomOptionValue(const char *key)
     if (strcmp(key, target_amiga_mouseCaptureOptionKey()) == 0) {
         return target_amiga_getActiveMouseCaptureOverride();
     }
+    for (size_t i = 0; i < 2; ++i) {
+        const char *portKey = target_amiga_portDeviceOptionKeyAt(i);
+        if (portKey && strcmp(key, portKey) == 0) {
+            return target_amiga_activeRomPortDevice[i][0] ? target_amiga_activeRomPortDevice[i] : NULL;
+        }
+    }
     int drive = -1;
     size_t index = 0;
     if (target_amiga_parseFloppyRecentOptionKey(key, &drive, &index)) {
@@ -400,6 +434,15 @@ target_amiga_romConfigSetActiveCustomOptionValue(const char *key, const char *va
         target_amiga_setActiveMouseCaptureOverride(value);
         return;
     }
+    for (size_t i = 0; i < 2; ++i) {
+        const char *portKey = target_amiga_portDeviceOptionKeyAt(i);
+        if (portKey && strcmp(key, portKey) == 0) {
+            const char *src = (value && *value) ? value : "";
+            strncpy(target_amiga_activeRomPortDevice[i], src, sizeof(target_amiga_activeRomPortDevice[i]) - 1);
+            target_amiga_activeRomPortDevice[i][sizeof(target_amiga_activeRomPortDevice[i]) - 1] = '\0';
+            return;
+        }
+    }
     int drive = -1;
     size_t index = 0;
     if (target_amiga_parseFloppyRecentOptionKey(key, &drive, &index)) {
@@ -411,7 +454,17 @@ static void
 target_amiga_romConfigClearActiveCustomOptions(void)
 {
     target_amiga_setActiveMouseCaptureOverride(NULL);
+    memset(target_amiga_activeRomPortDevice, 0, sizeof(target_amiga_activeRomPortDevice));
     target_amiga_clearActiveFloppyRecents();
+}
+
+static int
+target_amiga_coreOptionsHideOptionKey(const char *key)
+{
+    if (!key) {
+        return 0;
+    }
+    return strcmp(key, "puae_joyport") == 0 ? 1 : 0;
 }
 
 static int
@@ -420,32 +473,67 @@ target_amiga_coreOptionsIsSyntheticOptionKey(const char *key)
     if (!key) {
         return 0;
     }
-    return strcmp(key, target_amiga_mouseCaptureOptionKey()) == 0 ? 1 : 0;
+    if (strcmp(key, target_amiga_mouseCaptureOptionKey()) == 0) {
+        return 1;
+    }
+    for (size_t i = 0; i < 2; ++i) {
+        const char *portKey = target_amiga_portDeviceOptionKeyAt(i);
+        if (portKey && strcmp(key, portKey) == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static size_t
 target_amiga_coreOptionsSyntheticDefCount(void)
 {
-    return 1;
+    return 3;
 }
 
 static const struct retro_core_option_v2_definition *
 target_amiga_coreOptionsSyntheticDefAt(size_t index)
 {
-    static const struct retro_core_option_v2_definition def = {
-        .key = "e9k_debugger_amiga_mouse_capture",
-        .desc = "Mouse Capture",
-        .default_value = "disabled",
-        .values = {
-            { "enabled", "Enabled" },
-            { "disabled", "Disabled" },
-            { NULL, NULL }
+    static const struct retro_core_option_v2_definition defs[] = {
+        {
+            .key = "e9k_debugger_amiga_mouse_capture",
+            .desc = "Mouse Capture",
+            .default_value = "disabled",
+            .values = {
+                { "enabled", "Enabled" },
+                { "disabled", "Disabled" },
+                { NULL, NULL }
+            }
+        },
+        {
+            .key = "e9k_debugger_amiga_port1_device",
+            .desc = "Port 1 Device",
+            .default_value = "automatic",
+            .values = {
+                { "automatic", "Automatic" },
+                { "joystick", "Joystick" },
+                { "cd32pad", "CD32 Pad" },
+                { "mouse", "Mouse" },
+                { NULL, NULL }
+            }
+        },
+        {
+            .key = "e9k_debugger_amiga_port2_device",
+            .desc = "Port 2 Device",
+            .default_value = "automatic",
+            .values = {
+                { "automatic", "Automatic" },
+                { "joystick", "Joystick" },
+                { "cd32pad", "CD32 Pad" },
+                { "mouse", "Mouse" },
+                { NULL, NULL }
+            }
         }
     };
-    if (index != 0) {
+    if (index >= (sizeof(defs) / sizeof(defs[0]))) {
         return NULL;
     }
-    return &def;
+    return &defs[index];
 }
 
 static size_t
@@ -864,6 +952,28 @@ target_amiga_coreOptionsSaveClicked(e9ui_context_t *ctx,core_options_modal_state
       }
       continue;
     }
+    for (size_t portIndex = 0; portIndex < 2; ++portIndex) {
+      const char *portKey = target_amiga_portDeviceOptionKeyAt(portIndex);
+      if (portKey && strcmp(key, portKey) == 0) {
+        const char *existingPortDevice = target_amiga_activeRomPortDevice[portIndex][0] ? target_amiga_activeRomPortDevice[portIndex] : NULL;
+        const char *desiredPortDevice = (value && *value) ? value : NULL;
+        if (desiredPortDevice) {
+          const char *defValue = core_options_findDefaultValue(st, key);
+          if (defValue && strcmp(defValue, desiredPortDevice) == 0) {
+            desiredPortDevice = NULL;
+          }
+        }
+        if ((existingPortDevice && !desiredPortDevice) ||
+            (!existingPortDevice && desiredPortDevice) ||
+            (existingPortDevice && desiredPortDevice && !core_options_stringsEqual(existingPortDevice, desiredPortDevice))) {
+          target_amiga_romConfigSetActiveCustomOptionValue(key, desiredPortDevice);
+          anyChange = 1;
+          anyRestartChange = 1;
+          anyRomConfigBindingChange = 1;
+        }
+        goto next_entry;
+      }
+    }
     if (debugger_input_bindings_isOptionKey(key)) {
       const char *existingBinding = rom_config_getActiveInputBindingValue(key);
       const char *desiredBinding = (value && *value) ? value : NULL;
@@ -911,6 +1021,8 @@ target_amiga_coreOptionsSaveClicked(e9ui_context_t *ctx,core_options_modal_state
         anyRestartChange = 1;
       }
     }
+next_entry:
+    ;
   }
   if (anyChange) {
     settings_markCoreOptionsDirtyWithRestart(anyRestartChange);
@@ -940,6 +1052,10 @@ target_amiga_coreOptionGetValue(const char* key)
       const struct retro_core_option_v2_definition *def = target_amiga_coreOptionsSyntheticDefAt(0);
       value = def ? def->default_value : NULL;
     }
+  } else if (strcmp(key, target_amiga_portDeviceOptionKeyAt(0)) == 0) {
+    value = target_amiga_activeRomPortDevice[0][0] ? target_amiga_activeRomPortDevice[0] : "automatic";
+  } else if (strcmp(key, target_amiga_portDeviceOptionKeyAt(1)) == 0) {
+    value = target_amiga_activeRomPortDevice[1][0] ? target_amiga_activeRomPortDevice[1] : "automatic";
   } else if (debugger_input_bindings_isOptionKey(key)) {
     value = rom_config_getActiveInputBindingValue(key);
   } else {
@@ -995,6 +1111,7 @@ target_amiga_applyCoreOptions(void)
   if (uaePath && *uaePath) {
     amiga_uaeApplyPuaeOptionsToHost(uaePath);
   }
+  libretro_host_setCoreOption("puae_joyport", "joystick");
 }
 
 static void
@@ -1062,8 +1179,18 @@ target_amiga_getBadgeTexture(SDL_Renderer *renderer, target_iface_t* t, int* out
 static void
 target_amiga_configControllerPorts(void)
 {
-  libretro_host_setControllerPortDevice(0, RETRO_DEVICE_JOYPAD);
-  libretro_host_setControllerPortDevice(1, RETRO_DEVICE_JOYPAD);
+  for (unsigned port = 0; port < 2; ++port) {
+    const char *value = target_amiga_activeRomPortDevice[port][0] ? target_amiga_activeRomPortDevice[port] : "automatic";
+    unsigned device = RETRO_DEVICE_JOYPAD;
+    if (strcmp(value, "joystick") == 0) {
+      device = RETRO_DEVICE_PUAE_JOYPAD;
+    } else if (strcmp(value, "cd32pad") == 0) {
+      device = RETRO_DEVICE_PUAE_CD32PAD;
+    } else if (strcmp(value, "mouse") == 0) {
+      device = RETRO_DEVICE_NONE;
+    }
+    libretro_host_setControllerPortDevice(port, device);
+  }
 }
 
 
@@ -1073,6 +1200,12 @@ target_amiga_controllerMapButton(SDL_GameControllerButton button, unsigned *outI
   switch (button) {
   case SDL_CONTROLLER_BUTTON_A: *outId = RETRO_DEVICE_ID_JOYPAD_B; return 1;
   case SDL_CONTROLLER_BUTTON_B: *outId = RETRO_DEVICE_ID_JOYPAD_A; return 1;
+  case SDL_CONTROLLER_BUTTON_X: *outId = RETRO_DEVICE_ID_JOYPAD_Y; return 1;
+  case SDL_CONTROLLER_BUTTON_Y: *outId = RETRO_DEVICE_ID_JOYPAD_X; return 1;
+  case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: *outId = RETRO_DEVICE_ID_JOYPAD_L; return 1;
+  case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: *outId = RETRO_DEVICE_ID_JOYPAD_R; return 1;
+  case SDL_CONTROLLER_BUTTON_START: *outId = RETRO_DEVICE_ID_JOYPAD_START; return 1;
+  case SDL_CONTROLLER_BUTTON_BACK: *outId = RETRO_DEVICE_ID_JOYPAD_SELECT; return 1;
   case SDL_CONTROLLER_BUTTON_DPAD_UP: *outId = RETRO_DEVICE_ID_JOYPAD_UP; return 1;
   case SDL_CONTROLLER_BUTTON_DPAD_DOWN: *outId = RETRO_DEVICE_ID_JOYPAD_DOWN; return 1;
   case SDL_CONTROLLER_BUTTON_DPAD_LEFT: *outId = RETRO_DEVICE_ID_JOYPAD_LEFT; return 1;
@@ -1618,6 +1751,7 @@ static target_iface_t _target_amiga = {
     .romConfigGetActiveCustomOptionValue = target_amiga_romConfigGetActiveCustomOptionValue,
     .romConfigSetActiveCustomOptionValue = target_amiga_romConfigSetActiveCustomOptionValue,
     .romConfigClearActiveCustomOptions = target_amiga_romConfigClearActiveCustomOptions,
+    .coreOptionsHideOptionKey = target_amiga_coreOptionsHideOptionKey,
     .coreOptionsIsSyntheticOptionKey = target_amiga_coreOptionsIsSyntheticOptionKey,
     .coreOptionsSyntheticDefCount = target_amiga_coreOptionsSyntheticDefCount,
     .coreOptionsSyntheticDefAt = target_amiga_coreOptionsSyntheticDefAt,

@@ -91,13 +91,42 @@ source_pane_symbols_parseValueAfterColon(const char *line)
     if (!line) {
         return NULL;
     }
-    const char *colon = strrchr(line, ':');
+    const char *attr = strstr(line, "DW_AT_");
+    if (!attr) {
+        return NULL;
+    }
+    const char *colon = strchr(attr, ':');
     if (!colon || !colon[1]) {
         return NULL;
     }
     const char *start = colon + 1;
     while (*start && isspace((unsigned char)*start)) {
         start++;
+    }
+    if (*start == '(') {
+        int depth = 0;
+        const char *p = start;
+        while (*p) {
+            if (*p == '(') {
+                depth++;
+            } else if (*p == ')') {
+                depth--;
+                if (depth == 0) {
+                    p++;
+                    while (*p && isspace((unsigned char)*p)) {
+                        p++;
+                    }
+                    if (*p == ':') {
+                        start = p + 1;
+                        while (*start && isspace((unsigned char)*start)) {
+                            start++;
+                        }
+                    }
+                    break;
+                }
+            }
+            p++;
+        }
     }
     if (!*start) {
         return NULL;
