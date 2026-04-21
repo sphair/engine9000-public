@@ -2944,6 +2944,9 @@ source_pane_setModeInternal(e9ui_component_t *comp, source_pane_mode_t mode, int
         st->scrollAnchorValid = 0;
     }
 
+    int enteringAsmLikeFromSource = (!source_pane_isAsmLikeMode(prevMode) &&
+                                     source_pane_isAsmLikeMode(mode)) ? 1 : 0;
+
     st->viewMode = mode;
     st->gutterPending = 0;
     st->scrollAnchorValid = 0;
@@ -2960,6 +2963,10 @@ source_pane_setModeInternal(e9ui_component_t *comp, source_pane_mode_t mode, int
     if (!source_pane_isAsmLikeMode(mode)) {
         st->frozenActive = 0;
         source_pane_freeFrozenAsm(st);
+    }
+
+    if (enteringAsmLikeFromSource) {
+        source_pane_followCurrent(st);
     }
 
     source_pane_refreshModeOptions(comp, st);
