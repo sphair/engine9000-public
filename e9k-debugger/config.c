@@ -15,6 +15,7 @@
 #include "amiga_custom_ui.h"
 #include "debugger.h"
 #include "e9ui.h"
+#include "hex_byte_color.h"
 #include "hex_convert.h"
 #include "hotkeys.h"
 #include "neogeo_memview.h"
@@ -166,6 +167,9 @@ config_persistConfig(FILE *f)
     if (!debugger.coreOptionsShowHelp) {
         fprintf(f, "comp.config.core_options_show_help=0\n");
     }
+    if (!hex_byte_color_isEnabled()) {
+        fprintf(f, "comp.config.hex_byte_colors=0\n");
+    }
     fprintf(f, "comp.config.transition=%s\n", transition_modeName(e9ui->transition.mode));
     fprintf(f, "comp.config.core_system=%d\n", target->coreIndex);
     hotkeys_persistConfig(f);
@@ -314,6 +318,8 @@ config_loadConfigFile(const char *path)
                                       value);
             } else if (strcmp(prop, "core_options_show_help") == 0) {
                 debugger.coreOptionsShowHelp = atoi(value) ? 1 : 0;
+            } else if (strcmp(prop, "hex_byte_colors") == 0) {
+                hex_byte_color_setEnabled(atoi(value) ? 1 : 0);
             } else if (strcmp(prop, "core_system") == 0) {
                 int coreSystem = atoi(value);
                 if (!target_getByIndex(coreSystem)) {

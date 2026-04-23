@@ -29,6 +29,7 @@
 #include "profile_checkpoints.h"
 #include "config.h"
 #include "source_pane.h"
+#include "hex_byte_color.h"
 #include "hex_convert.h"
 #include "strutil.h"
 
@@ -246,6 +247,17 @@ hotkeys_debuggerOptionLogosChanged(e9ui_component_t *self, e9ui_context_t *ctx, 
     debugger.settingsEdit.logosEnabled = selected ? 1 : 0;
     settings_markCoreOptionsDirtyWithRestart(1);
     settings_updateSaveLabel();
+}
+
+static void
+hotkeys_debuggerOptionHexByteColorsChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
+{
+    (void)self;
+    (void)ctx;
+    (void)user;
+
+    hex_byte_color_setEnabled(selected ? 1 : 0);
+    config_saveConfig();
 }
 
 static int
@@ -1685,6 +1697,10 @@ hotkeys_makeConfigBody(hotkeys_config_modal_state_t *st, e9ui_context_t *ctx)
                                                        debugger.settingsEdit.logosEnabled,
                                                        hotkeys_debuggerOptionLogosChanged,
                                                        NULL);
+        e9ui_component_t *cbHexColors = e9ui_checkbox_make("HEX COLORS",
+                                                           hex_byte_color_isEnabled() ? 1 : 0,
+                                                           hotkeys_debuggerOptionHexByteColorsChanged,
+                                                           NULL);
         e9ui_component_t *row = e9ui_hstack_make();
         int rowGapPx = e9ui_scale_px(ctx, 8);
         int addedAny = 0;
@@ -1734,6 +1750,14 @@ hotkeys_makeConfigBody(hotkeys_config_modal_state_t *st, e9ui_context_t *ctx)
                 e9ui_hstack_addFixed(row, e9ui_spacer_make(rowGapPx), rowGapPx);
             }
             e9ui_hstack_addFixed(row, cbLogos, width);
+            addedAny = 1;
+        }
+        if (row && cbHexColors) {
+            int width = hotkeys_checkboxMeasureWidth(cbHexColors, ctx);
+            if (addedAny) {
+                e9ui_hstack_addFixed(row, e9ui_spacer_make(rowGapPx), rowGapPx);
+            }
+            e9ui_hstack_addFixed(row, cbHexColors, width);
             addedAny = 1;
         }
         if (row && addedAny) {

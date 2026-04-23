@@ -16,6 +16,7 @@
 #include "breakpoints.h"
 #include "dasm.h"
 #include "debugger.h"
+#include "hex_byte_color.h"
 #include "libretro_host.h"
 #include "machine.h"
 #include "source_cpr.h"
@@ -362,6 +363,54 @@ source_pane_asm_view_formatInlineHexBytes(char *dst, size_t cap, const uint8_t *
             dst[cap - 1] = '\0';
             break;
         }
+    }
+}
+
+static int
+source_pane_asm_view_fontColumnWidth(TTF_Font *font)
+{
+    int w = 0;
+
+    if (!font) {
+        return 0;
+    }
+    if (TTF_SizeText(font, "0", &w, NULL) != 0 || w <= 0) {
+        return 0;
+    }
+    return w;
+}
+
+static void
+source_pane_asm_view_drawHexByteColors(e9ui_context_t *ctx,
+                                       e9ui_component_t *self,
+                                       TTF_Font *font,
+                                       const char *hexbuf,
+                                       const uint8_t *bytes,
+                                       size_t byteCount,
+                                       int x,
+                                       int y,
+                                       int lineHeight,
+                                       int columnWidth)
+{
+    size_t hexLen = 0;
+
+    if (!hex_byte_color_isEnabled() ||
+        !ctx || !self || !font || !hexbuf || !bytes || byteCount == 0) {
+        return;
+    }
+    (void)self;
+    (void)lineHeight;
+    if (columnWidth <= 0) {
+        return;
+    }
+    hexLen = strlen(hexbuf);
+
+    for (size_t i = 0; i < byteCount; ++i) {
+        int start = (int)i * 3;
+        if ((size_t)start + 2u > hexLen) {
+            break;
+        }
+        hex_byte_color_drawHexByte(ctx->renderer, font, bytes[i], x + start * columnWidth, y);
     }
 }
 
@@ -875,6 +924,7 @@ source_pane_asm_view_renderHex(e9ui_component_t *self, e9ui_context_t *ctx)
     SDL_Color lnoBpOn = (SDL_Color){120, 200, 120, 255};
     SDL_Color lnoBpOff = (SDL_Color){200, 140, 60, 255};
     int textX = contentArea.x + padPx + gutterW + gutterPad;
+    int columnWidth = source_pane_asm_view_fontColumnWidth(useFont);
     int hitW = contentArea.x + contentArea.w - textX - padPx;
     if (hitW < 0) {
         hitW = 0;
@@ -949,6 +999,19 @@ source_pane_asm_view_renderHex(e9ui_component_t *self, e9ui_context_t *ctx)
                                   metrics.lineHeight, 0, addrBucket, 1, 1);
         source_pane_renderAsmLineHighlighted(ctx, self, useFont, linebuf, (int)strlen(hexbuf), txt,
                                              textX, y, metrics.lineHeight, hitW, sourceBucket);
+        if (gotBytes) {
+            size_t colorBytes = wantBytes < (size_t)padBytes ? wantBytes : (size_t)padBytes;
+            source_pane_asm_view_drawHexByteColors(ctx,
+                                                   self,
+                                                   useFont,
+                                                   hexbuf,
+                                                   bytes,
+                                                   colorBytes,
+                                                   textX,
+                                                   y,
+                                                   metrics.lineHeight,
+                                                   columnWidth);
+        }
 
         y += metrics.lineHeight;
         if (y > clipBottom) {
