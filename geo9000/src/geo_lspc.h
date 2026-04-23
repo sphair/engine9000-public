@@ -28,8 +28,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef GEO_LSPC_H
-#define GEO_LSPC_H
+#pragma once
 
 // HBlank, Back Porch, Active, Front Porch: 28 + 28 + 320 + 8
 #define LSPC_PIXELS     384
@@ -41,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define LSPC_LINE_BUFSTART      6
 #define LSPC_LINE_BORDER_TOP    8
 #define LSPC_LINE_BORDER_BOTTOM 248
+#define LSPC_LINE_VBLANK_RELOAD 248
 
 #define LSPC_WIDTH          320 // Active drawing
 #define LSPC_WIDTH_VISIBLE  304 // 8 pixel horizontal overscan on left/right
@@ -128,5 +128,3 @@ const void* geo_lspc_fixdata_ptr(void);
 size_t geo_lspc_fixdata_size(void);
 unsigned geo_lspc_active_palette_bank(void);
 unsigned geo_lspc_getScanline(void);
-
-#endif

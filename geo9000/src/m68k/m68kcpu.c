@@ -958,6 +958,12 @@ int m68k_execute(int num_cycles)
 	/* See if interrupts came in */
 	m68ki_check_interrupts();
 
+	/* If exception entry already consumed the available budget, return
+	   before executing a handler instruction in the same slice. This keeps
+	   interrupt entry timing closer to a stepped CPU/screen scheduler. */
+	if (GET_CYCLES() <= 0)
+		return m68ki_initial_cycles - GET_CYCLES();
+
     /* Make sure we're not stopped */
     if(!CPU_STOPPED)
     {

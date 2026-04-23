@@ -30,11 +30,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <stddef.h>
 #include <stdint.h>
-
 #include "geo.h"
 #include "geo_m68k.h"
 #include "geo_lspc.h"
 #include "geo_serial.h"
+
+void geo_irq2_counterLoadDisplayCounter(void);
+void geo_irq2_processAdvance(uint32_t advance);
+int geo_irq2_processAdvanceToVBlankReload(uint32_t advance);
 
 #define M68K_CYC_PER_LINE 768
 
@@ -447,14 +450,27 @@ void geo_lspc_vrammod_wr(int16_t mod) {
 }
 
 // Read REG_LSPCMODE
+static unsigned
+geo_lspc_getVpos(void)
+{
+    return (lspc.scanline + LSPC_SCANLINES - LSPC_LINE_BORDER_TOP) %
+        LSPC_SCANLINES;
+}
+
 uint16_t geo_lspc_mode_rd(void) {
     /* Bits 7-15: Raster line counter (with offset of 0xf8)
        Bits 4-6:  000
        Bit 3:     0 = 60Hz, 1 = 50Hz
        Bits 0-2:  Auto animation counter
     */
+    unsigned vCounter = geo_lspc_getVpos() + 0x100;
+
+    if (vCounter >= 0x200) {
+        vCounter -= LSPC_SCANLINES;
+    }
+
     // FIXME - support 50Hz
-    return ((lspc.scanline + 0xf8) << 7) | lspc.aa_counter;
+    return (vCounter << 7) | lspc.aa_counter;
 }
 
 // Write to REG_LSPCMODE
@@ -963,40 +979,53 @@ void geo_lspc_run(unsigned cycs) {
         unsigned cycsleft = M68K_CYC_PER_LINE - start; // Cycles left for line
         unsigned runcycs = cycs < cycsleft ? cycs : cycsleft;
         unsigned end = start + runcycs;
+        if (start == 0) {
+            if (lspc.scanline == 0)
+                geo_lspc_aa();
+        }
 
         if ((start <= 29) && (end > 29)) {
-            if (lspc.scanline == LSPC_LINE_BORDER_TOP)
-                geo_lspc_aa();
-            else if (lspc.scanline == LSPC_LINE_BORDER_BOTTOM + 1) {
+            if (lspc.scanline == LSPC_LINE_BORDER_BOTTOM) {
                 geo_vblank_notify();
                 geo_m68k_interrupt(IRQ_VBLANK);
             }
         }
 
-        if ((start <= 573) && (end > 573)) {
-            // Arbitrary placement until cycle accuracy is achieved
-            geo_lspc_scanline();
+        int vblankReloadTriggeredAtEdge = 0;
+
+        if (start < 573) {
+            unsigned irq2End = end < 573 ? end : 573;
+            if (irq2End > start) {
+                if ((lspc.scanline == LSPC_LINE_VBLANK_RELOAD) &&
+                    (end > 573) &&
+                    (ngsys.irq2_ctrl & IRQ_TIMER_RELOAD_VBLANK)) {
+                    vblankReloadTriggeredAtEdge =
+                        geo_irq2_processAdvanceToVBlankReload(irq2End - start);
+                }
+                else {
+                    geo_irq2_processAdvance(irq2End - start);
+                }
+            }
         }
 
-        /*
-         * Original code (ENGINE9000 change):
-         *
-         * if ((start <= 712) && (end > 712)) { // This is an educated guess
-         *     lspc.scanline = (lspc.scanline + 1) % LSPC_SCANLINES;
-         *     ...
-         * }
-         *
-         * We now advance the scanline at the true end-of-line (768 M68K cycles)
-         * so that IRQ2 timer values expressed in pixels align correctly.
-         */
-        if (end == M68K_CYC_PER_LINE) {
-            lspc.scanline = (lspc.scanline + 1) % LSPC_SCANLINES;
-
-            // Reload IRQ2 (Timer) counter when VBlank is reached
-            if ((lspc.scanline == 0) && (ngsys.irq2_ctrl & IRQ_TIMER_RELOAD_VBLANK)) {
-                ngsys.irq2_counter = ngsys.irq2_reload;
-                ngsys.irq2_frags = 0;
+        if ((start <= 573) && (end > 573)) {
+            if ((lspc.scanline == LSPC_LINE_VBLANK_RELOAD) &&
+                (ngsys.irq2_ctrl & IRQ_TIMER_RELOAD_VBLANK)) {
+                if (!vblankReloadTriggeredAtEdge) {
+                    geo_irq2_counterLoadDisplayCounter();
+                }
             }
+        }
+        if (end > 573) {
+            unsigned irq2Start = start > 573 ? start : 573;
+            if (end > irq2Start) {
+                geo_irq2_processAdvance(end - irq2Start);
+            }
+        }
+
+        if (end == M68K_CYC_PER_LINE) {
+            geo_lspc_scanline();
+            lspc.scanline = (lspc.scanline + 1) % LSPC_SCANLINES;
         }
 
         lspc.cyc = end;

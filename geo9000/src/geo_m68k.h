@@ -28,8 +28,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef GEO_M68K_H
-#define GEO_M68K_H
+#pragma once
 
 #define BOARD_DEFAULT       0x00 // Default
 #define BOARD_LINKABLE      0x01 // Linkable Multiplayer Boards
@@ -63,6 +62,7 @@ void geo_m68k_reset(void);
 int geo_m68k_run(unsigned);
 
 void geo_m68k_interrupt(unsigned);
+void geo_m68k_setInterruptLine(unsigned level, unsigned state);
 
 void geo_m68k_board_set(unsigned);
 void geo_m68k_sma_init(uint32_t*, uint32_t*, uint8_t*);
@@ -90,5 +90,3 @@ m68k_write_memory_16(unsigned address, unsigned value);
 
 void
 m68k_write_memory_32(unsigned address, unsigned value);
-
-#endif

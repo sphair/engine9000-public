@@ -1446,13 +1446,17 @@ size_t retro_serialize_size(void) {
 }
 
 bool retro_serialize(void *data, size_t size) {
-    memcpy(data, geo_state_save_raw(), size);
+    const void *state = geo_state_save_raw();
+    if (!state || (size != geo_state_size())) {
+        return false;
+    }
+
+    memcpy(data, state, size);
     return true;
 }
 
 bool retro_unserialize(const void *data, size_t size) {
-    (void)size;
-    return geo_state_load_raw(data);
+    return geo_state_load_rawSized(data, size);
 }
 
 void *retro_get_memory_data(unsigned id) {

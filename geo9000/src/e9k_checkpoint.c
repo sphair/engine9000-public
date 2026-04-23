@@ -42,9 +42,6 @@ e9k_checkpoint_isEnabled(void)
 void
 e9k_checkpoint_state_save(uint8_t *st)
 {
-    if (!st) {
-        return;
-    }
     geo_serial_push8(st, (uint8_t)e9k_checkpoint_enabled);
     geo_serial_push32(st, (uint32_t)e9k_checkpoint_active);
     for (size_t i = 0; i < E9K_CHECKPOINT_COUNT; ++i) {

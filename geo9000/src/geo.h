@@ -33,8 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
             - Terry A. Davis
 */
 
-#ifndef GEOLITH_H
-#define GEOLITH_H
+#pragma once
 
 #define SIZE_1K     0x000400
 #define SIZE_2K     0x000800
@@ -91,8 +90,12 @@ enum geo_loglevel {
 typedef struct _ngsys_t {
     // Timer Interrupt (IRQ2)
     uint8_t irq2_ctrl;
-    uint32_t irq2_reload;
-    uint32_t irq2_counter;
+    uint32_t irq2_displayCounter;
+    uint64_t irq2_timerRemaining;
+    uint8_t irq2_timerArmed;
+    uint8_t irq2_pending;
+    uint8_t irq2_lineClearDeferred;
+    uint8_t irq2_reloadWriteDeferred;
     uint32_t irq2_frags;
     uint32_t irq2_dec;
 
@@ -195,6 +198,7 @@ uint32_t geo_calc_mask(unsigned, unsigned);
 
 int geo_state_load(const char*);
 int geo_state_load_raw(const void*);
+int geo_state_load_rawSized(const void*, size_t);
 
 int geo_state_save(const char*);
 const void* geo_state_save_raw(void);
@@ -209,5 +213,3 @@ extern unsigned (*geo_input_cb[NUMINPUTS_NG])(unsigned);
 extern unsigned (*geo_input_sys_cb[NUMINPUTS_SYS])(void);
 
 extern ngsys_t ngsys;
-
-#endif

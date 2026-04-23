@@ -25,9 +25,6 @@ geo_cycles_get(void)
 void
 geo_cycles_state_save(uint8_t *st)
 {
-    if (!st) {
-        return;
-    }
     geo_serial_push64(st, geo_cycles_total);
 }
 

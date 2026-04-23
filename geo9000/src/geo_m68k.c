@@ -47,6 +47,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "e9k_debugger.h"
 #include "e9k_protect.h"
 
+void geo_irq2_acknowledgePending(void);
+void geo_irq2_deferCounterLoadDisplayCounter(void);
+void geo_irq2_displayCounterSetHigh(uint16_t value);
+void geo_irq2_displayCounterSetLow(uint16_t value);
+
 #define SMATAP 0x98ec // NEO-SMA Tapped bits - 2, 3, 5, 6, 7, 11, 12, and 15
 #define GEO_DBG_TEXT_ADDR 0xFFFF0 // Fake debug output register
 #define GEO_DBG_CHECKPOINT_ADDR 0xFFFEC // Fake checkpoint register
@@ -942,14 +947,17 @@ unsigned m68k_read_memory_8(unsigned address) {
                 // REG_VRAMMOD, REG_IRQACK
                 break;
             }
-            case 0x3c0006: case 0x3c000e: {
+            case 0x3c0006: case 0x3c0007:
+            case 0x3c000e: case 0x3c000f: {
                 /* REG_LSPCMODE, REG_TIMERSTOP
                    Bits 7-15: Raster line counter (with offset of 0xf8)
                    Bits 4-6:  000
                    Bit 3:     0 = 60Hz, 1 = 50Hz
                    Bits 0-2:  Auto animation counter
                 */
-                break;
+                uint16_t val = geo_lspc_mode_rd();
+                result = (address & 0x01) ? (val & 0xff) : (val >> 8);
+                goto out;
             }
         }
     }
@@ -1462,8 +1470,7 @@ void m68k_write_memory_16(unsigned address, unsigned value) {
                     geo_m68k_logRegisterWrite(0x3c0008u, v16);
                 }
 #endif
-                ngsys.irq2_reload =
-                    (ngsys.irq2_reload & 0xffff) | ((uint32_t)v16 << 16);
+                geo_irq2_displayCounterSetHigh((uint16_t)v16);
                 goto out;
             }
             case 0x3c000a: { // REG_TIMERLOW
@@ -1472,12 +1479,12 @@ void m68k_write_memory_16(unsigned address, unsigned value) {
                     geo_m68k_logRegisterWrite(0x3c000au, v16);
                 }
 #endif
-                ngsys.irq2_reload =
-                    (ngsys.irq2_reload & 0xffff0000) | ((uint32_t)v16 & 0xffff);
-
-                // Reload counter when REG_TIMERLOW is written
-                if (ngsys.irq2_ctrl & IRQ_TIMER_RELOAD_WRITE)
-                    ngsys.irq2_counter = ngsys.irq2_reload;
+                geo_irq2_displayCounterSetLow((uint16_t)v16);
+                // Arm after the current instruction's elapsed beam time, which
+                // is closer to the 68K bus write phase than reloading early.
+                if (ngsys.irq2_ctrl & IRQ_TIMER_RELOAD_WRITE) {
+                    geo_irq2_deferCounterLoadDisplayCounter();
+                }
 
                 goto out;
             }
@@ -1494,7 +1501,7 @@ void m68k_write_memory_16(unsigned address, unsigned value) {
                 if (v16 & 0x04) // VBlank
                     m68k_set_virq(IRQ_VBLANK, 0);
                 if (v16 & 0x02) // HBlank/Timer
-                    m68k_set_virq(IRQ_TIMER, 0);
+                    geo_irq2_acknowledgePending();
                 if (v16 & 0x01) // IRQ3 - Pending after reset
                     m68k_set_virq(IRQ_RESET, 0);
 
@@ -1592,8 +1599,15 @@ int geo_m68k_run(unsigned cycs) {
 }
 
 void geo_m68k_interrupt(unsigned level) {
-    if ((m68k_get_virq(level)) == 0)
+    if ((m68k_get_virq(level)) == 0) {
         m68k_set_virq(level, 1);
+    }
+}
+
+void
+geo_m68k_setInterruptLine(unsigned level, unsigned state)
+{
+    m68k_set_virq(level, state);
 }
 
 // Acknowledge interrupts
