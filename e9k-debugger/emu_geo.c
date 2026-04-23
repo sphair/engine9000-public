@@ -9,6 +9,8 @@
 #include "target.h"
 #include "debugger_input_bindings.h"
 #include "e9ui.h"
+#include "neogeo_memview.h"
+#include "neogeo_palette_debug.h"
 #include "neogeo_register_log.h"
 #include "neogeo_sprite_debug.h"
 #include "profile_checkpoints.h"
@@ -109,6 +111,22 @@ emu_geo_toggleRegisterLog(e9ui_context_t *ctx, void *user)
     neogeo_register_log_toggle();
 }
 
+static void
+emu_geo_toggleMemview(e9ui_context_t *ctx, void *user)
+{
+    (void)ctx;
+    (void)user;
+    neogeo_memview_toggle();
+}
+
+static void
+emu_geo_togglePaletteDebug(e9ui_context_t *ctx, void *user)
+{
+    (void)ctx;
+    (void)user;
+    neogeo_palette_debug_toggle();
+}
+
 void
 emu_geo_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
 {
@@ -126,12 +144,28 @@ emu_geo_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
   void *registerLogBtnMeta = alloc_strdup("register_log");
   e9ui_child_add(button_stack, btn_register_log, registerLogBtnMeta);
 
+  e9ui_component_t *btn_memview = e9ui_button_make("Memview", emu_geo_toggleMemview, comp);
+  if (btn_memview) {
+    e9ui_button_setMini(btn_memview, 1);
+    e9ui_setFocusTarget(btn_memview, comp);
+    void *memviewBtnMeta = alloc_strdup("memview");
+    e9ui_child_add(button_stack, btn_memview, memviewBtnMeta);
+  }
+
   e9ui_component_t *btn_debug = e9ui_button_make("Sprite Debug", emu_geo_toggleSpriteDebug, comp);
   if (btn_debug) {
     e9ui_button_setMini(btn_debug, 1);
     e9ui_setFocusTarget(btn_debug, comp);
     void* spriteDebugBtnMeta = alloc_strdup("sprite_debug");
     e9ui_child_add(button_stack, btn_debug, spriteDebugBtnMeta);
+  }
+
+  e9ui_component_t *btn_palette_debug = e9ui_button_make("Palette Debug", emu_geo_togglePaletteDebug, comp);
+  if (btn_palette_debug) {
+    e9ui_button_setMini(btn_palette_debug, 1);
+    e9ui_setFocusTarget(btn_palette_debug, comp);
+    void *paletteDebugBtnMeta = alloc_strdup("palette_debug");
+    e9ui_child_add(button_stack, btn_palette_debug, paletteDebugBtnMeta);
   }
 }
 

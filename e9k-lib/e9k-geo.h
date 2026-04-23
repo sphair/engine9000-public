@@ -29,6 +29,12 @@ typedef struct geo_debug_sprite_state {
     int crop_r;
 } e9k_debug_sprite_state_t;
 
+typedef struct geo_debug_palette_state {
+    const uint32_t *colors;
+    size_t color_count;
+    unsigned active_bank;
+} e9k_debug_palette_state_t;
+
 
 #ifdef __cplusplus
 }

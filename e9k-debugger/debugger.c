@@ -17,6 +17,8 @@
 #include "profile.h"
 #include "analyse.h"
 #include "linebuf.h"
+#include "neogeo_memview.h"
+#include "neogeo_palette_debug.h"
 #include "neogeo_register_log.h"
 #include "neogeo_sprite_debug.h"
 #include "machine.h"
@@ -645,6 +647,12 @@ debugger_cleanup(void)
   snapshot_saveOnExit();
   if (neogeo_sprite_debug_is_open()) {
     neogeo_sprite_debug_toggle();
+  }
+  if (neogeo_palette_debug_isOpen()) {
+    neogeo_palette_debug_toggle();
+  }
+  if (neogeo_memview_isOpen()) {
+    neogeo_memview_toggle();
   }
   neogeo_register_log_shutdown();
   if (mega_sprite_debug_is_open()) {

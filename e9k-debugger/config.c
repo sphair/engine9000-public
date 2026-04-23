@@ -17,6 +17,8 @@
 #include "e9ui.h"
 #include "hex_convert.h"
 #include "hotkeys.h"
+#include "neogeo_memview.h"
+#include "neogeo_palette_debug.h"
 #include "neogeo_register_log.h"
 #include "neogeo_sprite_debug.h"
 #include "mega_sprite_debug.h"
@@ -170,6 +172,8 @@ config_persistConfig(FILE *f)
     crt_persistConfig(f);
     neogeo_register_log_persistConfig(f);
     neogeo_sprite_debug_persistConfig(f);
+    neogeo_palette_debug_persistConfig(f);
+    neogeo_memview_persistConfig(f);
     mega_sprite_debug_persistConfig(f);
     amiga_custom_ui_persistConfig(f);
     amiga_custom_log_persistConfig(f);
@@ -341,6 +345,16 @@ config_loadConfigFile(const char *path)
         if (strncmp(key, "comp.sprite_debug.", 18) == 0) {
             const char *prop = key + 18;
             neogeo_sprite_debug_loadConfigProperty(prop, value);
+            continue;
+        }
+        if (strncmp(key, "comp.neogeo_palette_debug.", 25) == 0) {
+            const char *prop = key + 25;
+            neogeo_palette_debug_loadConfigProperty(prop, value);
+            continue;
+        }
+        if (strncmp(key, "comp.neogeo_memview.", 20) == 0) {
+            const char *prop = key + 20;
+            neogeo_memview_loadConfigProperty(prop, value);
             continue;
         }
         if (strncmp(key, "comp.mega_sprite_debug.", 23) == 0) {

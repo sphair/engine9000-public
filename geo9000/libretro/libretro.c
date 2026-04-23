@@ -143,6 +143,36 @@ E9K_DEBUG_EXPORT size_t e9k_debug_neogeo_get_p1_rom(e9k_debug_rom_region_t *out,
     return sizeof(*out);
 }
 
+E9K_DEBUG_EXPORT size_t e9k_debug_neogeo_get_c_rom(e9k_debug_rom_region_t *out, size_t cap) {
+    if (!out || cap < sizeof(*out)) {
+        return 0;
+    }
+    romdata_t *rom = geo_romdata_ptr();
+    if (!rom || !rom->c || !rom->csz) {
+        return 0;
+    }
+    out->data = rom->c;
+    out->size = rom->csz;
+    return sizeof(*out);
+}
+
+E9K_DEBUG_EXPORT size_t e9k_debug_neogeo_get_fix_rom(e9k_debug_rom_region_t *out, size_t cap) {
+    const uint8_t *fix = NULL;
+    size_t fixsz = 0u;
+
+    if (!out || cap < sizeof(*out)) {
+        return 0;
+    }
+    fix = (const uint8_t *)geo_lspc_fixdata_ptr();
+    fixsz = geo_lspc_fixdata_size();
+    if (!fix || !fixsz) {
+        return 0;
+    }
+    out->data = fix;
+    out->size = fixsz;
+    return sizeof(*out);
+}
+
 E9K_DEBUG_EXPORT size_t e9k_debug_disassemble_quick(uint32_t pc, char *out, size_t cap) {
     if (!out || cap == 0) {
         return 0;
@@ -239,6 +269,16 @@ E9K_DEBUG_EXPORT size_t e9k_debug_neogeo_get_sprite_state(e9k_debug_sprite_state
     out->crop_b = video_crop_b;
     out->crop_l = video_crop_l;
     out->crop_r = video_crop_r;
+    return sizeof(*out);
+}
+
+E9K_DEBUG_EXPORT size_t e9k_debug_neogeo_get_palette_state(e9k_debug_palette_state_t *out, size_t cap) {
+    if (!out || cap < sizeof(*out)) {
+        return 0;
+    }
+    out->colors = geo_lspc_palette_ptr();
+    out->color_count = SIZE_8K;
+    out->active_bank = geo_lspc_active_palette_bank();
     return sizeof(*out);
 }
 

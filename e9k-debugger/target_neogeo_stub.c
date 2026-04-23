@@ -419,6 +419,85 @@ neogeo_sprite_debug_loadConfigProperty(const char *prop, const char *value)
     return 0;
 }
 
+void
+neogeo_palette_debug_toggle(void)
+{
+}
+
+int
+neogeo_palette_debug_isOpen(void)
+{
+    return 0;
+}
+
+int
+neogeo_palette_debug_handleKeydown(const SDL_KeyboardEvent *kev)
+{
+    (void)kev;
+    return 0;
+}
+
+void
+neogeo_palette_debug_setMainWindowFocused(int focused)
+{
+    (void)focused;
+}
+
+void
+neogeo_palette_debug_render(void)
+{
+}
+
+void
+neogeo_palette_debug_persistConfig(FILE *file)
+{
+    (void)file;
+}
+
+int
+neogeo_palette_debug_loadConfigProperty(const char *prop, const char *value)
+{
+    (void)prop;
+    (void)value;
+    return 0;
+}
+
+void
+neogeo_memview_toggle(void)
+{
+}
+
+int
+neogeo_memview_isOpen(void)
+{
+    return 0;
+}
+
+void
+neogeo_memview_setMainWindowFocused(int focused)
+{
+    (void)focused;
+}
+
+void
+neogeo_memview_render(void)
+{
+}
+
+void
+neogeo_memview_persistConfig(FILE *file)
+{
+    (void)file;
+}
+
+int
+neogeo_memview_loadConfigProperty(const char *prop, const char *value)
+{
+    (void)prop;
+    (void)value;
+    return 0;
+}
+
 int
 neogeo_register_log_init(void)
 {

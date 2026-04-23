@@ -123,6 +123,10 @@ void geo_lspc_state_save(uint8_t*);
 
 const void* geo_lspc_vram_ptr(void);
 const void* geo_lspc_palram_ptr(void);
+const uint32_t* geo_lspc_palette_ptr(void);
+const void* geo_lspc_fixdata_ptr(void);
+size_t geo_lspc_fixdata_size(void);
+unsigned geo_lspc_active_palette_bank(void);
 unsigned geo_lspc_getScanline(void);
 
 #endif

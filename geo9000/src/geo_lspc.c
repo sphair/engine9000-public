@@ -51,6 +51,7 @@ static unsigned linebuf[2][LSPC_WIDTH]; // Line buffers for sprite pixels
 static unsigned lbactive = 0; // Active line buffer
 
 static uint8_t *fixdata = NULL;
+static size_t fixdatasz = 0;
 
 static unsigned fixbanksw = 0;
 static uint32_t crommask = 0;
@@ -656,10 +657,12 @@ static void geo_lspc_fixline_tile(void) {
 void geo_lspc_set_fix(unsigned f) {
     if (f) {
         fixdata = romdata->s;
+        fixdatasz = romdata->ssz;
         geo_lspc_set_fix_banksw(fixbanksw);
     }
     else {
         fixdata = romdata->sfix;
+        fixdatasz = romdata->sfixsz;
         geo_lspc_fixline = &geo_lspc_fixline_default;
     }
 }
@@ -1047,6 +1050,22 @@ const void* geo_lspc_vram_ptr(void) {
 // Return a pointer to Palette RAM
 const void* geo_lspc_palram_ptr(void) {
     return lspc.palram;
+}
+
+const uint32_t* geo_lspc_palette_ptr(void) {
+    return palette;
+}
+
+const void* geo_lspc_fixdata_ptr(void) {
+    return fixdata;
+}
+
+size_t geo_lspc_fixdata_size(void) {
+    return fixdatasz;
+}
+
+unsigned geo_lspc_active_palette_bank(void) {
+    return (unsigned)lspc.palbank;
 }
 
 unsigned geo_lspc_getScanline(void) {
