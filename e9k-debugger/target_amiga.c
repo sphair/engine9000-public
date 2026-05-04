@@ -39,6 +39,8 @@ typedef struct target_amiga_romselect_extra {
     e9ui_component_t *df1Select;
     e9ui_component_t *dh0FolderSelect;
     e9ui_component_t *dh0HdfSelect;
+    e9ui_component_t *dh1FolderSelect;
+    e9ui_component_t *dh1HdfSelect;
     struct target_amiga_toolchain_preset_state *toolchainPresetState;
     int updatingMedia;
 } target_amiga_romselect_extra_t;
@@ -156,34 +158,34 @@ target_amiga_pathHasValue(const char *path)
 }
 
 static int
-target_amiga_anyMediaConfigured(const char *df0, const char *df1, const char *dh0Folder, const char *dh0Hdf)
+target_amiga_anyMediaConfigured(void)
 {
+    const char *df0 = amiga_uaeGetFloppyPath(0);
+    const char *df1 = amiga_uaeGetFloppyPath(1);
+    const char *dh0Folder = amiga_uaeGetHardDriveFolderPathForUnit(0);
+    const char *dh0Hdf = amiga_uaeGetHardDriveHdfPathForUnit(0);
+    const char *dh1Folder = amiga_uaeGetHardDriveFolderPathForUnit(1);
+    const char *dh1Hdf = amiga_uaeGetHardDriveHdfPathForUnit(1);
     return target_amiga_pathHasValue(df0) ||
         target_amiga_pathHasValue(df1) ||
         target_amiga_pathHasValue(dh0Folder) ||
-        target_amiga_pathHasValue(dh0Hdf);
+        target_amiga_pathHasValue(dh0Hdf) ||
+        target_amiga_pathHasValue(dh1Folder) ||
+        target_amiga_pathHasValue(dh1Hdf);
 }
 
 static void
 target_amiga_captureSettingsMediaBaseline(void)
 {
-    const char *df0 = amiga_uaeGetFloppyPath(0);
-    const char *df1 = amiga_uaeGetFloppyPath(1);
-    const char *dh0Folder = amiga_uaeGetHardDriveFolderPath();
-    const char *dh0Hdf = amiga_uaeGetHardDriveHdfPath();
-    target_amiga_settingsMediaInitiallyEmpty = target_amiga_anyMediaConfigured(df0, df1, dh0Folder, dh0Hdf) ? 0 : 1;
+    target_amiga_settingsMediaInitiallyEmpty = target_amiga_anyMediaConfigured() ? 0 : 1;
     target_amiga_settingsMediaNeedsRestart = 0;
 }
 
 static void
 target_amiga_updateSettingsMediaRestartRequirement(void)
 {
-    const char *df0 = amiga_uaeGetFloppyPath(0);
-    const char *df1 = amiga_uaeGetFloppyPath(1);
-    const char *dh0Folder = amiga_uaeGetHardDriveFolderPath();
-    const char *dh0Hdf = amiga_uaeGetHardDriveHdfPath();
     target_amiga_settingsMediaNeedsRestart =
-        (target_amiga_settingsMediaInitiallyEmpty && target_amiga_anyMediaConfigured(df0, df1, dh0Folder, dh0Hdf)) ? 1 : 0;
+        (target_amiga_settingsMediaInitiallyEmpty && target_amiga_anyMediaConfigured()) ? 1 : 0;
     settings_updateSaveLabel();
 }
 
@@ -813,12 +815,20 @@ target_amiga_settingsRomPathChanged(settings_romselect_state_t* st)
     e9ui_fileSelect_setText(extra->df1Select, df1 ? df1 : "");
   }
   if (extra && extra->dh0FolderSelect) {
-    const char *dh0Folder = amiga_uaeGetHardDriveFolderPath();
+    const char *dh0Folder = amiga_uaeGetHardDriveFolderPathForUnit(0);
     e9ui_fileSelect_setText(extra->dh0FolderSelect, dh0Folder ? dh0Folder : "");
   }
   if (extra && extra->dh0HdfSelect) {
-    const char *dh0Hdf = amiga_uaeGetHardDriveHdfPath();
+    const char *dh0Hdf = amiga_uaeGetHardDriveHdfPathForUnit(0);
     e9ui_fileSelect_setText(extra->dh0HdfSelect, dh0Hdf ? dh0Hdf : "");
+  }
+  if (extra && extra->dh1FolderSelect) {
+    const char *dh1Folder = amiga_uaeGetHardDriveFolderPathForUnit(1);
+    e9ui_fileSelect_setText(extra->dh1FolderSelect, dh1Folder ? dh1Folder : "");
+  }
+  if (extra && extra->dh1HdfSelect) {
+    const char *dh1Hdf = amiga_uaeGetHardDriveHdfPathForUnit(1);
+    e9ui_fileSelect_setText(extra->dh1HdfSelect, dh1Hdf ? dh1Hdf : "");
   }
   if (extra && extra->toolchainPresetState) {
     target_amiga_toolchainPresetSync(extra->toolchainPresetState,
@@ -1253,16 +1263,17 @@ static void
 target_amiga_settingsHardDriveFolderChanged(e9ui_context_t *ctx, e9ui_component_t *comp, const char *text, void *user)
 {
     (void)ctx;
-    (void)comp;
     target_amiga_romselect_extra_t *extra = (target_amiga_romselect_extra_t *)user;
     if (extra && extra->updatingMedia) {
         return;
     }
-    amiga_uaeSetHardDriveFolderPath(text ? text : "");
-    if (text && text[0] && extra && extra->dh0HdfSelect) {
+    int unit = (extra && comp == extra->dh1FolderSelect) ? 1 : 0;
+    e9ui_component_t *hdfSelect = unit == 1 && extra ? extra->dh1HdfSelect : (extra ? extra->dh0HdfSelect : NULL);
+    amiga_uaeSetHardDriveFolderPathForUnit(unit, text ? text : "");
+    if (text && text[0] && hdfSelect) {
         extra->updatingMedia = 1;
-        amiga_uaeSetHardDriveHdfPath("");
-        e9ui_fileSelect_setText(extra->dh0HdfSelect, "");
+        amiga_uaeSetHardDriveHdfPathForUnit(unit, "");
+        e9ui_fileSelect_setText(hdfSelect, "");
         extra->updatingMedia = 0;
     }
     target_amiga_updateSettingsMediaRestartRequirement();
@@ -1272,16 +1283,17 @@ static void
 target_amiga_settingsHardDriveHdfChanged(e9ui_context_t *ctx, e9ui_component_t *comp, const char *text, void *user)
 {
     (void)ctx;
-    (void)comp;
     target_amiga_romselect_extra_t *extra = (target_amiga_romselect_extra_t *)user;
     if (extra && extra->updatingMedia) {
         return;
     }
-    amiga_uaeSetHardDriveHdfPath(text ? text : "");
-    if (text && text[0] && extra && extra->dh0FolderSelect) {
+    int unit = (extra && comp == extra->dh1HdfSelect) ? 1 : 0;
+    e9ui_component_t *folderSelect = unit == 1 && extra ? extra->dh1FolderSelect : (extra ? extra->dh0FolderSelect : NULL);
+    amiga_uaeSetHardDriveHdfPathForUnit(unit, text ? text : "");
+    if (text && text[0] && folderSelect) {
         extra->updatingMedia = 1;
-        amiga_uaeSetHardDriveFolderPath("");
-        e9ui_fileSelect_setText(extra->dh0FolderSelect, "");
+        amiga_uaeSetHardDriveFolderPathForUnit(unit, "");
+        e9ui_fileSelect_setText(folderSelect, "");
         extra->updatingMedia = 0;
     }
     target_amiga_updateSettingsMediaRestartRequirement();
@@ -1405,6 +1417,8 @@ target_amiga_settingsBuildModal(e9ui_context_t *ctx, target_settings_modal_t *ou
     e9ui_component_t *fsDf1 = e9ui_fileSelect_make("DF1", 120, 600, "...", floppyExts, 6, E9UI_FILESELECT_FILE);
     e9ui_component_t *fsDh0Folder = e9ui_fileSelect_make("DH0 FOLDER", 120, 600, "...", NULL, 0, E9UI_FILESELECT_FOLDER);
     e9ui_component_t *fsDh0Hdf = e9ui_fileSelect_make("DH0 HDF", 120, 600, "...", hdfExts, 2, E9UI_FILESELECT_FILE);
+    e9ui_component_t *fsDh1Folder = e9ui_fileSelect_make("DH1 FOLDER", 120, 600, "...", NULL, 0, E9UI_FILESELECT_FOLDER);
+    e9ui_component_t *fsDh1Hdf = e9ui_fileSelect_make("DH1 HDF", 120, 600, "...", hdfExts, 2, E9UI_FILESELECT_FILE);
 
     if (fsDf0) {
         const char *df0 = amiga_uaeGetFloppyPath(0);
@@ -1421,16 +1435,28 @@ target_amiga_settingsBuildModal(e9ui_context_t *ctx, target_settings_modal_t *ou
         target_amiga_refreshFloppyRecentsDropdown(fsDf1, 1);
     }
     if (fsDh0Folder) {
-        const char *dh0Folder = amiga_uaeGetHardDriveFolderPath();
+        const char *dh0Folder = amiga_uaeGetHardDriveFolderPathForUnit(0);
         e9ui_fileSelect_setAllowEmpty(fsDh0Folder, 1);
         e9ui_fileSelect_setText(fsDh0Folder, dh0Folder ? dh0Folder : "");
         e9ui_fileSelect_setOnChange(fsDh0Folder, target_amiga_settingsHardDriveFolderChanged, extra);
     }
     if (fsDh0Hdf) {
-        const char *dh0Hdf = amiga_uaeGetHardDriveHdfPath();
+        const char *dh0Hdf = amiga_uaeGetHardDriveHdfPathForUnit(0);
         e9ui_fileSelect_setAllowEmpty(fsDh0Hdf, 1);
         e9ui_fileSelect_setText(fsDh0Hdf, dh0Hdf ? dh0Hdf : "");
         e9ui_fileSelect_setOnChange(fsDh0Hdf, target_amiga_settingsHardDriveHdfChanged, extra);
+    }
+    if (fsDh1Folder) {
+        const char *dh1Folder = amiga_uaeGetHardDriveFolderPathForUnit(1);
+        e9ui_fileSelect_setAllowEmpty(fsDh1Folder, 1);
+        e9ui_fileSelect_setText(fsDh1Folder, dh1Folder ? dh1Folder : "");
+        e9ui_fileSelect_setOnChange(fsDh1Folder, target_amiga_settingsHardDriveFolderChanged, extra);
+    }
+    if (fsDh1Hdf) {
+        const char *dh1Hdf = amiga_uaeGetHardDriveHdfPathForUnit(1);
+        e9ui_fileSelect_setAllowEmpty(fsDh1Hdf, 1);
+        e9ui_fileSelect_setText(fsDh1Hdf, dh1Hdf ? dh1Hdf : "");
+        e9ui_fileSelect_setOnChange(fsDh1Hdf, target_amiga_settingsHardDriveHdfChanged, extra);
     }
 
     e9ui_component_t *fsElf = e9ui_fileSelect_make("EXE", 120, 600, "...", elfExts, (int)countof(elfExts), E9UI_FILESELECT_FILE);
@@ -1533,6 +1559,8 @@ target_amiga_settingsBuildModal(e9ui_context_t *ctx, target_settings_modal_t *ou
         extra->df1Select = fsDf1;
         extra->dh0FolderSelect = fsDh0Folder;
         extra->dh0HdfSelect = fsDh0Hdf;
+        extra->dh1FolderSelect = fsDh1Folder;
+        extra->dh1HdfSelect = fsDh1Hdf;
         extra->toolchainPresetState = toolchainPresetState;
         if (romState) {
             romState->targetUser = extra;
@@ -1581,6 +1609,20 @@ target_amiga_settingsBuildModal(e9ui_context_t *ctx, target_settings_modal_t *ou
                 e9ui_stack_addFixed(body, e9ui_vspacer_make(12));
             }
             e9ui_stack_addFixed(body, fsDh0Hdf);
+            first = 0;
+        }
+        if (fsDh1Folder) {
+            if (!first) {
+                e9ui_stack_addFixed(body, e9ui_vspacer_make(12));
+            }
+            e9ui_stack_addFixed(body, fsDh1Folder);
+            first = 0;
+        }
+        if (fsDh1Hdf) {
+            if (!first) {
+                e9ui_stack_addFixed(body, e9ui_vspacer_make(12));
+            }
+            e9ui_stack_addFixed(body, fsDh1Hdf);
             first = 0;
         }
         if (fsElf) {

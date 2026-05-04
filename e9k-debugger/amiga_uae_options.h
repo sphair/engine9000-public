@@ -44,14 +44,26 @@ amiga_uaeClearFloppyDirty(int drive);
 const char *
 amiga_uaeGetHardDriveFolderPath(void);
 
+const char *
+amiga_uaeGetHardDriveFolderPathForUnit(int unit);
+
 void
 amiga_uaeSetHardDriveFolderPath(const char *path);
+
+void
+amiga_uaeSetHardDriveFolderPathForUnit(int unit, const char *path);
 
 const char *
 amiga_uaeGetHardDriveHdfPath(void);
 
+const char *
+amiga_uaeGetHardDriveHdfPathForUnit(int unit);
+
 void
 amiga_uaeSetHardDriveHdfPath(const char *path);
+
+void
+amiga_uaeSetHardDriveHdfPathForUnit(int unit, const char *path);
 
 bool
 amiga_uaeWriteUaeOptionsToFile(const char *uaePath);
