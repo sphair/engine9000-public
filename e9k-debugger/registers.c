@@ -19,6 +19,7 @@
 #include "machine.h" 
 #include "breakpoints.h"
 #include "libretro_host.h"
+#include "target.h"
 
 typedef struct registers_entry {
     SDL_Rect rect;
@@ -40,7 +41,15 @@ typedef struct registers_state {
     int lastValid[19];
     uint32_t prevValues[19];
     int prevValid[19];
+    e9k_debug_processor_reg_t extraRegs[32];
+    size_t extraRegCount;
+    int extraRegsValid;
+    uint64_t prevExtraValues[32];
+    int prevExtraValid[32];
 } registers_state_t;
+
+static void
+registers_refreshExtraRegs(registers_state_t *st);
 
 static int
 registers_findAny(const char **cands, int ncand, unsigned long *out)
@@ -57,7 +66,15 @@ registers_preferredHeight(e9ui_component_t *self, e9ui_context_t *ctx, int avail
     (void)self; (void)availW;
     TTF_Font *font = e9ui->theme.text.source ? e9ui->theme.text.source : ctx->font;
     int lh = font ? TTF_FontHeight(font) : 16; if (lh <= 0) lh = 16;
-    return lh * 4 + 8;
+    int lines = 4;
+    registers_state_t *st = self ? (registers_state_t*)self->state : NULL;
+    if (st && !st->extraRegsValid) {
+        registers_refreshExtraRegs(st);
+    }
+    if (st && st->extraRegsValid && st->extraRegCount > 0) {
+        lines += 2 + (int)((st->extraRegCount + 7) / 8);
+    }
+    return lh * lines + 8;
 }
 
 static void
@@ -155,11 +172,168 @@ registers_toggleBreakpoint(uint32_t addr)
 }
 
 static void
+registers_formatProcessorValue(const e9k_debug_processor_reg_t *reg, char *out, size_t cap)
+{
+    unsigned hexWidth = (unsigned)((reg->bits + 3u) / 4u);
+
+    if (!out || cap == 0) {
+        return;
+    }
+    if (hexWidth == 0) {
+        hexWidth = 1;
+    }
+    if (hexWidth > 16) {
+        hexWidth = 16;
+    }
+    snprintf(out, cap, "%0*llX", (int)hexWidth, (unsigned long long)reg->value);
+}
+
+static void
+registers_refreshExtraRegs(registers_state_t *st)
+{
+    const char *title = NULL;
+    size_t count = 0;
+    e9k_debug_processor_reg_t regs[32];
+    int changed = 0;
+
+    if (!st || !target || !target->registersReadExtra) {
+        return;
+    }
+    if (!target->registersReadExtra(&title, regs, countof(regs), &count)) {
+        return;
+    }
+    (void)title;
+    if (count > countof(regs)) {
+        count = countof(regs);
+    }
+    if (st->extraRegsValid) {
+        if (count != st->extraRegCount) {
+            changed = 1;
+        } else {
+            for (size_t i = 0; i < count; ++i) {
+                if (strncmp(st->extraRegs[i].name, regs[i].name, sizeof(st->extraRegs[i].name)) != 0 ||
+                    st->extraRegs[i].value != regs[i].value) {
+                    changed = 1;
+                    break;
+                }
+            }
+        }
+    }
+    if (changed) {
+        memset(st->prevExtraValid, 0, sizeof(st->prevExtraValid));
+        for (size_t i = 0; i < st->extraRegCount && i < countof(st->prevExtraValues); ++i) {
+            st->prevExtraValues[i] = st->extraRegs[i].value;
+            st->prevExtraValid[i] = 1;
+        }
+    }
+    memcpy(st->extraRegs, regs, count * sizeof(regs[0]));
+    st->extraRegCount = count;
+    st->extraRegsValid = count > 0 ? 1 : 0;
+}
+
+void
+registers_refreshExtraRegsNow(e9ui_component_t *component)
+{
+    if (!component) {
+        return;
+    }
+    registers_state_t *st = (registers_state_t*)component->state;
+    registers_refreshExtraRegs(st);
+}
+
+static void
+registers_renderExtraBlock(e9ui_component_t *self,
+                           e9ui_context_t *ctx,
+                           TTF_Font *font,
+                           SDL_Rect r,
+                           int *curX,
+                           int *curY,
+                           int lh,
+                           int padX,
+                           int padY,
+                           int spaceW,
+                           SDL_Color txt,
+                           SDL_Color changedLabelCol)
+{
+    registers_state_t *st = (registers_state_t*)self->state;
+
+    if (!st || !st->extraRegsValid || st->extraRegCount == 0) {
+        return;
+    }
+    if (!machine_getRunning(debugger.machine)) {
+        registers_refreshExtraRegs(st);
+    }
+    if (!st->extraRegsValid || st->extraRegCount == 0) {
+        return;
+    }
+
+    *curX = r.x + padX;
+    *curY += lh + padY;
+    if (*curY + lh > r.y + r.h - padY) {
+        return;
+    }
+
+    *curX = r.x + padX;
+    *curY += lh + padY;
+    if (*curY + lh > r.y + r.h - padY) {
+        return;
+    }
+
+    for (size_t i = 0; i < st->extraRegCount; ++i) {
+        char label[32];
+        char value[32];
+        int labelW = 0;
+        int labelH = 0;
+        int valueW = 0;
+        int valueH = 0;
+        int totalW = 0;
+        int labelChanged = 0;
+
+        snprintf(label, sizeof(label), "%s:", st->extraRegs[i].name);
+        registers_formatProcessorValue(&st->extraRegs[i], value, sizeof(value));
+        if (font) {
+            TTF_SizeText(font, label, &labelW, &labelH);
+            TTF_SizeText(font, value, &valueW, &valueH);
+        }
+        totalW = labelW + spaceW + valueW;
+        if (*curX + totalW > r.x + r.w - padX) {
+            *curX = r.x + padX;
+            *curY += lh + padY;
+            if (*curY + lh > r.y + r.h - padY) {
+                break;
+            }
+        }
+        if (i < countof(st->prevExtraValues) &&
+            st->prevExtraValid[i] &&
+            st->prevExtraValues[i] != st->extraRegs[i].value) {
+            labelChanged = 1;
+        }
+        if (font) {
+            SDL_Color labelColor = labelChanged ? changedLabelCol : txt;
+            SDL_Texture *labelTexture = e9ui_text_cache_getText(ctx->renderer, font, label, labelColor, NULL, NULL);
+            SDL_Texture *valueTexture = e9ui_text_cache_getText(ctx->renderer, font, value, txt, NULL, NULL);
+            if (labelTexture) {
+                SDL_Rect labelRect = { *curX, *curY, labelW, labelH };
+                SDL_RenderCopy(ctx->renderer, labelTexture, NULL, &labelRect);
+            }
+            if (valueTexture) {
+                SDL_Rect valueRect = { *curX + labelW + spaceW, *curY, valueW, valueH };
+                SDL_RenderCopy(ctx->renderer, valueTexture, NULL, &valueRect);
+            }
+        }
+        *curX += totalW + padX;
+    }
+}
+
+static void
 registers_render(e9ui_component_t *self, e9ui_context_t *ctx)
 {
     registers_state_t *st = (registers_state_t*)self->state;
     if (st) {
         st->entryCount = 0;
+        if (!st->extraRegsValid) {
+            registers_refreshExtraRegs(st);
+        }
     }
     SDL_Rect r = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
     SDL_SetRenderDrawColor(ctx->renderer, 22, 22, 22, 255);
@@ -283,6 +457,7 @@ registers_render(e9ui_component_t *self, e9ui_context_t *ctx)
             }
         }
     }
+    registers_renderExtraBlock(self, ctx, font, r, &curX, &curY, lh, padX, padY, spaceW, txt, changedLabelCol);
     if (st) {
         memcpy(st->lastValues, currentValues, sizeof(st->lastValues));
         memcpy(st->lastValid, currentValid, sizeof(st->lastValid));

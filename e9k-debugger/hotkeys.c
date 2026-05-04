@@ -123,6 +123,7 @@ static const hotkeys_config_spec_t hotkeys_configSpecs[] = {
     { "step", "Step", SDLK_s, KMOD_ALT },
     { "next", "Next", SDLK_n, KMOD_ALT },
     { "step_inst", "Step Inst", SDLK_i, KMOD_ALT },
+    { "debug_processor_toggle", "Debugger CPU Toggle", SDLK_z, KMOD_ALT },
     { "breakpoint_add_current", "Breakpoint Add Current", SDLK_d, KMOD_ALT },
     { "frame_back", "Frame Step Back", SDLK_b, KMOD_ALT },
     { "frame_step", "Frame Step", SDLK_f, KMOD_ALT },
@@ -1530,6 +1531,7 @@ hotkeys_configSectionForActionId(const char *actionId)
         strcmp(actionId, "step") == 0 ||
         strcmp(actionId, "next") == 0 ||
         strcmp(actionId, "step_inst") == 0 ||
+        strcmp(actionId, "debug_processor_toggle") == 0 ||
         strcmp(actionId, "breakpoint_add_current") == 0 ||
         strcmp(actionId, "frame_back") == 0 ||
         strcmp(actionId, "frame_step") == 0 ||

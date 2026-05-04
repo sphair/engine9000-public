@@ -32,8 +32,14 @@ typedef struct machine_frame {
 #define MACHINE_BREAKPOINT_TYPE_LEN 32
 #define MACHINE_BREAKPOINT_DISP_LEN 16
 
+enum
+{
+    MACHINE_PROCESSOR_PRIMARY = 0
+};
+
 typedef struct machine_breakpoint {
     int number;
+    uint32_t processorId;
     char enabled;
     char type[MACHINE_BREAKPOINT_TYPE_LEN];
     char disp[MACHINE_BREAKPOINT_DISP_LEN];
@@ -96,7 +102,13 @@ machine_breakpoint_t *
 machine_addBreakpoint(machine_t *m, uint32_t addr, int enabled);
 
 machine_breakpoint_t *
+machine_addProcessorBreakpoint(machine_t *m, uint32_t processorId, uint32_t addr, int enabled);
+
+machine_breakpoint_t *
 machine_findBreakpointByAddr(machine_t *m, uint32_t addr);
+
+machine_breakpoint_t *
+machine_findProcessorBreakpointByAddr(machine_t *m, uint32_t processorId, uint32_t addr);
 
 machine_breakpoint_t *
 machine_findBreakpointByNumber(machine_t *m, int number);
@@ -106,6 +118,9 @@ machine_setBreakpointEnabled(machine_t *m, int number, int enabled, uint32_t *ou
 
 int
 machine_removeBreakpointByAddr(machine_t *m, uint32_t addr);
+
+int
+machine_removeProcessorBreakpointByAddr(machine_t *m, uint32_t processorId, uint32_t addr);
 
 int
 machine_findReg(machine_t *m, const char *name, unsigned long *out_value);

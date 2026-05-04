@@ -54,6 +54,29 @@ typedef enum e9k_debug_option
     E9K_DEBUG_OPTION_AMIGA_PALETTE_VIS = 39
 } e9k_debug_option_t;
 
+#define E9K_DEBUG_PROCESSOR_PRIMARY          (1u << 0)
+#define E9K_DEBUG_PROCESSOR_CAN_STEP         (1u << 1)
+#define E9K_DEBUG_PROCESSOR_CAN_BREAKPOINT   (1u << 2)
+#define E9K_DEBUG_PROCESSOR_CAN_DISASSEMBLE  (1u << 3)
+#define E9K_DEBUG_PROCESSOR_CAN_WRITE_MEMORY (1u << 4)
+
+typedef struct e9k_debug_processor_info
+{
+    uint32_t id;
+    char name[32];
+    char role[32];
+    uint32_t addressBits;
+    uint32_t flags;
+} e9k_debug_processor_info_t;
+
+typedef struct e9k_debug_processor_reg
+{
+    char name[16];
+    uint64_t value;
+    uint8_t bits;
+    uint8_t reserved[7];
+} e9k_debug_processor_reg_t;
+
 #define E9K_CHECKPOINT_COUNT 64
 #define E9K_CHECKPOINT_NAME_MAX 48
 

@@ -14,6 +14,7 @@
 #include "emu.h"
 #include "dasm.h"
 #include "settings.h"
+#include "e9k-lib.h"
 
 #define TARGET_AMIGA  0
 #define TARGET_NEOGEO 1
@@ -34,6 +35,17 @@ typedef struct target_memory_range
     uint32_t baseAddr;
     uint32_t size;
 } target_memory_range_t;
+
+typedef struct target_memory_space
+{
+    const char *value;
+    const char *label;
+    uint32_t minAddr;
+    uint32_t maxAddr;
+    int addressDigits;
+    int processorMemory;
+    uint32_t processorId;
+} target_memory_space_t;
 
 typedef struct target_iface
 {
@@ -86,7 +98,9 @@ typedef struct target_iface
     int badgeW;
     int badgeH;
     int (*memoryGetLimits)(uint32_t *outMinAddr, uint32_t *outMaxAddr);
+    int (*memoryGetSpaces)(target_memory_space_t *outSpaces, size_t cap, size_t *outCount);
     int (*memoryTrackGetRanges)(target_memory_range_t *outRanges, size_t cap, size_t *outCount);
+    int (*registersReadExtra)(const char **outTitle, e9k_debug_processor_reg_t *outRegs, size_t cap, size_t *outCount);
     SDL_Texture *(*getBadgeTexture)(SDL_Renderer *renderer, struct target_iface *t, int *outW, int *outH);
     void (*configControllerPorts)(void);
     int (*controllerMapButton)(SDL_GameControllerButton button, unsigned *outId);

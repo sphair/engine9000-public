@@ -31,6 +31,7 @@ SOURCES_C := \
 	$(CORE_DIR)/src/geo_serial.c \
 	$(CORE_DIR)/src/geo_ymfm.c \
 	$(CORE_DIR)/src/geo_z80.c \
+	$(CORE_DIR)/src/geo_z80_dasm.c \
 	$(CORE_DIR)/src/geo_profiler.c \
 	$(CORE_DIR)/src/geo_notify.c \
 	$(CORE_DIR)/src/geo_debug_text.c \

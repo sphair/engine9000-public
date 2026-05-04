@@ -26,6 +26,7 @@
 #include "source_pane.h"
 #include "source_pane_internal.h"
 #include "source_cpr.h"
+#include "source_z80.h"
 #include "dasm.h"
 #include "addr2line.h"
 #include "machine.h"
@@ -963,6 +964,27 @@ source_pane_adjustScroll(source_pane_state_t *st, source_pane_mode_t mode, int d
         source_pane_syncLockButtonVisual(st);
         return;
     }
+    if (mode == source_pane_mode_z80) {
+        uint64_t destAddr = source_z80_getCurrentAddr(st);
+        if (st->scrollLocked && st->scrollAnchorValid) {
+            destAddr = st->scrollAnchorAddr;
+        }
+        if (delta < 0) {
+            uint64_t step = (uint64_t)(-delta);
+            destAddr = destAddr > step ? destAddr - step : 0;
+        } else {
+            destAddr += (uint64_t)delta;
+        }
+        destAddr = source_z80_resolveAnchorAddr(destAddr);
+        st->scrollIndex = (int)destAddr;
+        st->scrollAnchorAddr = destAddr;
+        st->scrollAnchorValid = 1;
+        st->scrollLocked = 1;
+        st->gutterPending = 0;
+        source_pane_freeFrozenAsm(st);
+        source_pane_syncLockButtonVisual(st);
+        return;
+    }
     int dest = st->scrollIndex + delta;
     int streaming = (dasm_getFlags() & DASM_IFACE_FLAG_STREAMING) ? 1 : 0;
     if (st->scrollLocked && st->scrollAnchorValid) {
@@ -1019,6 +1041,16 @@ source_pane_scrollToStart(source_pane_state_t *st, source_pane_mode_t mode)
         source_pane_syncLockButtonVisual(st);
         return;
     }
+    if (mode == source_pane_mode_z80) {
+        st->scrollIndex = 0;
+        st->scrollAnchorAddr = 0;
+        st->scrollAnchorValid = 1;
+        st->scrollLocked = 1;
+        st->gutterPending = 0;
+        source_pane_freeFrozenAsm(st);
+        source_pane_syncLockButtonVisual(st);
+        return;
+    }
     if (dasm_getFlags() & DASM_IFACE_FLAG_STREAMING) {
         source_pane_followCurrent(st);
         return;
@@ -1071,6 +1103,22 @@ source_pane_scrollToEnd(source_pane_state_t *st, source_pane_mode_t mode, int ma
         st->scrollAnchorValid = 1;
         st->scrollLocked = 1;
         st->gutterPending = 0;
+        source_pane_syncLockButtonVisual(st);
+        return;
+    }
+    if (mode == source_pane_mode_z80) {
+        uint64_t destAddr = 0xffffu;
+        if (maxLines > 1) {
+            uint64_t back = (uint64_t)(maxLines - 1);
+            destAddr = destAddr > back ? destAddr - back : 0;
+        }
+        destAddr = source_z80_resolveAnchorAddr(destAddr);
+        st->scrollIndex = (int)destAddr;
+        st->scrollAnchorAddr = destAddr;
+        st->scrollAnchorValid = 1;
+        st->scrollLocked = 1;
+        st->gutterPending = 0;
+        source_pane_freeFrozenAsm(st);
         source_pane_syncLockButtonVisual(st);
         return;
     }
@@ -1445,6 +1493,9 @@ source_pane_modeValue(source_pane_mode_t mode)
     if (mode == source_pane_mode_cpr) {
         return "cpr";
     }
+    if (mode == source_pane_mode_z80) {
+        return "z80";
+    }
     if (mode == source_pane_mode_h) {
         return "hex";
     }
@@ -1463,6 +1514,9 @@ source_pane_modeFromValue(const char *value)
     if (strcmp(value, "cpr") == 0) {
         return source_pane_mode_cpr;
     }
+    if (strcmp(value, "z80") == 0) {
+        return source_pane_mode_z80;
+    }
     if (strcmp(value, "hex") == 0) {
         return source_pane_mode_h;
     }
@@ -1477,6 +1531,9 @@ source_pane_modePersistValue(source_pane_mode_t mode)
     }
     if (mode == source_pane_mode_cpr) {
         return 4;
+    }
+    if (mode == source_pane_mode_z80) {
+        return 6;
     }
     if (mode == source_pane_mode_h) {
         return 3;
@@ -1498,6 +1555,12 @@ source_pane_refreshModeOptions(e9ui_component_t *comp, source_pane_state_t *st)
         { .value = "hex", .label = "HEX" },
         { .value = "cpr", .label = "CPR" },
     };
+    static const e9ui_textbox_option_t modeOptionsNeoGeo[] = {
+        { .value = "c",   .label = "SRC" },
+        { .value = "asm", .label = "ASM" },
+        { .value = "hex", .label = "HEX" },
+        { .value = "z80", .label = "Z80" },
+    };
 
     if (!comp || !st || !st->toggleBtnMeta) {
         return;
@@ -1511,6 +1574,10 @@ source_pane_refreshModeOptions(e9ui_component_t *comp, source_pane_state_t *st)
         e9ui_textbox_setOptions(select,
                                 modeOptionsAmiga,
                                 (int)(sizeof(modeOptionsAmiga) / sizeof(modeOptionsAmiga[0])));
+    } else if (source_z80_isModeAvailable()) {
+        e9ui_textbox_setOptions(select,
+                                modeOptionsNeoGeo,
+                                (int)(sizeof(modeOptionsNeoGeo) / sizeof(modeOptionsNeoGeo[0])));
     } else {
         e9ui_textbox_setOptions(select,
                                 modeOptionsBase,
@@ -1547,6 +1614,8 @@ source_pane_persistLoad(e9ui_component_t *self, e9ui_context_t *ctx, const char 
           mode = source_pane_mode_sym;
       } else if (m == 4) {
           mode = source_pane_mode_cpr;
+      } else if (m == 6) {
+          mode = source_pane_mode_z80;
       } else if (m == 3) {
           mode = source_pane_mode_h;
       }
@@ -1720,16 +1789,17 @@ source_pane_inlineEditRefreshAfterWrite(source_pane_state_t *st)
 }
 
 static int
-source_pane_writeHexBytes(uint32_t addr, const uint8_t *bytes, int count)
+source_pane_writeHexBytes(source_pane_mode_t mode, uint32_t addr, const uint8_t *bytes, int count)
 {
     int i = 0;
+    int byteWritesOnly = mode == source_pane_mode_z80 ? 1 : 0;
 
     if (!bytes || count <= 0) {
         return 0;
     }
 
     while (i < count) {
-        if ((i + 1) < count) {
+        if (!byteWritesOnly && (i + 1) < count) {
             uint16_t word = (uint16_t)(((uint16_t)bytes[i] << 8) | (uint16_t)bytes[i + 1]);
             if (!libretro_host_debugWriteMemory(addr + (uint32_t)i, (uint32_t)word, 2)) {
                 return 0;
@@ -1737,7 +1807,14 @@ source_pane_writeHexBytes(uint32_t addr, const uint8_t *bytes, int count)
             i += 2;
             continue;
         }
-        if (!libretro_host_debugWriteMemory(addr + (uint32_t)i, (uint32_t)bytes[i], 1)) {
+        if (mode == source_pane_mode_z80) {
+            if (!libretro_host_debugWriteProcessorMemory(source_z80_processorId(),
+                                                         addr + (uint32_t)i,
+                                                         (uint32_t)bytes[i],
+                                                         1)) {
+                return 0;
+            }
+        } else if (!libretro_host_debugWriteMemory(addr + (uint32_t)i, (uint32_t)bytes[i], 1)) {
             return 0;
         }
         i += 1;
@@ -1746,7 +1823,7 @@ source_pane_writeHexBytes(uint32_t addr, const uint8_t *bytes, int count)
 }
 
 static int
-source_pane_verifyHexBytes(uint32_t addr, const uint8_t *bytes, int count)
+source_pane_verifyHexBytes(source_pane_mode_t mode, uint32_t addr, const uint8_t *bytes, int count)
 {
     uint8_t check[16];
 
@@ -1754,7 +1831,11 @@ source_pane_verifyHexBytes(uint32_t addr, const uint8_t *bytes, int count)
         return 0;
     }
     memset(check, 0, sizeof(check));
-    if (!libretro_host_debugReadMemory(addr, check, (size_t)count)) {
+    if (mode == source_pane_mode_z80) {
+        if (!libretro_host_debugReadProcessorMemory(source_z80_processorId(), addr, check, (size_t)count)) {
+            return 0;
+        }
+    } else if (!libretro_host_debugReadMemory(addr, check, (size_t)count)) {
         return 0;
     }
     return memcmp(check, bytes, (size_t)count) == 0 ? 1 : 0;
@@ -1796,12 +1877,18 @@ source_pane_inlineEditCommit(source_pane_state_t *st, e9ui_context_t *ctx)
             e9ui_data_edit_selectAllExternal(editor);
             return 0;
         }
-        if (!source_pane_writeHexBytes(st->inlineEditAddr, bytes, st->inlineEditByteCount)) {
+        if (!source_pane_writeHexBytes(st->inlineEditMode,
+                                       st->inlineEditAddr,
+                                       bytes,
+                                       st->inlineEditByteCount)) {
             e9ui_showTransientMessage("WRITE FAILED - NO CORE SUPPORT?");
             e9ui_data_edit_selectAllExternal(editor);
             return 0;
         }
-        if (!source_pane_verifyHexBytes(st->inlineEditAddr, bytes, st->inlineEditByteCount)) {
+        if (!source_pane_verifyHexBytes(st->inlineEditMode,
+                                        st->inlineEditAddr,
+                                        bytes,
+                                        st->inlineEditByteCount)) {
             e9ui_showTransientMessage("UNABLE TO WRITE DATA - ROM ?");
             e9ui_data_edit_selectAllExternal(editor);
             return 0;
@@ -2027,6 +2114,9 @@ source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
         if (st->viewMode == source_pane_mode_cpr && !source_cpr_isModeAvailable()) {
             source_pane_setModeInternal(self, source_pane_mode_h, 0);
         }
+        if (st->viewMode == source_pane_mode_z80 && !source_z80_isModeAvailable()) {
+            source_pane_setModeInternal(self, source_pane_mode_a, 0);
+        }
         source_pane_refreshModeOptions(self, st);
         source_pane_mode_t stepMode = st->viewMode;
         int stepEnabled = source_pane_areAsmViewStepButtonsEnabled(st);
@@ -2082,6 +2172,10 @@ source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
     if (st && st->viewMode == source_pane_mode_cpr) {
         source_pane_symbols_refreshAsmSymbols(self, st);
         source_cpr_render(self, ctx);
+        goto done;
+    }
+    if (st && st->viewMode == source_pane_mode_z80) {
+        source_pane_renderAsm(self, ctx);
         goto done;
     }
     if (st) {
@@ -2302,6 +2396,9 @@ source_pane_handleEventComp(e9ui_component_t *self, e9ui_context_t *ctx, const e
     if (st && st->viewMode == source_pane_mode_cpr && !source_cpr_isModeAvailable()) {
         source_pane_setModeInternal(self, source_pane_mode_h, 0);
     }
+    if (st && st->viewMode == source_pane_mode_z80 && !source_z80_isModeAvailable()) {
+        source_pane_setModeInternal(self, source_pane_mode_a, 0);
+    }
     source_pane_mode_t mode = st ? st->viewMode : source_pane_mode_c;
     inlineEdit = source_pane_inlineEditComponent(st);
     if (st && st->inlineEditActive && ctx && inlineEdit &&
@@ -2453,18 +2550,26 @@ source_pane_handleEventComp(e9ui_component_t *self, e9ui_context_t *ctx, const e
             }
             if (source_pane_isCpuAsmLikeMode(st->gutterMode)) {
                 uint32_t addr = st->gutterAddr;
-                machine_breakpoint_t *existing = machine_findBreakpointByAddr(&debugger.machine, addr);
+                uint32_t processorId = st->gutterMode == source_pane_mode_z80
+                    ? source_z80_processorId()
+                    : MACHINE_PROCESSOR_PRIMARY;
+                machine_breakpoint_t *existing = machine_findProcessorBreakpointByAddr(&debugger.machine,
+                                                                                        processorId,
+                                                                                        addr);
                 if (existing) {
-                    if (machine_removeBreakpointByAddr(&debugger.machine, addr)) {
-                        libretro_host_debugRemoveBreakpoint(addr);
+                    if (machine_removeProcessorBreakpointByAddr(&debugger.machine, processorId, addr)) {
+                        libretro_host_debugRemoveProcessorBreakpoint(processorId, addr);
                         breakpoints_markDirty();
                     }
                     return 1;
                 }
-                machine_breakpoint_t *bp = machine_addBreakpoint(&debugger.machine, addr, 1);
+                machine_breakpoint_t *bp = machine_addProcessorBreakpoint(&debugger.machine,
+                                                                          processorId,
+                                                                          addr,
+                                                                          1);
                 if (bp) {
                     breakpoints_resolveLocation(bp);
-                    libretro_host_debugAddBreakpoint(addr);
+                    libretro_host_debugAddProcessorBreakpoint(processorId, addr);
                     breakpoints_markDirty();
                     return 1;
                 }
@@ -2919,7 +3024,8 @@ source_pane_setModeInternal(e9ui_component_t *comp, source_pane_mode_t mode, int
         mode != source_pane_mode_a &&
         mode != source_pane_mode_sym &&
         mode != source_pane_mode_h &&
-        mode != source_pane_mode_cpr) {
+        mode != source_pane_mode_cpr &&
+        mode != source_pane_mode_z80) {
         mode = source_pane_mode_a;
     }
     if (mode == source_pane_mode_c &&
@@ -2933,12 +3039,16 @@ source_pane_setModeInternal(e9ui_component_t *comp, source_pane_mode_t mode, int
     if (mode == source_pane_mode_cpr && !source_cpr_isModeAvailable()) {
         mode = source_pane_mode_h;
     }
+    if (mode == source_pane_mode_z80 && !source_z80_isModeAvailable()) {
+        mode = source_pane_mode_a;
+    }
     if (enforceElfValid && !debugger.elfValid && mode == source_pane_mode_c) {
         mode = source_pane_mode_a;
     }
 
     if (prevMode != mode &&
-        (prevMode == source_pane_mode_cpr || mode == source_pane_mode_cpr)) {
+        (prevMode == source_pane_mode_cpr || mode == source_pane_mode_cpr ||
+         prevMode == source_pane_mode_z80 || mode == source_pane_mode_z80)) {
         st->frozenActive = 0;
         source_pane_freeFrozenAsm(st);
         st->scrollAnchorValid = 0;

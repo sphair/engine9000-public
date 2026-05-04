@@ -53,6 +53,8 @@
 #include "gl_composite.h"
 
 static e9ui_component_t *ui_source_panes[2];
+static e9ui_component_t *ui_compRegisters = NULL;
+static e9ui_component_t *ui_btnDebugProcessor = NULL;
 static e9ui_component_t *ui_btnContinue = NULL;
 static e9ui_component_t *ui_btnPause = NULL;
 static e9ui_component_t *ui_btnStep = NULL;
@@ -69,6 +71,8 @@ static e9ui_component_t *ui_btnRecord = NULL;
 static e9ui_component_t *ui_btnSettings = NULL;
 static e9ui_component_t *ui_btnReset = NULL;
 static e9ui_component_t *ui_btnRestart = NULL;
+static char ui_debugProcessorMessage[64];
+static char ui_tipDebugProcessor[128];
 static char ui_tipContinue[128];
 static char ui_tipPause[128];
 static char ui_tipStep[128];
@@ -327,9 +331,169 @@ ui_setActionTooltip(e9ui_component_t *btn, const char *baseLabel, const char *ac
     e9ui_setTooltip(btn, buf);
 }
 
+static void
+ui_debugProcessorLabel(const e9k_debug_processor_info_t *processor, char *out, size_t cap)
+{
+    if (!out || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (!processor) {
+        return;
+    }
+    if (strcmp(processor->name, "M68000") == 0) {
+        snprintf(out, cap, "68K");
+    } else if (processor->name[0]) {
+        snprintf(out, cap, "%s", processor->name);
+    } else {
+        snprintf(out, cap, "CPU %u", (unsigned)processor->id);
+    }
+    out[cap - 1] = '\0';
+}
+
+static size_t
+ui_readDebugProcessors(e9k_debug_processor_info_t *processors, size_t cap)
+{
+    size_t count = 0;
+
+    if (!processors || cap == 0) {
+        return 0;
+    }
+    memset(processors, 0, cap * sizeof(*processors));
+    if (!libretro_host_debugReadProcessors(processors, cap, &count)) {
+        return 0;
+    }
+    if (count > cap) {
+        count = cap;
+    }
+    return count;
+}
+
+static int
+ui_findDebugProcessorIndex(const e9k_debug_processor_info_t *processors, size_t count, uint32_t processorId)
+{
+    if (!processors || count == 0) {
+        return -1;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (processors[i].id == processorId) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static int
+ui_activeDebugProcessorIsPrimary(void)
+{
+    e9k_debug_processor_info_t processors[8];
+    size_t count = ui_readDebugProcessors(processors, sizeof(processors) / sizeof(processors[0]));
+
+    if (count == 0) {
+        return debugger.activeDebugProcessorId == MACHINE_PROCESSOR_PRIMARY ? 1 : 0;
+    }
+    int selected = ui_findDebugProcessorIndex(processors, count, debugger.activeDebugProcessorId);
+    if (selected < 0) {
+        return 0;
+    }
+    return (processors[selected].flags & E9K_DEBUG_PROCESSOR_PRIMARY) ? 1 : 0;
+}
+
+static void
+ui_refreshDebugProcessorButton(void)
+{
+    e9k_debug_processor_info_t processors[8];
+    size_t count = ui_readDebugProcessors(processors, sizeof(processors) / sizeof(processors[0]));
+
+    if (count <= 1) {
+        if (ui_btnDebugProcessor) {
+            e9ui_setHidden(ui_btnDebugProcessor, 1);
+        }
+        if (count == 1) {
+            debugger.activeDebugProcessorId = processors[0].id;
+        } else {
+            debugger.activeDebugProcessorId = 0;
+        }
+        return;
+    }
+
+    int selected = ui_findDebugProcessorIndex(processors, count, debugger.activeDebugProcessorId);
+    if (selected < 0) {
+        selected = 0;
+        for (size_t i = 0; i < count; ++i) {
+            if (processors[i].flags & E9K_DEBUG_PROCESSOR_PRIMARY) {
+                selected = (int)i;
+                break;
+            }
+        }
+        debugger.activeDebugProcessorId = processors[selected].id;
+    }
+
+    char label[32];
+    ui_debugProcessorLabel(&processors[selected], label, sizeof(label));
+    snprintf(ui_tipDebugProcessor,
+             sizeof(ui_tipDebugProcessor),
+             "Debugger CPU: %s",
+             label);
+    ui_tipDebugProcessor[sizeof(ui_tipDebugProcessor) - 1] = '\0';
+    if (ui_btnDebugProcessor) {
+        e9ui_button_setLabel(ui_btnDebugProcessor, label);
+        e9ui_setHidden(ui_btnDebugProcessor, 0);
+        e9ui_setTooltip(ui_btnDebugProcessor, ui_tipDebugProcessor);
+    }
+}
+
+static void
+ui_debugProcessorToggle(e9ui_context_t *ctx, void *user)
+{
+    e9k_debug_processor_info_t processors[8];
+    size_t count = ui_readDebugProcessors(processors, sizeof(processors) / sizeof(processors[0]));
+
+    (void)ctx;
+    (void)user;
+    if (count <= 1) {
+        ui_refreshDebugProcessorButton();
+        return;
+    }
+
+    int selected = ui_findDebugProcessorIndex(processors, count, debugger.activeDebugProcessorId);
+    if (selected < 0) {
+        selected = 0;
+    } else {
+        selected = (selected + 1) % (int)count;
+    }
+    debugger.activeDebugProcessorId = processors[selected].id;
+    ui_refreshDebugProcessorButton();
+    char label[32];
+    ui_debugProcessorLabel(&processors[selected], label, sizeof(label));
+    debug_printf("debugger cpu: %s", label);
+    snprintf(ui_debugProcessorMessage, sizeof(ui_debugProcessorMessage), "DEBUGGER CPU: %s", label);
+    ui_debugProcessorMessage[sizeof(ui_debugProcessorMessage) - 1] = '\0';
+    e9ui_showTransientMessage(ui_debugProcessorMessage);
+}
+
+static int
+ui_stepActiveDebugProcessorInstruction(void)
+{
+    if (ui_activeDebugProcessorIsPrimary()) {
+        return libretro_host_debugStepInstr() ? 1 : 0;
+    }
+    (void)libretro_host_debugSuppressProcessorBreakpointAtPc(debugger.activeDebugProcessorId);
+    return libretro_host_debugStepProcessorInstr(debugger.activeDebugProcessorId) ? 1 : 0;
+}
+
+static void
+ui_refreshAfterActiveDebugProcessorStep(void)
+{
+    machine_setRunning(&debugger.machine, 0);
+    registers_refreshExtraRegsNow(ui_compRegisters);
+    ui_refreshOnPause();
+}
+
 void
 ui_refreshHotkeyTooltips(void)
 {
+    ui_validateToolbarButtonRef(&ui_btnDebugProcessor);
     ui_validateToolbarButtonRef(&ui_btnContinue);
     ui_validateToolbarButtonRef(&ui_btnPause);
     ui_validateToolbarButtonRef(&ui_btnStep);
@@ -347,6 +511,7 @@ ui_refreshHotkeyTooltips(void)
     ui_validateToolbarButtonRef(&ui_btnReset);
     ui_validateToolbarButtonRef(&ui_btnRestart);
 
+    ui_refreshDebugProcessorButton();
     ui_setActionTooltip(ui_btnContinue, "Continue", "continue", ui_tipContinue, sizeof(ui_tipContinue));
     ui_setActionTooltip(ui_btnPause, "Pause", "pause", ui_tipPause, sizeof(ui_tipPause));
     ui_setActionTooltip(ui_btnStep, "Step", "step", ui_tipStep, sizeof(ui_tipStep));
@@ -648,6 +813,14 @@ ui_step(e9ui_context_t *ctx, void *user)
 {
     (void)ctx;
     (void)user;
+    if (!ui_activeDebugProcessorIsPrimary()) {
+        if (ui_stepActiveDebugProcessorInstruction()) {
+            ui_refreshAfterActiveDebugProcessorStep();
+            return;
+        }
+        debug_error("step: active processor does not expose debug instruction step");
+        return;
+    }
     debugger_suppressBreakpointAtPC();
     if (libretro_host_debugStepLine()) {
         machine_setRunning(&debugger.machine, 1);
@@ -661,6 +834,10 @@ ui_next(e9ui_context_t *ctx, void *user)
 {
     (void)ctx;
     (void)user;
+    if (!ui_activeDebugProcessorIsPrimary()) {
+        debug_error("step next: active processor does not expose debug step next");
+        return;
+    }
     debugger_suppressBreakpointAtPC();
     if (libretro_host_debugStepNext()) {
         machine_setRunning(&debugger.machine, 1);
@@ -674,6 +851,14 @@ ui_stepi(e9ui_context_t *ctx, void *user)
 {
     (void)ctx;
     (void)user;
+    if (!ui_activeDebugProcessorIsPrimary()) {
+        if (ui_stepActiveDebugProcessorInstruction()) {
+            ui_refreshAfterActiveDebugProcessorStep();
+            return;
+        }
+        debug_error("step instruction: active processor does not expose debug step");
+        return;
+    }
     debugger_suppressBreakpointAtPC();
     if (libretro_host_debugStepInstr()) {
         machine_setRunning(&debugger.machine, 1);
@@ -687,6 +872,10 @@ ui_finish(e9ui_context_t *ctx, void *user)
 {
     (void)ctx;
     (void)user;
+    if (!ui_activeDebugProcessorIsPrimary()) {
+        debug_error("step out: active processor does not expose debug step out");
+        return;
+    }
     debugger_suppressBreakpointAtPC();
     if (libretro_host_debugStepOut()) {
         machine_setRunning(&debugger.machine, 1);
@@ -1102,16 +1291,22 @@ ui_build(void)
     e9ui_header_flow_setSpacing(toolbar, 8);
     e9ui_header_flow_setWrap(toolbar, 1);
     // Build buttons and bind hotkeys at creation
-    e9ui_component_t *btn_continue = e9ui_button_make("Continue", ui_continue, NULL);
+    e9ui_component_t *btn_debug_processor = e9ui_button_make("68K", ui_debugProcessorToggle, NULL);
+    e9ui_button_setLargestLabel(btn_debug_processor, "Z80");
+    ui_btnDebugProcessor = btn_debug_processor;
+    ui_refreshDebugProcessorButton();
+    e9ui_header_flow_add(toolbar, btn_debug_processor);
+    hotkeys_registerActionHotkey(&e9ui->ctx, "debug_processor_toggle", ui_debugProcessorToggle, NULL);
+
+    e9ui_component_t *btn_continue = e9ui_button_make("", ui_continue, NULL);
     e9ui_button_setIconAsset(btn_continue, "assets/icons/continue.png");
     hotkeys_registerButtonActionHotkey(btn_continue, &e9ui->ctx, "continue");
     ui_btnContinue = btn_continue;
     e9ui_setHiddenVariable(btn_continue, machine_getRunningState(debugger.machine), 1);
     e9ui_header_flow_add(toolbar, btn_continue);
 
-    e9ui_component_t *btn_pause = e9ui_button_make("Pause", ui_pause, NULL);
+    e9ui_component_t *btn_pause = e9ui_button_make("", ui_pause, NULL);
     e9ui_button_setIconAsset(btn_pause, "assets/icons/pause.png");
-    e9ui_button_setLargestLabel(btn_pause, "Continue");
     hotkeys_registerButtonActionHotkey(btn_pause, &e9ui->ctx, "pause");
     ui_btnPause = btn_pause;
     e9ui_setHiddenVariable(btn_pause, machine_getRunningState(debugger.machine), 0);
@@ -1241,6 +1436,7 @@ ui_build(void)
     e9ui_stack_addFixed(comp_stack, top_row_box);
     // Insert registers panel and make it resizable vs source/console (left pane)
     e9ui_component_t *comp_registers = registers_makeComponent();
+    ui_compRegisters = comp_registers;
     e9ui_component_t *comp_registers_box = e9ui_box_make(comp_registers);
     comp_registers_box->persist_id = "registers_box";
     e9ui_box_setTitlebar(comp_registers_box, "Registers", "assets/icons/registers.png");

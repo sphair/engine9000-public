@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "geo.h"
 #include "geo_lspc.h"
 #include "geo_m68k.h"
+#include "geo_z80.h"
 #include "m68k/m68k.h"
 #include "m68k/m68kcpu.h"
 #include "geo_mixer.h"
@@ -64,6 +65,186 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 #define E9K_DEBUG_EXPORT RETRO_API
 
+enum
+{
+    GEO_DEBUG_PROCESSOR_68K = 0,
+    GEO_DEBUG_PROCESSOR_Z80 = 1
+};
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_disassemble_quick(uint32_t pc, char *out, size_t cap);
+
+static void
+libretro_debugSetProcessorReg(e9k_debug_processor_reg_t *reg, const char *name, uint64_t value, uint8_t bits)
+{
+    memset(reg, 0, sizeof(*reg));
+    strncpy(reg->name, name, sizeof(reg->name) - 1);
+    reg->value = value;
+    reg->bits = bits;
+}
+
+static size_t
+libretro_debugReadM68kProcessorRegs(e9k_debug_processor_reg_t *out, size_t cap)
+{
+    if (!out || cap == 0) {
+        return 0;
+    }
+    static const int regs[] = {
+        M68K_REG_D0, M68K_REG_D1, M68K_REG_D2, M68K_REG_D3,
+        M68K_REG_D4, M68K_REG_D5, M68K_REG_D6, M68K_REG_D7,
+        M68K_REG_A0, M68K_REG_A1, M68K_REG_A2, M68K_REG_A3,
+        M68K_REG_A4, M68K_REG_A5, M68K_REG_A6, M68K_REG_A7,
+        M68K_REG_SR, M68K_REG_PC
+    };
+    static const char *names[] = {
+        "D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7",
+        "A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7",
+        "SR", "PC"
+    };
+    size_t count = sizeof(regs) / sizeof(regs[0]);
+    if (count > cap) {
+        count = cap;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        uint32_t value = (uint32_t)m68k_get_reg(NULL, regs[i]);
+        uint8_t bits = 32;
+        if (regs[i] == M68K_REG_SR) {
+            value &= 0xffffu;
+            bits = 16;
+        } else if (regs[i] == M68K_REG_PC) {
+            value &= 0x00ffffffu;
+            bits = 24;
+        }
+        libretro_debugSetProcessorReg(&out[i], names[i], value, bits);
+    }
+    return count;
+}
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_read_processors(e9k_debug_processor_info_t *out, size_t cap)
+{
+    static const e9k_debug_processor_info_t processors[] = {
+        {
+            .id = GEO_DEBUG_PROCESSOR_68K,
+            .name = "M68000",
+            .role = "main",
+            .addressBits = 24,
+            .flags = E9K_DEBUG_PROCESSOR_PRIMARY |
+                     E9K_DEBUG_PROCESSOR_CAN_STEP |
+                     E9K_DEBUG_PROCESSOR_CAN_BREAKPOINT |
+                     E9K_DEBUG_PROCESSOR_CAN_DISASSEMBLE |
+                     E9K_DEBUG_PROCESSOR_CAN_WRITE_MEMORY
+        },
+        {
+            .id = GEO_DEBUG_PROCESSOR_Z80,
+            .name = "Z80",
+            .role = "audio",
+            .addressBits = 16,
+            .flags = E9K_DEBUG_PROCESSOR_CAN_STEP |
+                     E9K_DEBUG_PROCESSOR_CAN_BREAKPOINT |
+                     E9K_DEBUG_PROCESSOR_CAN_DISASSEMBLE |
+                     E9K_DEBUG_PROCESSOR_CAN_WRITE_MEMORY
+        }
+    };
+
+    if (!out || cap == 0) {
+        return 0;
+    }
+
+    size_t count = sizeof(processors) / sizeof(processors[0]);
+    if (count > cap) {
+        count = cap;
+    }
+    memcpy(out, processors, count * sizeof(processors[0]));
+    return count;
+}
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_read_processor_regs(uint32_t processorId, e9k_debug_processor_reg_t *out, size_t cap)
+{
+    switch (processorId) {
+        case GEO_DEBUG_PROCESSOR_68K:
+            return libretro_debugReadM68kProcessorRegs(out, cap);
+        case GEO_DEBUG_PROCESSOR_Z80:
+            return geo_z80_debugReadRegs(out, cap);
+        default:
+            return 0;
+    }
+}
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_read_processor_memory(uint32_t processorId, uint32_t addr, uint8_t *out, size_t cap)
+{
+    switch (processorId) {
+        case GEO_DEBUG_PROCESSOR_68K:
+            return e9k_debugger_readMemory(addr, out, cap);
+        case GEO_DEBUG_PROCESSOR_Z80:
+            return geo_z80_debugReadMemory(addr, out, cap);
+        default:
+            return 0;
+    }
+}
+
+E9K_DEBUG_EXPORT int
+e9k_debug_write_processor_memory(uint32_t processorId, uint32_t addr, uint32_t value, size_t size)
+{
+    switch (processorId) {
+        case GEO_DEBUG_PROCESSOR_68K:
+            return e9k_debugger_writeMemory(addr, value, size);
+        case GEO_DEBUG_PROCESSOR_Z80:
+            return geo_z80_debugWriteMemory(addr, value, size);
+        default:
+            return 0;
+    }
+}
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_disassemble_processor_quick(uint32_t processorId, uint32_t pc, char *out, size_t cap)
+{
+    if (!out || cap == 0) {
+        return 0;
+    }
+    if (processorId == GEO_DEBUG_PROCESSOR_68K) {
+        return e9k_debug_disassemble_quick(pc, out, cap);
+    }
+    if (processorId == GEO_DEBUG_PROCESSOR_Z80) {
+        return geo_z80_debugDisassemble(pc, out, cap);
+    }
+    out[0] = '\0';
+    return 0;
+}
+
+E9K_DEBUG_EXPORT int
+e9k_debug_suppress_processor_breakpoint_at_pc(uint32_t processorId)
+{
+    switch (processorId) {
+        case GEO_DEBUG_PROCESSOR_68K:
+            return 1;
+        case GEO_DEBUG_PROCESSOR_Z80:
+            geo_z80_debugSuppressBreakpointAtPc();
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+E9K_DEBUG_EXPORT int
+e9k_debug_step_processor_instr(uint32_t processorId)
+{
+    switch (processorId) {
+        case GEO_DEBUG_PROCESSOR_68K:
+            e9k_debugger_step_instr_cmd();
+            return 1;
+        case GEO_DEBUG_PROCESSOR_Z80:
+            if (!e9k_debugger_is_paused()) {
+                e9k_debugger_break_immediate();
+            }
+            return geo_stepZ80Instruction();
+        default:
+            return 0;
+    }
+}
+
 // Debugger-only API for direct pause/resume from the libretro host.
 E9K_DEBUG_EXPORT void e9k_debug_pause(void) { e9k_debugger_break_immediate(); }
 E9K_DEBUG_EXPORT void e9k_debug_resume(void) { e9k_debugger_continue(); }
@@ -74,6 +255,36 @@ E9K_DEBUG_EXPORT void e9k_debug_step_next(void) { e9k_debugger_step_next_over_cm
 E9K_DEBUG_EXPORT void e9k_debug_step_out(void) { e9k_debugger_step_out_cmd(); }
 E9K_DEBUG_EXPORT void e9k_debug_add_breakpoint(uint32_t addr) { e9k_debugger_add_breakpoint(addr); }
 E9K_DEBUG_EXPORT void e9k_debug_remove_breakpoint(uint32_t addr) { e9k_debugger_remove_breakpoint(addr); }
+E9K_DEBUG_EXPORT void
+e9k_debug_add_processor_breakpoint(uint32_t processorId, uint32_t addr)
+{
+    switch (processorId) {
+        case GEO_DEBUG_PROCESSOR_68K:
+            e9k_debugger_add_breakpoint(addr);
+            break;
+        case GEO_DEBUG_PROCESSOR_Z80:
+            geo_z80_debugAddBreakpoint(addr);
+            break;
+        default:
+            break;
+    }
+}
+
+E9K_DEBUG_EXPORT void
+e9k_debug_remove_processor_breakpoint(uint32_t processorId, uint32_t addr)
+{
+    switch (processorId) {
+        case GEO_DEBUG_PROCESSOR_68K:
+            e9k_debugger_remove_breakpoint(addr);
+            break;
+        case GEO_DEBUG_PROCESSOR_Z80:
+            geo_z80_debugRemoveBreakpoint(addr);
+            break;
+        default:
+            break;
+    }
+}
+
 E9K_DEBUG_EXPORT void e9k_debug_add_temp_breakpoint(uint32_t addr) { e9k_debugger_add_temp_breakpoint(addr); }
 E9K_DEBUG_EXPORT void e9k_debug_remove_temp_breakpoint(uint32_t addr) { e9k_debugger_remove_temp_breakpoint(addr); }
 E9K_DEBUG_EXPORT void e9k_debug_set_source_location_resolver(int (*resolver)(uint32_t pc24, uint64_t *out_location, void *user), void *user) { e9k_debugger_set_source_location_resolver(resolver, user); }

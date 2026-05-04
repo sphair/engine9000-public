@@ -175,7 +175,7 @@ debugger_syncCoreBreakpointsForTextBaseChange(uint32_t oldBaseAddr, uint32_t new
     }
 
     for (int i = 0; i < count; ++i) {
-        if (!bps[i].enabled) {
+        if (!bps[i].enabled || bps[i].processorId != MACHINE_PROCESSOR_PRIMARY) {
             continue;
         }
         uint32_t addr = (uint32_t)(bps[i].addr & 0x00ffffffu);
@@ -188,6 +188,9 @@ debugger_syncCoreBreakpointsForTextBaseChange(uint32_t oldBaseAddr, uint32_t new
 
     for (int i = 0; i < count; ++i) {
         machine_breakpoint_t *bp = (machine_breakpoint_t*)&bps[i];
+        if (bp->processorId != MACHINE_PROCESSOR_PRIMARY) {
+            continue;
+        }
         if (!bp->enabled) {
             breakpoints_resolveLocation(bp);
             continue;
@@ -217,7 +220,7 @@ debugger_prepareBreakpointsForBaseMapChange(const machine_breakpoint_t **outBps,
 
     for (int i = 0; i < count; ++i) {
         const machine_breakpoint_t *bp = &bps[i];
-        if (!bp->enabled) {
+        if (!bp->enabled || bp->processorId != MACHINE_PROCESSOR_PRIMARY) {
             continue;
         }
         uint32_t oldAddr = (uint32_t)(bp->addr & 0x00ffffffu);
@@ -226,6 +229,9 @@ debugger_prepareBreakpointsForBaseMapChange(const machine_breakpoint_t **outBps,
 
     for (int i = 0; i < count; ++i) {
         machine_breakpoint_t *bp = (machine_breakpoint_t*)&bps[i];
+        if (bp->processorId != MACHINE_PROCESSOR_PRIMARY) {
+            continue;
+        }
         uint32_t oldAddr = (uint32_t)(bp->addr & 0x00ffffffu);
         uint32_t debugAddr = oldAddr;
         (void)base_map_runtimeToDebug(BASE_MAP_SECTION_TEXT, oldAddr, &debugAddr);
@@ -253,6 +259,9 @@ debugger_finishBreakpointsForBaseMapChange(const machine_breakpoint_t *bps, int 
 
     for (int i = 0; i < count; ++i) {
         machine_breakpoint_t *bp = (machine_breakpoint_t*)&bps[i];
+        if (bp->processorId != MACHINE_PROCESSOR_PRIMARY) {
+            continue;
+        }
         uint32_t debugAddr = (uint32_t)(bp->addr & 0x00ffffffu);
         uint32_t runtimeAddr = debugAddr;
         (void)base_map_debugToRuntime(BASE_MAP_SECTION_TEXT, debugAddr, &runtimeAddr);
@@ -914,6 +923,7 @@ debugger_main(int argc, char **argv)
 	  debug_error("source_location: core does not expose e9k_debug_set_source_location_resolver");
         }
         target->validateAPI();
+        ui_refreshHotkeyTooltips();
         if (target->onCoreStarted) {
 	  target->onCoreStarted();
         }

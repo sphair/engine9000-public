@@ -284,6 +284,31 @@ target_megadrive_stubMemoryTrackGetRanges(target_memory_range_t *outRanges, size
     return 0;
 }
 
+static int
+target_megadrive_stubMemoryGetSpaces(target_memory_space_t *outSpaces, size_t cap, size_t *outCount)
+{
+    (void)outSpaces;
+    (void)cap;
+    (void)outCount;
+    debug_error("BUG: target_megadrive_stubMemoryGetSpaces called with E9K_ENABLE_MEGADRIVE=0");
+    abort();
+    return 0;
+}
+
+static int
+target_megadrive_stubRegistersReadExtra(const char **outTitle, e9k_debug_processor_reg_t *outRegs, size_t cap, size_t *outCount)
+{
+    (void)outRegs;
+    (void)cap;
+    if (outTitle) {
+        *outTitle = NULL;
+    }
+    if (outCount) {
+        *outCount = 0;
+    }
+    return 1;
+}
+
 static SDL_Texture *
 target_megadrive_stubGetBadgeTexture(SDL_Renderer *renderer, target_iface_t *t, int *outW, int *outH)
 {
@@ -348,7 +373,9 @@ static target_iface_t target_megadrive_stubTarget = {
     .coreIndex = TARGET_MEGADRIVE,
     .mousePort = -1,
     .memoryGetLimits = target_megadrive_stubMemoryGetLimits,
+    .memoryGetSpaces = target_megadrive_stubMemoryGetSpaces,
     .memoryTrackGetRanges = target_megadrive_stubMemoryTrackGetRanges,
+    .registersReadExtra = target_megadrive_stubRegistersReadExtra,
     .getBadgeTexture = target_megadrive_stubGetBadgeTexture,
     .configControllerPorts = target_megadrive_stubConfigControllerPorts,
     .controllerMapButton = target_megadrive_stubControllerMapButton,

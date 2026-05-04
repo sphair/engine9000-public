@@ -1096,8 +1096,10 @@ rom_config_clearBreakpointsCore(void)
     machine_getBreakpoints(&debugger.machine, &bps, &count);
     if (bps && count > 0) {
         for (int i = 0; i < count; ++i) {
-            uint32_t addr = (uint32_t)(bps[i].addr & 0x00ffffffu);
-            libretro_host_debugRemoveBreakpoint(addr);
+            uint32_t addr = bps[i].processorId == MACHINE_PROCESSOR_PRIMARY
+                ? (uint32_t)(bps[i].addr & 0x00ffffffu)
+                : (uint32_t)(bps[i].addr & 0x0000ffffu);
+            libretro_host_debugRemoveProcessorBreakpoint(bps[i].processorId, addr);
         }
     }
     machine_clearBreakpoints(&debugger.machine);
@@ -1414,13 +1416,24 @@ rom_config_saveOnExit(void)
     machine_getBreakpoints(&debugger.machine, &bps, &bpCount);
     data.breakpointsTextRelative = 1;
     if (bps && bpCount > 0) {
-        data.breakpoints = (rom_config_bp_entry_t*)alloc_calloc((size_t)bpCount, sizeof(*data.breakpoints));
+        int primaryBpCount = 0;
+        for (int i = 0; i < bpCount; ++i) {
+            if (bps[i].processorId == MACHINE_PROCESSOR_PRIMARY) {
+                primaryBpCount++;
+            }
+        }
+        data.breakpoints = (rom_config_bp_entry_t*)alloc_calloc((size_t)primaryBpCount, sizeof(*data.breakpoints));
         if (data.breakpoints) {
-            data.breakpointCount = (size_t)bpCount;
+            data.breakpointCount = (size_t)primaryBpCount;
+            size_t writeIndex = 0;
             for (int i = 0; i < bpCount; ++i) {
-                data.breakpoints[i].addr =
+                if (bps[i].processorId != MACHINE_PROCESSOR_PRIMARY) {
+                    continue;
+                }
+                data.breakpoints[writeIndex].addr =
                     machine_textBaseToRelativeAddr(&debugger.machine, (uint32_t)(bps[i].addr & 0x00ffffffu));
-                data.breakpoints[i].enabled = bps[i].enabled ? 1 : 0;
+                data.breakpoints[writeIndex].enabled = bps[i].enabled ? 1 : 0;
+                writeIndex++;
             }
         }
     }

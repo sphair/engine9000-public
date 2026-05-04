@@ -286,6 +286,31 @@ target_neogeo_stubMemoryTrackGetRanges(target_memory_range_t *outRanges, size_t 
     return 0;
 }
 
+static int
+target_neogeo_stubMemoryGetSpaces(target_memory_space_t *outSpaces, size_t cap, size_t *outCount)
+{
+    (void)outSpaces;
+    (void)cap;
+    (void)outCount;
+    debug_error("BUG: target_neogeo_stubMemoryGetSpaces called with E9K_ENABLE_NEOGEO=0");
+    abort();
+    return 0;
+}
+
+static int
+target_neogeo_stubRegistersReadExtra(const char **outTitle, e9k_debug_processor_reg_t *outRegs, size_t cap, size_t *outCount)
+{
+    (void)outRegs;
+    (void)cap;
+    if (outTitle) {
+        *outTitle = NULL;
+    }
+    if (outCount) {
+        *outCount = 0;
+    }
+    return 1;
+}
+
 static SDL_Texture *
 target_neogeo_stubGetBadgeTexture(SDL_Renderer *renderer, target_iface_t *t, int *outW, int *outH)
 {
@@ -350,7 +375,9 @@ static target_iface_t target_neogeo_stubTarget = {
     .coreIndex = TARGET_NEOGEO,
     .mousePort = -1,
     .memoryGetLimits = target_neogeo_stubMemoryGetLimits,
+    .memoryGetSpaces = target_neogeo_stubMemoryGetSpaces,
     .memoryTrackGetRanges = target_neogeo_stubMemoryTrackGetRanges,
+    .registersReadExtra = target_neogeo_stubRegistersReadExtra,
     .getBadgeTexture = target_neogeo_stubGetBadgeTexture,
     .configControllerPorts = target_neogeo_stubConfigControllerPorts,
     .controllerMapButton = target_neogeo_stubControllerMapButton,

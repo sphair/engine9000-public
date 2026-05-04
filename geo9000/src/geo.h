@@ -175,6 +175,7 @@ int geo_savedata_save(unsigned, const char*);
 unsigned geo_cartram_present(void);
 
 void geo_exec(void);
+int geo_stepZ80Instruction(void);
 void geo_init(void);
 void geo_reset(int);
 

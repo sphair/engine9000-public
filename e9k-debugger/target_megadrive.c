@@ -608,6 +608,27 @@ target_megadrive_memoryGetLimits(uint32_t *outMinAddr, uint32_t *outMaxAddr)
 }
 
 static int
+target_megadrive_memoryGetSpaces(target_memory_space_t *outSpaces, size_t cap, size_t *outCount)
+{
+    if (outCount) {
+        *outCount = 1;
+    }
+    if (!outSpaces || cap == 0) {
+        return 1;
+    }
+    outSpaces[0] = (target_memory_space_t){
+        .value = "main",
+        .label = "Main",
+        .minAddr = 0x00000000u,
+        .maxAddr = 0x00ffffffu,
+        .addressDigits = 6,
+        .processorMemory = 0,
+        .processorId = 0
+    };
+    return 1;
+}
+
+static int
 target_megadrive_memoryTrackGetRanges(target_memory_range_t *outRanges, size_t cap, size_t *outCount)
 {
     if (outCount) {
@@ -618,6 +639,20 @@ target_megadrive_memoryTrackGetRanges(target_memory_range_t *outRanges, size_t c
     }
     outRanges[0].baseAddr = 0x00ff0000u;
     outRanges[0].size = 0x00010000u;
+    return 1;
+}
+
+static int
+target_megadrive_registersReadExtra(const char **outTitle, e9k_debug_processor_reg_t *outRegs, size_t cap, size_t *outCount)
+{
+    (void)outRegs;
+    (void)cap;
+    if (outTitle) {
+        *outTitle = NULL;
+    }
+    if (outCount) {
+        *outCount = 0;
+    }
     return 1;
 }
 
@@ -681,7 +716,9 @@ static target_iface_t _target_megadrive = {
     .audioEnable = target_megadrive_audioEnable,
     .mousePort = -1,
     .memoryGetLimits = target_megadrive_memoryGetLimits,
+    .memoryGetSpaces = target_megadrive_memoryGetSpaces,
     .memoryTrackGetRanges = target_megadrive_memoryTrackGetRanges,
+    .registersReadExtra = target_megadrive_registersReadExtra,
     .getBadgeTexture = target_megadrive_getBadgeTexture,
     .configControllerPorts = target_megadrive_configControllerPorts,
     .controllerMapButton = target_megadrive_controllerMapButton,

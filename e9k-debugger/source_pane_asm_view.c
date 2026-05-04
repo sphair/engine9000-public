@@ -21,6 +21,7 @@
 #include "machine.h"
 #include "source_cpr.h"
 #include "source_pane_internal.h"
+#include "source_z80.h"
 
 /* Set to 0 to restore the old snapshot-while-running behavior for ASM/HEX. */
 static int source_pane_asm_view_enableLiveViews = 0;
@@ -69,6 +70,9 @@ source_pane_asm_view_resolveAsmLikeAnchorAddr(source_pane_state_t *st, uint64_t 
     if (st && st->viewMode == source_pane_mode_cpr) {
         return source_cpr_resolveAnchorAddr(addr);
     }
+    if (st && st->viewMode == source_pane_mode_z80) {
+        return source_z80_resolveAnchorAddr(addr);
+    }
     return source_pane_asm_view_resolveAsmAnchorAddr(addr);
 }
 
@@ -90,6 +94,15 @@ source_pane_asm_view_setAsmAnchorLocked(source_pane_state_t *st, uint64_t addr)
     }
     if (st->viewMode == source_pane_mode_h) {
         st->scrollIndex = 0;
+        st->scrollAnchorAddr = a;
+        st->scrollAnchorValid = 1;
+        st->scrollLocked = 1;
+        st->gutterPending = 0;
+        source_pane_syncLockButtonVisual(st);
+        return;
+    }
+    if (st->viewMode == source_pane_mode_z80) {
+        st->scrollIndex = (int)(a & 0xffffull);
         st->scrollAnchorAddr = a;
         st->scrollAnchorValid = 1;
         st->scrollLocked = 1;
@@ -135,6 +148,9 @@ source_pane_asm_view_getAsmWindow(source_pane_state_t *st, int maxLines, uint64_
 
     if (!st || maxLines <= 0 || !outLines || !outAddrs || !outCount || !outCurAddr) {
         return 0;
+    }
+    if (st->viewMode == source_pane_mode_z80) {
+        return source_z80_getWindow(st, maxLines, outCurAddr, outLines, outAddrs, outCount);
     }
 
     int streaming = (dasm_getFlags() & DASM_IFACE_FLAG_STREAMING) ? 1 : 0;
@@ -380,6 +396,48 @@ source_pane_asm_view_fontColumnWidth(TTF_Font *font)
     return w;
 }
 
+static int
+source_pane_asm_view_getAddrHexWidth(const source_pane_state_t *st)
+{
+    if (st && st->viewMode == source_pane_mode_z80) {
+        return 4;
+    }
+
+    int hexw = dasm_getAddrHexWidth();
+    if (hexw < 6) {
+        hexw = 6;
+    }
+    if (hexw > 16) {
+        hexw = 16;
+    }
+    return hexw;
+}
+
+static int
+source_pane_asm_view_debugReadBytes(const source_pane_state_t *st, uint32_t addr, uint8_t *out, size_t size)
+{
+    if (!out || size == 0) {
+        return 0;
+    }
+    if (st && st->viewMode == source_pane_mode_z80) {
+        return libretro_host_debugReadProcessorMemory(source_z80_processorId(), addr, out, size) ? 1 : 0;
+    }
+    return libretro_host_debugReadMemory(addr, out, size) ? 1 : 0;
+}
+
+static int
+source_pane_asm_view_debugDisassembleQuick(const source_pane_state_t *st,
+                                           uint32_t addr,
+                                           char *out,
+                                           size_t cap,
+                                           size_t *outLen)
+{
+    if (st && st->viewMode == source_pane_mode_z80) {
+        return libretro_host_debugDisassembleProcessorQuick(source_z80_processorId(), addr, out, cap, outLen) ? 1 : 0;
+    }
+    return libretro_host_debugDisassembleQuick(addr, out, cap, outLen) ? 1 : 0;
+}
+
 static void
 source_pane_asm_view_drawHexByteColors(e9ui_context_t *ctx,
                                        e9ui_component_t *self,
@@ -420,7 +478,8 @@ source_pane_asm_view_isAsmLikeMode(source_pane_mode_t mode)
     return (mode == source_pane_mode_a ||
             mode == source_pane_mode_sym ||
             mode == source_pane_mode_h ||
-            mode == source_pane_mode_cpr) ? 1 : 0;
+            mode == source_pane_mode_cpr ||
+            mode == source_pane_mode_z80) ? 1 : 0;
 }
 
 int
@@ -428,7 +487,8 @@ source_pane_asm_view_isCpuAsmLikeMode(source_pane_mode_t mode)
 {
     return (mode == source_pane_mode_a ||
             mode == source_pane_mode_sym ||
-            mode == source_pane_mode_h) ? 1 : 0;
+            mode == source_pane_mode_h ||
+            mode == source_pane_mode_z80) ? 1 : 0;
 }
 
 static int
@@ -557,6 +617,9 @@ source_pane_asm_view_areStepButtonsEnabled(const source_pane_state_t *st)
     if (!st || !source_pane_asm_view_isAsmLikeMode(st->viewMode)) {
         return 0;
     }
+    if (st->viewMode == source_pane_mode_z80) {
+        return 0;
+    }
     return 1;
 }
 
@@ -591,13 +654,7 @@ source_pane_asm_view_beginGutterPress(e9ui_component_t *self, e9ui_context_t *ct
     (void)curAddr;
     (void)lines;
 
-    int hexw = dasm_getAddrHexWidth();
-    if (hexw < 6) {
-        hexw = 6;
-    }
-    if (hexw > 16) {
-        hexw = 16;
-    }
+    int hexw = source_pane_asm_view_getAddrHexWidth(st);
     char sample[32];
     for (int i = 0; i < hexw; ++i) {
         sample[i] = 'F';
@@ -660,13 +717,7 @@ source_pane_asm_view_renderAsm(e9ui_component_t *self, e9ui_context_t *ctx)
     }
     int curRow = source_pane_asm_view_findCurrentAddrRow(addrs, count, curAddr);
 
-    int hexw = dasm_getAddrHexWidth();
-    if (hexw < 6) {
-        hexw = 6;
-    }
-    if (hexw > 16) {
-        hexw = 16;
-    }
+    int hexw = source_pane_asm_view_getAddrHexWidth(st);
     char sample[32];
     for (int i = 0; i < hexw; ++i) {
         sample[i] = 'F';
@@ -724,7 +775,12 @@ source_pane_asm_view_renderAsm(e9ui_component_t *self, e9ui_context_t *ctx)
         TTF_SizeText(useFont, abuf, &nw, &nh);
         int lnx = contentArea.x + padPx + (gutterW - nw);
         SDL_Color useCol = lno;
-        machine_breakpoint_t *bp = machine_findBreakpointByAddr(&debugger.machine, (uint32_t)a);
+        uint32_t processorId = st && st->viewMode == source_pane_mode_z80
+            ? source_z80_processorId()
+            : MACHINE_PROCESSOR_PRIMARY;
+        machine_breakpoint_t *bp = machine_findProcessorBreakpointByAddr(&debugger.machine,
+                                                                          processorId,
+                                                                          (uint32_t)a);
         if (bp) {
             useCol = bp->enabled ? lnoBpOn : lnoBpOff;
         }
@@ -784,13 +840,7 @@ source_pane_asm_view_beginInlineHexEditAtPoint(e9ui_component_t *self, e9ui_cont
     (void)curAddr;
     (void)lines;
 
-    hexw = dasm_getAddrHexWidth();
-    if (hexw < 6) {
-        hexw = 6;
-    }
-    if (hexw > 16) {
-        hexw = 16;
-    }
+    hexw = source_pane_asm_view_getAddrHexWidth(st);
     for (int i = 0; i < hexw; ++i) {
         sample[i] = 'F';
     }
@@ -817,14 +867,15 @@ source_pane_asm_view_beginInlineHexEditAtPoint(e9ui_component_t *self, e9ui_cont
         } else {
             char tmp[64];
             size_t len = 0;
-            if (libretro_host_debugDisassembleQuick((uint32_t)a, tmp, sizeof(tmp), &len) && len > 0 && len <= 64) {
+            if (source_pane_asm_view_debugDisassembleQuick(st, (uint32_t)a, tmp, sizeof(tmp), &len) &&
+                len > 0 && len <= 64) {
                 wantBytes = len;
             }
         }
         if (wantBytes > 16) {
             wantBytes = 16;
         }
-        if (!libretro_host_debugReadMemory((uint32_t)a, bytes, wantBytes)) {
+        if (!source_pane_asm_view_debugReadBytes(st, (uint32_t)a, bytes, wantBytes)) {
             y += metrics.lineHeight;
             continue;
         }
@@ -841,7 +892,7 @@ source_pane_asm_view_beginInlineHexEditAtPoint(e9ui_component_t *self, e9ui_cont
             my >= rect.y && my < rect.y + rect.h) {
             if (source_pane_beginInlineEdit(st,
                                             ctx,
-                                            source_pane_mode_h,
+                                            st->viewMode == source_pane_mode_z80 ? source_pane_mode_z80 : source_pane_mode_h,
                                             source_pane_inline_edit_hex_bytes,
                                             (uint32_t)a,
                                             (int)wantBytes,
@@ -899,13 +950,7 @@ source_pane_asm_view_renderHex(e9ui_component_t *self, e9ui_context_t *ctx)
     }
     int curRow = source_pane_asm_view_findCurrentAddrRow(addrs, count, curAddr);
 
-    int hexw = dasm_getAddrHexWidth();
-    if (hexw < 6) {
-        hexw = 6;
-    }
-    if (hexw > 16) {
-        hexw = 16;
-    }
+    int hexw = source_pane_asm_view_getAddrHexWidth(st);
     char sample[32];
     for (int i = 0; i < hexw; ++i) {
         sample[i] = 'F';
@@ -948,7 +993,12 @@ source_pane_asm_view_renderHex(e9ui_component_t *self, e9ui_context_t *ctx)
         TTF_SizeText(useFont, abuf, &nw, &nh);
         int lnx = contentArea.x + padPx + (gutterW - nw);
         SDL_Color useCol = lno;
-        machine_breakpoint_t *bp = machine_findBreakpointByAddr(&debugger.machine, (uint32_t)a);
+        uint32_t processorId = st && st->viewMode == source_pane_mode_z80
+            ? source_z80_processorId()
+            : MACHINE_PROCESSOR_PRIMARY;
+        machine_breakpoint_t *bp = machine_findProcessorBreakpointByAddr(&debugger.machine,
+                                                                          processorId,
+                                                                          (uint32_t)a);
         if (bp) {
             useCol = bp->enabled ? lnoBpOn : lnoBpOff;
         }
@@ -962,7 +1012,8 @@ source_pane_asm_view_renderHex(e9ui_component_t *self, e9ui_context_t *ctx)
         } else {
             char tmp[64];
             size_t len = 0;
-            if (libretro_host_debugDisassembleQuick((uint32_t)a, tmp, sizeof(tmp), &len) && len > 0 && len <= 64) {
+            if (source_pane_asm_view_debugDisassembleQuick(st, (uint32_t)a, tmp, sizeof(tmp), &len) &&
+                len > 0 && len <= 64) {
                 wantBytes = len;
             }
         }
@@ -972,7 +1023,7 @@ source_pane_asm_view_renderHex(e9ui_component_t *self, e9ui_context_t *ctx)
 
         uint8_t bytes[16];
         memset(bytes, 0, sizeof(bytes));
-        int gotBytes = libretro_host_debugReadMemory((uint32_t)a, bytes, wantBytes) ? 1 : 0;
+        int gotBytes = source_pane_asm_view_debugReadBytes(st, (uint32_t)a, bytes, wantBytes) ? 1 : 0;
 
         const int padBytes = 12;
         char hexbuf[padBytes * 3 + 1];
@@ -1070,13 +1121,7 @@ source_pane_asm_view_symbolSelectChanged(e9ui_context_t *ctx, e9ui_component_t *
     if (st->ownerPane && st->asmAddressMeta) {
         e9ui_component_t *addrBox = e9ui_child_find(st->ownerPane, st->asmAddressMeta);
         if (addrBox) {
-            int hexw = dasm_getAddrHexWidth();
-            if (hexw < 6) {
-                hexw = 6;
-            }
-            if (hexw > 16) {
-                hexw = 16;
-            }
+            int hexw = source_pane_asm_view_getAddrHexWidth(st);
             char buf[32];
             snprintf(buf, sizeof(buf), "%0*llX", hexw, (unsigned long long)(resolved & 0x00ffffffull));
             e9ui_textbox_setText(addrBox, buf);
@@ -1103,13 +1148,7 @@ source_pane_asm_view_addressSubmitted(e9ui_context_t *ctx, void *user)
         return;
     }
     uint64_t resolved = source_pane_asm_view_resolveAsmLikeAnchorAddr(st, addr);
-    int hexw = dasm_getAddrHexWidth();
-    if (hexw < 6) {
-        hexw = 6;
-    }
-    if (hexw > 16) {
-        hexw = 16;
-    }
+    int hexw = source_pane_asm_view_getAddrHexWidth(st);
     char buf[32];
     snprintf(buf, sizeof(buf), "%0*llX", hexw, (unsigned long long)(resolved & 0x00ffffffull));
     e9ui_textbox_setText(addrBox, buf);

@@ -1,7 +1,10 @@
-NEOGEO_TESTS=test-neogeosavestate test-neogeostepping test-neogeosprite test-neogeotracker test-neogeolog
-NEOGEO_REMAKE=remake-test-neogeosavestate remake-test-neogeostepping remake-test-neogeosprite remake-test-neogeotracker remake-test-neogeolog
+NEOGEO_TESTS=test-neogeosound test-neogeosavestate test-neogeostepping test-neogeosprite test-neogeotracker test-neogeolog
+NEOGEO_REMAKE=remake-test-neogeosound remake-test-neogeosavestate remake-test-neogeostepping remake-test-neogeosprite remake-test-neogeotracker remake-test-neogeolog
 
 # makers
+
+make-test-neogeosound: all 
+	./e9k-debugger --neogeo --rom=./tests/neogeo/sound/st.neo --make-test tests/results/neogeo/sound
 
 make-test-neogeosavestate: all 
 	./e9k-debugger --neogeo --rom=./tests/neogeo/basic/basic.neo --make-test tests/results/neogeo/savestate
@@ -20,6 +23,10 @@ make-test-neogeostepping: tests/neogeo/stepping/build/rom.elf
 
 
 # remakers
+
+remake-test-neogeosound: all 
+	@printf "NEO GEO SAVE SOUND ($@) ..."
+	./e9k-debugger --neogeo --volume=0 --rom=./tests/neogeo/sound/st.neo --remake-test tests/results/neogeo/sound
 
 remake-test-neogeosavestate: all 
 	@printf "NEO GEO SAVE STATE ($@) ..."
@@ -44,6 +51,11 @@ remake-test-neogeostepping: tests/neogeo/stepping/build/rom.elf
 
 # testers
 
+
+test-neogeosound: all
+	@printf "NEO GEO SOUND ($@) ..." 
+	@./e9k-debugger $(HEADLESS) --neogeo --rom=./tests/neogeo/sound/st.neo --test tests/results/neogeo/sound >> test.log 2>&1
+	@echo "PASSED ✅"
 
 test-neogeosavestate: all
 	@printf "NEO GEO SAVE STATE ($@) ..." 

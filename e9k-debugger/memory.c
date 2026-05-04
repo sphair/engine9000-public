@@ -23,6 +23,7 @@
 #include "e9ui_stack.h"
 #include "e9ui_hstack.h"
 #include "e9ui_textbox.h"
+#include "e9ui_labeled_select.h"
 #include "e9ui_data_edit.h"
 #include "e9ui_text_cache.h"
 #include "e9ui_step_buttons.h"
@@ -34,6 +35,7 @@
 
 #define MEMORY_SEARCH_MAX_PATTERN 128
 #define MEMORY_SEARCH_MAX_RANGES 64
+#define MEMORY_MAX_SPACES 8
 #define MEMORY_SEARCH_CHUNK 4096
 #define MEMORY_BYTES_PER_ROW 16u
 #define MEMORY_DEFAULT_VIEW_ROWS 32
@@ -58,6 +60,7 @@ typedef struct memory_view_state {
     int            rowsPerView;
     e9ui_component_t *ownerView;
     void           *inlineEditMeta;
+    e9ui_component_t *spaceSelect;
     e9ui_component_t *addressBox;
     e9ui_component_t *searchBox;
     uint32_t       searchMatchAddr;
@@ -76,6 +79,7 @@ typedef struct memory_view_state {
     memory_inline_edit_mode_t inlineEditMode;
     uint8_t        inlineEditOriginalBytes[MEMORY_BYTES_PER_ROW];
     SDL_Rect       inlineEditRect;
+    char           spaceValue[16];
 } memory_view_state_t;
 
 typedef struct memory_step_buttons_action_ctx {
@@ -148,18 +152,88 @@ memory_parseU64SmartHex(const char *text, unsigned long long *outValue, char **o
 }
 
 static int
-memory_getAddressLimits(uint32_t *outMinAddr, uint32_t *outMaxAddr)
+memory_getSpaces(target_memory_space_t *outSpaces, size_t cap, size_t *outCount)
 {
+    if (outCount) {
+        *outCount = 0;
+    }
+    if (target && target->memoryGetSpaces) {
+        return target->memoryGetSpaces(outSpaces, cap, outCount);
+    }
+
+    if (outCount) {
+        *outCount = 1;
+    }
+    if (!outSpaces || cap == 0) {
+        return 1;
+    }
+
+    uint32_t minAddr = 0;
+    uint32_t maxAddr = 0x00ffffffu;
+    if (target && target->memoryGetLimits) {
+        (void)target->memoryGetLimits(&minAddr, &maxAddr);
+    }
+    outSpaces[0] = (target_memory_space_t){
+        .value = "main",
+        .label = "Main",
+        .minAddr = minAddr,
+        .maxAddr = maxAddr,
+        .addressDigits = 6,
+        .processorMemory = 0,
+        .processorId = 0
+    };
+    return 1;
+}
+
+static int
+memory_getSelectedSpace(const memory_view_state_t *st, target_memory_space_t *outSpace)
+{
+    target_memory_space_t spaces[MEMORY_MAX_SPACES];
+    size_t count = 0;
+    size_t spaceCap = sizeof(spaces) / sizeof(spaces[0]);
+
+    if (!outSpace) {
+        return 0;
+    }
+    memset(spaces, 0, sizeof(spaces));
+    if (!memory_getSpaces(spaces, spaceCap, &count) || count == 0) {
+        return 0;
+    }
+    if (count > spaceCap) {
+        count = spaceCap;
+    }
+    const char *want = (st && st->spaceValue[0]) ? st->spaceValue : spaces[0].value;
+    for (size_t i = 0; i < count; ++i) {
+        if (spaces[i].value && want && strcmp(spaces[i].value, want) == 0) {
+            *outSpace = spaces[i];
+            return 1;
+        }
+    }
+    *outSpace = spaces[0];
+    return 1;
+}
+
+static int
+memory_getSelectedAddressLimits(const memory_view_state_t *st, uint32_t *outMinAddr, uint32_t *outMaxAddr)
+{
+    target_memory_space_t space;
+
     if (outMinAddr) {
         *outMinAddr = 0;
     }
     if (outMaxAddr) {
         *outMaxAddr = 0x00ffffffu;
     }
-    if (target && target->memoryGetLimits) {
-        return target->memoryGetLimits(outMinAddr, outMaxAddr);
+    if (!memory_getSelectedSpace(st, &space)) {
+        return 0;
     }
-    return 0;
+    if (outMinAddr) {
+        *outMinAddr = space.minAddr;
+    }
+    if (outMaxAddr) {
+        *outMaxAddr = space.maxAddr;
+    }
+    return 1;
 }
 
 static void
@@ -168,8 +242,15 @@ memory_syncTextboxFromBase(memory_view_state_t *st)
     if (!st || !st->addressBox) {
         return;
     }
+    target_memory_space_t space;
+    int digits = 6;
+    uint32_t maxAddr = 0x00ffffffu;
+    if (memory_getSelectedSpace(st, &space)) {
+        digits = space.addressDigits > 0 ? space.addressDigits : 6;
+        maxAddr = space.maxAddr;
+    }
     char addrText[32];
-    snprintf(addrText, sizeof(addrText), "0x%06X", st->base & 0x00ffffffu);
+    snprintf(addrText, sizeof(addrText), "0x%0*X", digits, st->base & maxAddr);
     e9ui_textbox_setText(st->addressBox, addrText);
 }
 
@@ -207,11 +288,11 @@ static uint32_t
 memory_clampBaseForView(memory_view_state_t *st, uint32_t base)
 {
     if (!st) {
-        return base & 0x00ffffffu;
+        return base;
     }
     uint32_t minAddr = 0;
     uint32_t maxAddr = 0x00ffffffu;
-    if (!memory_getAddressLimits(&minAddr, &maxAddr)) {
+    if (!memory_getSelectedAddressLimits(st, &minAddr, &maxAddr)) {
         minAddr = 0;
         maxAddr = 0x00ffffffu;
     }
@@ -226,14 +307,14 @@ memory_clampBaseForView(memory_view_state_t *st, uint32_t base)
     if (maxBase < minAddr) {
         maxBase = minAddr;
     }
-    uint32_t base24 = base & 0x00ffffffu;
-    if (base24 < minAddr) {
-        base24 = minAddr;
+    uint32_t clamped = base;
+    if (clamped < minAddr) {
+        clamped = minAddr;
     }
-    if (base24 > maxBase) {
-        base24 = maxBase;
+    if (clamped > maxBase) {
+        clamped = maxBase;
     }
-    return base24;
+    return clamped;
 }
 
 static int
@@ -255,7 +336,7 @@ memory_scrollRows(memory_view_state_t *st, int rows)
         memory_inlineEditCancel(st, NULL);
     }
     int64_t delta = (int64_t)rows * 16ll;
-    int64_t rawBase = (int64_t)(uint32_t)(st->base & 0x00ffffffu) + delta;
+    int64_t rawBase = (int64_t)(uint32_t)st->base + delta;
     if (rawBase < 0) {
         rawBase = 0;
     }
@@ -433,6 +514,37 @@ memory_parseInlineAsciiBytes(const char *text, const uint8_t *originalBytes, uin
 }
 
 static int
+memory_readRaw(memory_view_state_t *st, uint32_t addr, void *out, size_t size)
+{
+    target_memory_space_t space;
+
+    if (!out || size == 0) {
+        return 0;
+    }
+    if (!memory_getSelectedSpace(st, &space)) {
+        return libretro_host_debugReadMemory(addr, out, size) ? 1 : 0;
+    }
+    if (space.processorMemory) {
+        return libretro_host_debugReadProcessorMemory(space.processorId, addr, out, size) ? 1 : 0;
+    }
+    return libretro_host_debugReadMemory(addr, out, size) ? 1 : 0;
+}
+
+static int
+memory_writeRaw(memory_view_state_t *st, uint32_t addr, uint32_t value, size_t size)
+{
+    target_memory_space_t space;
+
+    if (!memory_getSelectedSpace(st, &space)) {
+        return libretro_host_debugWriteMemory(addr, value, size) ? 1 : 0;
+    }
+    if (space.processorMemory) {
+        return libretro_host_debugWriteProcessorMemory(space.processorId, addr, value, size) ? 1 : 0;
+    }
+    return libretro_host_debugWriteMemory(addr, value, size) ? 1 : 0;
+}
+
+static int
 memory_parseAddress(memory_view_state_t *st, unsigned int *out_addr)
 {
     if (!st || !st->addressBox || !out_addr) {
@@ -456,15 +568,11 @@ memory_parseAddress(memory_view_state_t *st, unsigned int *out_addr)
         memory_setError(st, "Invalid address: \"%s\"", t);
         return 0;
     }
-    if (val > 0x00ffffffull) {
-        memory_setError(st, "Address outside 24-bit range (0x000000-0xFFFFFF)");
-        return 0;
-    }
     uint32_t minAddr = 0;
     uint32_t maxAddr = 0x00ffffffu;
-    int hasLimits = memory_getAddressLimits(&minAddr, &maxAddr);
-    if (hasLimits && ((uint32_t)val < minAddr || (uint32_t)val > maxAddr)) {
-        memory_setError(st, "Address outside range (0x%06X-0x%06X)", minAddr, maxAddr);
+    int hasLimits = memory_getSelectedAddressLimits(st, &minAddr, &maxAddr);
+    if (val > UINT32_MAX || (hasLimits && ((uint32_t)val < minAddr || (uint32_t)val > maxAddr))) {
+        memory_setError(st, "Address outside range (0x%X-0x%X)", minAddr, maxAddr);
         return 0;
     }
     *out_addr = (unsigned int)val;
@@ -480,16 +588,16 @@ memory_readRange(memory_view_state_t *st, uint32_t base, uint8_t *data, unsigned
     memset(data, 0, size);
     uint32_t minAddr = 0;
     uint32_t maxAddr = 0x00ffffffu;
-    int hasLimits = memory_getAddressLimits(&minAddr, &maxAddr);
+    int hasLimits = memory_getSelectedAddressLimits(st, &minAddr, &maxAddr);
     memory_setError(st, NULL);
     uint32_t clampedMin = hasLimits ? minAddr : 0u;
     uint32_t clampedMax = hasLimits ? maxAddr : 0x00ffffffu;
-    uint64_t rangeStart = (uint64_t)(base & 0x00ffffffu);
+    uint64_t rangeStart = (uint64_t)base;
     uint64_t rangeEnd = rangeStart + (uint64_t)size - 1ull;
     int rangeError = 0;
 
-    if (rangeEnd > 0x00ffffffull) {
-        rangeEnd = 0x00ffffffull;
+    if (rangeEnd > (uint64_t)clampedMax) {
+        rangeEnd = clampedMax;
         rangeError = 1;
     }
     if (rangeStart < (uint64_t)clampedMin || rangeEnd > (uint64_t)clampedMax) {
@@ -508,14 +616,14 @@ memory_readRange(memory_view_state_t *st, uint32_t base, uint8_t *data, unsigned
     if (readEnd >= readStart) {
         unsigned int dstOffset = (unsigned int)(readStart - rangeStart);
         unsigned int readSize = (unsigned int)(readEnd - readStart + 1ull);
-        if (!libretro_host_debugReadMemory((uint32_t)readStart, data + dstOffset, readSize)) {
+        if (!memory_readRaw(st, (uint32_t)readStart, data + dstOffset, readSize)) {
             rangeError = 1;
         }
     }
 
     if (rangeError) {
         if (hasLimits) {
-            memory_setError(st, "Range exceeds limits (0x%06X-0x%06X)", minAddr, maxAddr);
+            memory_setError(st, "Range exceeds limits (0x%X-0x%X)", minAddr, maxAddr);
         } else {
             memory_setError(st, "Range exceeds 24-bit address space (0x000000-0xFFFFFF)");
         }
@@ -523,7 +631,7 @@ memory_readRange(memory_view_state_t *st, uint32_t base, uint8_t *data, unsigned
 }
 
 static int
-memory_readEditableRange(uint32_t base, uint8_t *data, int size)
+memory_readEditableRange(memory_view_state_t *st, uint32_t base, uint8_t *data, int size)
 {
     uint32_t minAddr = 0;
     uint32_t maxAddr = 0x00ffffffu;
@@ -531,7 +639,7 @@ memory_readEditableRange(uint32_t base, uint8_t *data, int size)
     if (!data || size <= 0) {
         return 0;
     }
-    if (!memory_getAddressLimits(&minAddr, &maxAddr)) {
+    if (!memory_getSelectedAddressLimits(st, &minAddr, &maxAddr)) {
         minAddr = 0;
         maxAddr = 0x00ffffffu;
     }
@@ -541,28 +649,33 @@ memory_readEditableRange(uint32_t base, uint8_t *data, int size)
     if ((uint64_t)base + (uint64_t)size - 1ull > (uint64_t)maxAddr) {
         return 0;
     }
-    return libretro_host_debugReadMemory(base, data, (size_t)size) ? 1 : 0;
+    return memory_readRaw(st, base, data, (size_t)size) ? 1 : 0;
 }
 
 static int
-memory_writeHexBytes(uint32_t addr, const uint8_t *bytes, int count)
+memory_writeHexBytes(memory_view_state_t *st, uint32_t addr, const uint8_t *bytes, int count)
 {
     int i = 0;
+    target_memory_space_t space;
+    int byteWritesOnly = 0;
 
     if (!bytes || count <= 0) {
         return 0;
     }
+    if (memory_getSelectedSpace(st, &space) && space.processorMemory) {
+        byteWritesOnly = 1;
+    }
 
     while (i < count) {
-        if ((i + 1) < count) {
+        if (!byteWritesOnly && (i + 1) < count) {
             uint16_t word = (uint16_t)(((uint16_t)bytes[i] << 8) | (uint16_t)bytes[i + 1]);
-            if (!libretro_host_debugWriteMemory(addr + (uint32_t)i, (uint32_t)word, 2)) {
+            if (!memory_writeRaw(st, addr + (uint32_t)i, (uint32_t)word, 2)) {
                 return 0;
             }
             i += 2;
             continue;
         }
-        if (!libretro_host_debugWriteMemory(addr + (uint32_t)i, (uint32_t)bytes[i], 1)) {
+        if (!memory_writeRaw(st, addr + (uint32_t)i, (uint32_t)bytes[i], 1)) {
             return 0;
         }
         i += 1;
@@ -571,7 +684,7 @@ memory_writeHexBytes(uint32_t addr, const uint8_t *bytes, int count)
 }
 
 static int
-memory_verifyHexBytes(uint32_t addr, const uint8_t *bytes, int count)
+memory_verifyHexBytes(memory_view_state_t *st, uint32_t addr, const uint8_t *bytes, int count)
 {
     uint8_t check[MEMORY_BYTES_PER_ROW];
 
@@ -579,7 +692,7 @@ memory_verifyHexBytes(uint32_t addr, const uint8_t *bytes, int count)
         return 0;
     }
     memset(check, 0, sizeof(check));
-    if (!libretro_host_debugReadMemory(addr, check, (size_t)count)) {
+    if (!memory_readRaw(st, addr, check, (size_t)count)) {
         return 0;
     }
     return memcmp(check, bytes, (size_t)count) == 0 ? 1 : 0;
@@ -603,13 +716,52 @@ memory_onAddressSubmit(e9ui_context_t *ctx, void *user)
     memory_syncTextboxFromBase(st);
 }
 
+static void
+memory_onSpaceChanged(e9ui_context_t *ctx, e9ui_component_t *comp, const char *value, void *user)
+{
+    memory_view_state_t *st = (memory_view_state_t*)user;
+
+    (void)comp;
+    if (!st || !value) {
+        return;
+    }
+    if (st->inlineEditActive) {
+        memory_inlineEditCancel(st, ctx);
+    }
+    size_t len = strlen(value);
+    if (len >= sizeof(st->spaceValue)) {
+        len = sizeof(st->spaceValue) - 1;
+    }
+    memcpy(st->spaceValue, value, len);
+    st->spaceValue[len] = '\0';
+    st->searchMatchValid = 0;
+    st->searchMatchAddr = 0;
+    st->searchMatchLen = 0;
+    uint32_t minAddr = 0;
+    uint32_t maxAddr = 0x00ffffffu;
+    if (!memory_getSelectedAddressLimits(st, &minAddr, &maxAddr)) {
+        minAddr = 0;
+        maxAddr = 0x00ffffffu;
+    }
+    (void)maxAddr;
+    st->base = memory_clampBaseForView(st, minAddr);
+    memory_syncTextboxFromBase(st);
+}
+
 static int
-memory_collectSearchRanges(target_memory_range_t *outRanges, size_t cap, size_t *outCount)
+memory_collectSearchRanges(memory_view_state_t *st, target_memory_range_t *outRanges, size_t cap, size_t *outCount)
 {
     if (!outRanges || cap == 0 || !outCount) {
         return 0;
     }
     *outCount = 0;
+    target_memory_space_t space;
+    if (memory_getSelectedSpace(st, &space) && space.processorMemory) {
+        outRanges[0].baseAddr = space.minAddr;
+        outRanges[0].size = (space.maxAddr - space.minAddr) + 1u;
+        *outCount = 1;
+        return 1;
+    }
     if (target && target->memoryTrackGetRanges) {
         size_t count = 0;
         if (target->memoryTrackGetRanges(outRanges, cap, &count) && count > 0) {
@@ -628,7 +780,7 @@ memory_collectSearchRanges(target_memory_range_t *outRanges, size_t cap, size_t 
     }
     uint32_t minAddr = 0;
     uint32_t maxAddr = 0x00ffffffu;
-    if (!memory_getAddressLimits(&minAddr, &maxAddr)) {
+    if (!memory_getSelectedAddressLimits(st, &minAddr, &maxAddr)) {
         minAddr = 0;
         maxAddr = 0x00ffffffu;
     }
@@ -670,7 +822,7 @@ memory_patternMatchesAt(const uint8_t *bytes, int avail, const memory_search_pat
 }
 
 static int
-memory_scanRangeForMatch(uint32_t scanStart, uint32_t scanEndInclusive,
+memory_scanRangeForMatch(memory_view_state_t *st, uint32_t scanStart, uint32_t scanEndInclusive,
                          const memory_search_pattern_t *pattern,
                          uint32_t *outAddr, int *outLen)
 {
@@ -692,7 +844,7 @@ memory_scanRangeForMatch(uint32_t scanStart, uint32_t scanEndInclusive,
         if (want > MEMORY_SEARCH_CHUNK) {
             want = MEMORY_SEARCH_CHUNK;
         }
-        if (!libretro_host_debugReadMemory(addr, chunk, want)) {
+        if (!memory_readRaw(st, addr, chunk, want)) {
             uint32_t step = (uint32_t)want;
             if (step == 0) {
                 step = 1;
@@ -731,7 +883,7 @@ memory_scanRangeForMatch(uint32_t scanStart, uint32_t scanEndInclusive,
 }
 
 static int
-memory_scanRangeForLastMatch(uint32_t scanStart, uint32_t scanEndInclusive,
+memory_scanRangeForLastMatch(memory_view_state_t *st, uint32_t scanStart, uint32_t scanEndInclusive,
                              const memory_search_pattern_t *pattern,
                              uint32_t *outAddr, int *outLen)
 {
@@ -756,7 +908,7 @@ memory_scanRangeForLastMatch(uint32_t scanStart, uint32_t scanEndInclusive,
         if (want > MEMORY_SEARCH_CHUNK) {
             want = MEMORY_SEARCH_CHUNK;
         }
-        if (!libretro_host_debugReadMemory(addr, chunk, want)) {
+        if (!memory_readRaw(st, addr, chunk, want)) {
             uint32_t step = (uint32_t)want;
             if (step == 0) {
                 step = 1;
@@ -803,22 +955,23 @@ static int
 memory_findNextMatch(memory_view_state_t *st, const memory_search_pattern_t *pattern,
                      uint32_t startAddr, uint32_t *outAddr, int *outLen)
 {
-    (void)st;
     target_memory_range_t ranges[MEMORY_SEARCH_MAX_RANGES];
     size_t rangeCount = 0;
-    if (!memory_collectSearchRanges(ranges, MEMORY_SEARCH_MAX_RANGES, &rangeCount) || rangeCount == 0) {
+    if (!memory_collectSearchRanges(st, ranges, MEMORY_SEARCH_MAX_RANGES, &rangeCount) || rangeCount == 0) {
         return 0;
     }
+    uint32_t maxAddr = 0x00ffffffu;
+    (void)memory_getSelectedAddressLimits(st, NULL, &maxAddr);
     for (int pass = 0; pass < 2; ++pass) {
         for (size_t i = 0; i < rangeCount; ++i) {
-            uint32_t base = ranges[i].baseAddr & 0x00ffffffu;
+            uint32_t base = ranges[i].baseAddr;
             uint32_t size = ranges[i].size;
             if (size == 0) {
                 continue;
             }
             uint32_t end = base + size - 1u;
             if (end < base) {
-                end = 0x00ffffffu;
+                end = maxAddr;
             }
             uint32_t scanStart = base;
             uint32_t scanEnd = end;
@@ -840,7 +993,7 @@ memory_findNextMatch(memory_view_state_t *st, const memory_search_pattern_t *pat
             if (scanEnd < scanStart) {
                 continue;
             }
-            if (memory_scanRangeForMatch(scanStart, scanEnd, pattern, outAddr, outLen)) {
+            if (memory_scanRangeForMatch(st, scanStart, scanEnd, pattern, outAddr, outLen)) {
                 return 1;
             }
         }
@@ -852,22 +1005,23 @@ static int
 memory_findPrevMatch(memory_view_state_t *st, const memory_search_pattern_t *pattern,
                      uint32_t startAddr, uint32_t *outAddr, int *outLen)
 {
-    (void)st;
     target_memory_range_t ranges[MEMORY_SEARCH_MAX_RANGES];
     size_t rangeCount = 0;
-    if (!memory_collectSearchRanges(ranges, MEMORY_SEARCH_MAX_RANGES, &rangeCount) || rangeCount == 0) {
+    if (!memory_collectSearchRanges(st, ranges, MEMORY_SEARCH_MAX_RANGES, &rangeCount) || rangeCount == 0) {
         return 0;
     }
+    uint32_t maxAddr = 0x00ffffffu;
+    (void)memory_getSelectedAddressLimits(st, NULL, &maxAddr);
     for (int pass = 0; pass < 2; ++pass) {
         for (int i = (int)rangeCount - 1; i >= 0; --i) {
-            uint32_t base = ranges[i].baseAddr & 0x00ffffffu;
+            uint32_t base = ranges[i].baseAddr;
             uint32_t size = ranges[i].size;
             if (size == 0) {
                 continue;
             }
             uint32_t end = base + size - 1u;
             if (end < base) {
-                end = 0x00ffffffu;
+                end = maxAddr;
             }
             uint32_t scanStart = base;
             uint32_t scanEnd = end;
@@ -889,7 +1043,7 @@ memory_findPrevMatch(memory_view_state_t *st, const memory_search_pattern_t *pat
             if (scanEnd < scanStart) {
                 continue;
             }
-            if (memory_scanRangeForLastMatch(scanStart, scanEnd, pattern, outAddr, outLen)) {
+            if (memory_scanRangeForLastMatch(st, scanStart, scanEnd, pattern, outAddr, outLen)) {
                 return 1;
             }
         }
@@ -961,12 +1115,15 @@ memory_runSearch(memory_view_state_t *st, int direction, int advance)
         st->searchMatchLen = 0;
         return;
     }
-    uint32_t startAddr = st->base & 0x00ffffffu;
+    uint32_t minAddr = 0;
+    uint32_t maxAddr = 0x00ffffffu;
+    (void)memory_getSelectedAddressLimits(st, &minAddr, &maxAddr);
+    uint32_t startAddr = st->base;
     if (advance && st->searchMatchValid) {
         if (direction >= 0) {
-            startAddr = (st->searchMatchAddr + 1u) & 0x00ffffffu;
+            startAddr = st->searchMatchAddr < maxAddr ? st->searchMatchAddr + 1u : minAddr;
         } else {
-            startAddr = (st->searchMatchAddr - 1u) & 0x00ffffffu;
+            startAddr = st->searchMatchAddr > minAddr ? st->searchMatchAddr - 1u : maxAddr;
         }
     }
     uint32_t hitAddr = 0;
@@ -984,7 +1141,7 @@ memory_runSearch(memory_view_state_t *st, int direction, int advance)
         return;
     }
     st->searchMatchValid = 1;
-    st->searchMatchAddr = hitAddr & 0x00ffffffu;
+    st->searchMatchAddr = hitAddr;
     st->searchMatchLen = hitLen;
 
     uint32_t wantBase = memory_clampBaseForView(st, hitAddr & ~0x0fu);
@@ -1507,7 +1664,7 @@ memory_markVisibleMatches(memory_view_state_t *st, const memory_search_pattern_t
         }
     }
     if (st->searchMatchValid && st->searchMatchLen > 0) {
-        uint32_t viewStart = st->base & 0x00ffffffu;
+        uint32_t viewStart = st->base;
         uint32_t viewEnd = viewStart + viewByteCount - 1u;
         if (st->searchMatchAddr >= viewStart && st->searchMatchAddr <= viewEnd) {
             unsigned int start = (unsigned int)(st->searchMatchAddr - viewStart);
@@ -1617,12 +1774,12 @@ memory_inlineEditCommit(memory_view_state_t *st, e9ui_context_t *ctx)
         memory_inlineEditCancel(st, ctx);
         return 0;
     }
-    if (!memory_writeHexBytes(st->inlineEditAddr, bytes, st->inlineEditByteCount)) {
+    if (!memory_writeHexBytes(st, st->inlineEditAddr, bytes, st->inlineEditByteCount)) {
         e9ui_showTransientMessage("WRITE FAILED - NO CORE SUPPORT?");
         e9ui_data_edit_selectAllExternal(editor);
         return 0;
     }
-    if (!memory_verifyHexBytes(st->inlineEditAddr, bytes, st->inlineEditByteCount)) {
+    if (!memory_verifyHexBytes(st, st->inlineEditAddr, bytes, st->inlineEditByteCount)) {
         e9ui_showTransientMessage("UNABLE TO WRITE DATA - ROM ?");
         e9ui_data_edit_selectAllExternal(editor);
         return 0;
@@ -1727,8 +1884,8 @@ memory_beginInlineEditAtPoint(e9ui_component_t *self, e9ui_context_t *ctx, memor
     }
 
     off = (unsigned int)row * MEMORY_BYTES_PER_ROW;
-    rowAddr = (st->base + off) & 0x00ffffffu;
-    if (!memory_readEditableRange(rowAddr, rowData, (int)MEMORY_BYTES_PER_ROW)) {
+    rowAddr = st->base + off;
+    if (!memory_readEditableRange(st, rowAddr, rowData, (int)MEMORY_BYTES_PER_ROW)) {
         return 0;
     }
 
@@ -1960,7 +2117,7 @@ memory_render(e9ui_component_t *self, e9ui_context_t *ctx)
     char line[256];
     for (int row = 0; row < availableRows; ++row) {
         unsigned int off = (unsigned int)row * MEMORY_BYTES_PER_ROW;
-        uint32_t rowAddr = (st->base + off) & 0x00ffffffu;
+        uint32_t rowAddr = st->base + off;
         const uint8_t *rowData = viewData ? viewData + off : NULL;
         memory_formatRowLine(line, sizeof(line), rowAddr, rowData);
         int baseX = r.x + pad - st->scrollX;
@@ -2080,10 +2237,44 @@ memory_makeComponent(void)
     c->dtor = memory_dtor;
     c->focusable = 1;
     st->ownerView = c;
+
+    target_memory_space_t spaces[MEMORY_MAX_SPACES];
+    e9ui_select_option_t options[MEMORY_MAX_SPACES];
+    size_t spaceCount = 0;
+    size_t spaceCap = sizeof(spaces) / sizeof(spaces[0]);
+    memset(spaces, 0, sizeof(spaces));
+    memset(options, 0, sizeof(options));
+    if (!memory_getSpaces(spaces, spaceCap, &spaceCount) || spaceCount == 0) {
+        spaces[0] = (target_memory_space_t){
+            .value = "main",
+            .label = "Main",
+            .minAddr = 0x00000000u,
+            .maxAddr = 0x00ffffffu,
+            .addressDigits = 6,
+            .processorMemory = 0,
+            .processorId = 0
+        };
+        spaceCount = 1;
+    }
+    if (spaceCount > spaceCap) {
+        spaceCount = spaceCap;
+    }
+    for (size_t i = 0; i < spaceCount; ++i) {
+        options[i].value = spaces[i].value ? spaces[i].value : "main";
+        options[i].label = spaces[i].label ? spaces[i].label : options[i].value;
+    }
+    if (spaces[0].value) {
+        size_t len = strlen(spaces[0].value);
+        if (len >= sizeof(st->spaceValue)) {
+            len = sizeof(st->spaceValue) - 1;
+        }
+        memcpy(st->spaceValue, spaces[0].value, len);
+        st->spaceValue[len] = '\0';
+    }
     
     uint32_t minAddr = 0;
     uint32_t maxAddr = 0x00ffffffu;
-    if (memory_getAddressLimits(&minAddr, &maxAddr)) {
+    if (memory_getSelectedAddressLimits(st, &minAddr, &maxAddr)) {
         st->base = minAddr;
     } else {
         st->base = 0;
@@ -2092,6 +2283,16 @@ memory_makeComponent(void)
     st->rowsPerView = MEMORY_DEFAULT_VIEW_ROWS;
     memory_setError(st, NULL);
 
+    if (spaceCount > 1) {
+        st->spaceSelect = e9ui_labeled_select_make(NULL,
+                                                   0,
+                                                   88,
+                                                   options,
+                                                   (int)spaceCount,
+                                                   st->spaceValue,
+                                                   memory_onSpaceChanged,
+                                                   st);
+    }
     st->addressBox = e9ui_textbox_make(32, memory_onAddressSubmit, NULL, st);
     st->searchBox = e9ui_textbox_make(128, memory_onSearchSubmit, memory_onSearchChange, st);
     e9ui_component_t *inlineEdit = e9ui_data_edit_make((int)MEMORY_BYTES_PER_ROW, memory_inlineEditSubmitted, st);
@@ -2108,6 +2309,9 @@ memory_makeComponent(void)
     e9ui_textbox_setPlaceholder(st->searchBox, "Search (hex/ascii)");
     memory_syncTextboxFromBase(st);
 
+    if (st->spaceSelect) {
+        e9ui_hstack_addFixed(row, st->spaceSelect, 88);
+    }
     e9ui_hstack_addFlex(row, st->addressBox);
     e9ui_hstack_addFlex(row, st->searchBox);
 

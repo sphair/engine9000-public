@@ -28,10 +28,16 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef GEO_Z80_H
-#define GEO_Z80_H
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "e9k-lib.h"
 
 int geo_z80_run(unsigned);
+int geo_z80_stepInstruction(void);
+void geo_z80_debugSuppressBreakpointAtPc(void);
 void geo_z80_nmi(void);
 void geo_z80_assert_irq(unsigned);
 void geo_z80_clear_irq(void);
@@ -41,8 +47,12 @@ void geo_z80_set_mrom(unsigned);
 void geo_z80_state_load(uint8_t*);
 void geo_z80_state_save(uint8_t*);
 const void* geo_z80_ram_ptr(void);
+size_t geo_z80_debugReadRegs(e9k_debug_processor_reg_t *out, size_t cap);
+size_t geo_z80_debugReadMemory(uint32_t addr, uint8_t *out, size_t cap);
+int geo_z80_debugWriteMemory(uint32_t addr, uint32_t value, size_t size);
+size_t geo_z80_debugDisassemble(uint32_t pc, char *out, size_t cap);
+void geo_z80_debugAddBreakpoint(uint32_t addr);
+void geo_z80_debugRemoveBreakpoint(uint32_t addr);
 #ifdef E9K_HACK_REGISTER_LOG
 uint16_t geo_z80_getPc(void);
-#endif
-
 #endif

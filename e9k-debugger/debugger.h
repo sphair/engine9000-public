@@ -107,6 +107,7 @@ typedef struct e9k_debugger {
     int seeking;
     int hasStateSnapshot;
     int speedMultiplier;
+    uint32_t activeDebugProcessorId;
     int frameStepMode;
     int frameStepPending;
     int suppressBpActive;

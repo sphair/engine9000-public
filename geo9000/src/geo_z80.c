@@ -31,10 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "geo.h"
 #include "geo_lspc.h"
 #include "geo_z80.h"
+#include "geo_z80_dasm.h"
 #include "geo_serial.h"
 #include "e9k_debugger.h"
 #include "ymfm/ymfm_opn.h"
@@ -48,6 +50,9 @@ static uint8_t *mrom = NULL;
 static uint8_t nmi_enabled = 0;
 static uint8_t zram[SIZE_2K];
 static uint32_t zbank[4];
+static uint8_t debugBreakpoints[0x10000 / 8];
+static uint16_t debugSuppressedBreakpointAddr = 0;
+static int debugSuppressedBreakpointActive = 0;
 
 /* Z80 Memory Map
  * =====================================================================
@@ -136,6 +141,31 @@ static inline void geo_z80_bankswap(uint8_t bank, uint16_t port) {
             zbank[3] = ((port >> 8) & 0x7f) * SIZE_2K;
             break;
     }
+}
+
+static int
+geo_z80_debugHasBreakpoint(uint16_t addr)
+{
+    return (debugBreakpoints[addr >> 3] & (uint8_t)(1u << (addr & 7u))) ? 1 : 0;
+}
+
+static int
+geo_z80_debugBreakIfNeeded(void)
+{
+    if (debugSuppressedBreakpointActive) {
+        if (debugSuppressedBreakpointAddr == z80ctx.pc) {
+            debugSuppressedBreakpointActive = 0;
+            return 0;
+        }
+        debugSuppressedBreakpointActive = 0;
+    }
+    if (!geo_z80_debugHasBreakpoint(z80ctx.pc)) {
+        return 0;
+    }
+    debugSuppressedBreakpointAddr = z80ctx.pc;
+    debugSuppressedBreakpointActive = 1;
+    e9k_debugger_break_immediate();
+    return 1;
 }
 
 #ifdef E9K_HACK_REGISTER_LOG
@@ -241,6 +271,7 @@ static void geo_z80_port_wr(z80 *userdata, uint16_t port, uint8_t value) {
 void geo_z80_reset(void) {
     z80_reset(&z80ctx);
     nmi_enabled = 0;
+    debugSuppressedBreakpointActive = 0;
 
     // Set the M ROM based on system type - AES does not have SM1 ROM
     geo_z80_set_mrom(geo_get_system() == SYSTEM_AES);
@@ -270,8 +301,36 @@ void geo_z80_init(void) {
 }
 
 // Run at least N Z80 cycles
-int geo_z80_run(unsigned cycs) {
-    return z80_step_n(&z80ctx, cycs);
+int
+geo_z80_run(unsigned cycs)
+{
+    unsigned done = 0;
+    while (done < cycs) {
+        if (geo_z80_debugBreakIfNeeded()) {
+            break;
+        }
+        done += z80_step(&z80ctx);
+    }
+    return (int)done;
+}
+
+int
+geo_z80_stepInstruction(void)
+{
+    if (!debugSuppressedBreakpointActive && geo_z80_debugBreakIfNeeded()) {
+        return 0;
+    }
+    return z80_step(&z80ctx);
+}
+
+void
+geo_z80_debugSuppressBreakpointAtPc(void)
+{
+    if (!geo_z80_debugHasBreakpoint(z80ctx.pc)) {
+        return;
+    }
+    debugSuppressedBreakpointAddr = z80ctx.pc;
+    debugSuppressedBreakpointActive = 1;
 }
 
 // Pulse the Z80 NMI line
@@ -296,6 +355,7 @@ void geo_z80_set_mrom(unsigned m) {
 
 // Restore the Z80's state from external data
 void geo_z80_state_load(uint8_t *st) {
+    debugSuppressedBreakpointActive = 0;
     z80ctx.pc = geo_serial_pop16(st);
     z80ctx.sp = geo_serial_pop16(st);
     z80ctx.ix = geo_serial_pop16(st);
@@ -373,6 +433,157 @@ void geo_z80_state_save(uint8_t *st) {
 // Return a pointer to Z80 RAM
 const void* geo_z80_ram_ptr(void) {
     return zram;
+}
+
+static void
+geo_z80_debugSetReg(e9k_debug_processor_reg_t *reg, const char *name, uint64_t value, uint8_t bits)
+{
+    memset(reg, 0, sizeof(*reg));
+    strncpy(reg->name, name, sizeof(reg->name) - 1);
+    reg->value = value;
+    reg->bits = bits;
+}
+
+size_t
+geo_z80_debugReadRegs(e9k_debug_processor_reg_t *out, size_t cap)
+{
+    enum { regCount = 22 };
+
+    if (!out || cap == 0) {
+        return 0;
+    }
+
+    size_t count = regCount;
+    if (count > cap) {
+        count = cap;
+    }
+
+    size_t i = 0;
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "AF", z80ctx.af, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "BC", z80ctx.bc, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "DE", z80ctx.de, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "HL", z80ctx.hl, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "AF'", z80ctx.a_f_, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "BC'", z80ctx.b_c_, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "DE'", z80ctx.d_e_, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "HL'", z80ctx.h_l_, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "IX", z80ctx.ix, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "IY", z80ctx.iy, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "SP", z80ctx.sp, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "PC", z80ctx.pc, 16);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "I", z80ctx.i, 8);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "R", z80ctx.r, 8);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "IM", z80ctx.interrupt_mode, 8);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "IFF1", z80ctx.iff1 ? 1u : 0u, 1);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "IFF2", z80ctx.iff2 ? 1u : 0u, 1);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "HALT", z80ctx.halted ? 1u : 0u, 1);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "BANK0", zbank[0], 32);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "BANK1", zbank[1], 32);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "BANK2", zbank[2], 32);
+    }
+    if (i < count) {
+        geo_z80_debugSetReg(&out[i++], "BANK3", zbank[3], 32);
+    }
+
+    return count;
+}
+
+size_t
+geo_z80_debugReadMemory(uint32_t addr, uint8_t *out, size_t cap)
+{
+    if (!out || cap == 0) {
+        return 0;
+    }
+    for (size_t i = 0; i < cap; ++i) {
+        out[i] = geo_z80_mem_rd(NULL, (uint16_t)(addr + (uint32_t)i));
+    }
+    return cap;
+}
+
+int
+geo_z80_debugWriteMemory(uint32_t addr, uint32_t value, size_t size)
+{
+    if (size != 1) {
+        return 0;
+    }
+    uint16_t addr16 = (uint16_t)addr;
+    if (addr16 < 0xf800u) {
+        return 0;
+    }
+    geo_z80_mem_wr(NULL, addr16, (uint8_t)(value & 0xffu));
+    return 1;
+}
+
+void
+geo_z80_debugAddBreakpoint(uint32_t addr)
+{
+    uint16_t addr16 = (uint16_t)addr;
+    debugBreakpoints[addr16 >> 3] |= (uint8_t)(1u << (addr16 & 7u));
+}
+
+void
+geo_z80_debugRemoveBreakpoint(uint32_t addr)
+{
+    uint16_t addr16 = (uint16_t)addr;
+    debugBreakpoints[addr16 >> 3] &= (uint8_t)~(uint8_t)(1u << (addr16 & 7u));
+    if (debugSuppressedBreakpointActive && debugSuppressedBreakpointAddr == addr16) {
+        debugSuppressedBreakpointActive = 0;
+    }
+}
+
+size_t
+geo_z80_debugDisassemble(uint32_t pc, char *out, size_t cap)
+{
+    uint8_t bytes[4];
+
+    if (!out || cap == 0) {
+        return 0;
+    }
+    for (size_t i = 0; i < sizeof(bytes); ++i) {
+        bytes[i] = geo_z80_mem_rd(NULL, (uint16_t)(pc + (uint32_t)i));
+    }
+    return geo_z80_dasmDisassemble(bytes, pc, out, cap);
 }
 
 #ifdef E9K_HACK_REGISTER_LOG

@@ -90,6 +90,27 @@ bool
 libretro_host_readRegs(uint32_t *out, size_t cap, size_t *out_count);
 
 bool
+libretro_host_debugReadProcessors(e9k_debug_processor_info_t *out, size_t cap, size_t *out_count);
+
+bool
+libretro_host_debugReadProcessorRegs(uint32_t processorId, e9k_debug_processor_reg_t *out, size_t cap, size_t *out_count);
+
+bool
+libretro_host_debugReadProcessorMemory(uint32_t processorId, uint32_t addr, void *out, size_t cap);
+
+bool
+libretro_host_debugWriteProcessorMemory(uint32_t processorId, uint32_t addr, uint32_t value, size_t size);
+
+bool
+libretro_host_debugDisassembleProcessorQuick(uint32_t processorId, uint32_t pc, char *out, size_t cap, size_t *out_len);
+
+bool
+libretro_host_debugSuppressProcessorBreakpointAtPc(uint32_t processorId);
+
+bool
+libretro_host_debugStepProcessorInstr(uint32_t processorId);
+
+bool
 libretro_host_debugPause(void);
 
 bool
@@ -115,6 +136,12 @@ libretro_host_debugAddBreakpoint(uint32_t addr);
 
 bool
 libretro_host_debugRemoveBreakpoint(uint32_t addr);
+
+bool
+libretro_host_debugAddProcessorBreakpoint(uint32_t processorId, uint32_t addr);
+
+bool
+libretro_host_debugRemoveProcessorBreakpoint(uint32_t processorId, uint32_t addr);
 
 bool
 libretro_host_debugAddTempBreakpoint(uint32_t addr);

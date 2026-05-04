@@ -1651,6 +1651,27 @@ target_amiga_memoryGetLimits(uint32_t *outMinAddr, uint32_t *outMaxAddr)
 }
 
 static int
+target_amiga_memoryGetSpaces(target_memory_space_t *outSpaces, size_t cap, size_t *outCount)
+{
+    if (outCount) {
+        *outCount = 1;
+    }
+    if (!outSpaces || cap == 0) {
+        return 1;
+    }
+    outSpaces[0] = (target_memory_space_t){
+        .value = "main",
+        .label = "Main",
+        .minAddr = 0x00000000u,
+        .maxAddr = 0x00ffffffu,
+        .addressDigits = 6,
+        .processorMemory = 0,
+        .processorId = 0
+    };
+    return 1;
+}
+
+static int
 target_amiga_memoryTrackGetRanges(target_memory_range_t *outRanges, size_t cap, size_t *outCount)
 {
     const struct retro_memory_descriptor *descriptors = NULL;
@@ -1705,6 +1726,20 @@ target_amiga_memoryTrackGetRanges(target_memory_range_t *outRanges, size_t cap, 
     return 1;
 }
 
+static int
+target_amiga_registersReadExtra(const char **outTitle, e9k_debug_processor_reg_t *outRegs, size_t cap, size_t *outCount)
+{
+    (void)outRegs;
+    (void)cap;
+    if (outTitle) {
+        *outTitle = NULL;
+    }
+    if (outCount) {
+        *outCount = 0;
+    }
+    return 1;
+}
+
 static target_iface_t _target_amiga = {
     .name = "AMIGA",
     .dasm = &dasm_ami_iface,
@@ -1742,7 +1777,9 @@ static target_iface_t _target_amiga = {
     .audioEnable = target_amiga_audioEnable,
     .mousePort = LIBRETRO_HOST_MAX_PORTS,
     .memoryGetLimits = target_amiga_memoryGetLimits,
+    .memoryGetSpaces = target_amiga_memoryGetSpaces,
     .memoryTrackGetRanges = target_amiga_memoryTrackGetRanges,
+    .registersReadExtra = target_amiga_registersReadExtra,
     .getBadgeTexture = target_amiga_getBadgeTexture,
     .configControllerPorts = target_amiga_configControllerPorts,
     .controllerMapButton = target_amiga_controllerMapButton,

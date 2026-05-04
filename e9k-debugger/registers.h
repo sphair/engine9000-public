@@ -13,4 +13,6 @@
 e9ui_component_t *
 registers_makeComponent(void);
 
+void
+registers_refreshExtraRegsNow(e9ui_component_t *component);
 

@@ -870,6 +870,21 @@ void geo_watchdog_reset(void) {
     ngsys.watchdog = 0;
 }
 
+int
+geo_stepZ80Instruction(void)
+{
+    int scycs = geo_z80_stepInstruction();
+    if (scycs <= 0) {
+        return 0;
+    }
+    zcycs += (uint32_t)scycs * DIV_Z80;
+    ymcycs += (uint32_t)scycs;
+    while (ymcycs >= DIV_YM2610) {
+        ymcycs -= DIV_YM2610;
+        ymsamps += geo_ymfm_exec();
+    }
+    return 1;
+}
 
 void geo_exec(void) {
     int dbg_broke_midframe = 0;
@@ -897,12 +912,19 @@ void geo_exec(void) {
         // Catch the Z80 and YM2610 up to the 68K
         while (zcycs < mcycs) {
             size_t scycs = geo_z80_run(1);
+            if (e9k_debugger_break_now()) {
+                dbg_broke_midframe = 1;
+                break;
+            }
             zcycs += scycs * DIV_Z80;
             ymcycs += scycs;
             if (ymcycs >= DIV_YM2610) {
                 ymcycs -= DIV_YM2610;
                 ymsamps += geo_ymfm_exec();
             }
+        }
+        if (dbg_broke_midframe) {
+            break;
         }
     }
 

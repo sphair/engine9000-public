@@ -23,6 +23,7 @@
 #include "debugger.h"
 #include "input_record.h"
 #include "alloc.h"
+#include "machine.h"
 #include "state_wrap.h"
 
 
@@ -47,6 +48,13 @@ typedef bool (*retro_serialize_fn_t)(void *data, size_t size);
 typedef bool (*retro_unserialize_fn_t)(const void *data, size_t size);
 typedef void (*retro_set_controller_port_device_fn_t)(unsigned port, unsigned device);
 typedef size_t (*e9k_debug_read_regs_fn_t)(uint32_t *out, size_t cap);
+typedef size_t (*e9k_debug_read_processors_fn_t)(e9k_debug_processor_info_t *out, size_t cap);
+typedef size_t (*e9k_debug_read_processor_regs_fn_t)(uint32_t processorId, e9k_debug_processor_reg_t *out, size_t cap);
+typedef size_t (*e9k_debug_read_processor_memory_fn_t)(uint32_t processorId, uint32_t addr, uint8_t *out, size_t cap);
+typedef int (*e9k_debug_write_processor_memory_fn_t)(uint32_t processorId, uint32_t addr, uint32_t value, size_t size);
+typedef size_t (*e9k_debug_disassemble_processor_quick_fn_t)(uint32_t processorId, uint32_t pc, char *out, size_t cap);
+typedef int (*e9k_debug_suppress_processor_breakpoint_at_pc_fn_t)(uint32_t processorId);
+typedef int (*e9k_debug_step_processor_instr_fn_t)(uint32_t processorId);
 typedef void (*e9k_debug_pause_fn_t)(void);
 typedef void (*e9k_debug_resume_fn_t)(void);
 typedef int (*e9k_debug_is_paused_fn_t)(void);
@@ -56,6 +64,8 @@ typedef void (*e9k_debug_step_next_fn_t)(void);
 typedef void (*e9k_debug_step_out_fn_t)(void);
 typedef void (*e9k_debug_add_breakpoint_fn_t)(uint32_t addr);
 typedef void (*e9k_debug_remove_breakpoint_fn_t)(uint32_t addr);
+typedef void (*e9k_debug_add_processor_breakpoint_fn_t)(uint32_t processorId, uint32_t addr);
+typedef void (*e9k_debug_remove_processor_breakpoint_fn_t)(uint32_t processorId, uint32_t addr);
 typedef void (*e9k_debug_add_temp_breakpoint_fn_t)(uint32_t addr);
 typedef void (*e9k_debug_remove_temp_breakpoint_fn_t)(uint32_t addr);
 typedef void (*e9k_debug_reset_watchpoints_fn_t)(void);
@@ -204,6 +214,13 @@ typedef struct  {
     retro_unserialize_fn_t unserialize;
     retro_set_controller_port_device_fn_t setControllerPortDevice;
     e9k_debug_read_regs_fn_t debugReadRegs;
+    e9k_debug_read_processors_fn_t debugReadProcessors;
+    e9k_debug_read_processor_regs_fn_t debugReadProcessorRegs;
+    e9k_debug_read_processor_memory_fn_t debugReadProcessorMemory;
+    e9k_debug_write_processor_memory_fn_t debugWriteProcessorMemory;
+    e9k_debug_disassemble_processor_quick_fn_t debugDisassembleProcessorQuick;
+    e9k_debug_suppress_processor_breakpoint_at_pc_fn_t debugSuppressProcessorBreakpointAtPc;
+    e9k_debug_step_processor_instr_fn_t debugStepProcessorInstr;
     e9k_debug_pause_fn_t debugPause;
     e9k_debug_resume_fn_t debugResume;
     e9k_debug_is_paused_fn_t debugIsPaused;
@@ -213,6 +230,8 @@ typedef struct  {
     e9k_debug_step_out_fn_t debugStepOut;
     e9k_debug_add_breakpoint_fn_t debugAddBreakpoint;
     e9k_debug_remove_breakpoint_fn_t debugRemoveBreakpoint;
+    e9k_debug_add_processor_breakpoint_fn_t debugAddProcessorBreakpoint;
+    e9k_debug_remove_processor_breakpoint_fn_t debugRemoveProcessorBreakpoint;
     e9k_debug_add_temp_breakpoint_fn_t debugAddTempBreakpoint;
     e9k_debug_remove_temp_breakpoint_fn_t debugRemoveTempBreakpoint;
     e9k_debug_reset_watchpoints_fn_t debugResetWatchpoints;
@@ -2013,6 +2032,13 @@ libretro_host_start(const char *corePath, const char *romPath,
     libretro_host.unserialize = (retro_unserialize_fn_t)libretro_host_loadSymbol("retro_unserialize");
     libretro_host.setControllerPortDevice = (retro_set_controller_port_device_fn_t)libretro_host_loadSymbol("retro_set_controller_port_device");
     libretro_host.debugReadRegs = (e9k_debug_read_regs_fn_t)libretro_host_loadSymbol("e9k_debug_read_regs");
+    libretro_host.debugReadProcessors = (e9k_debug_read_processors_fn_t)libretro_host_loadSymbol("e9k_debug_read_processors");
+    libretro_host.debugReadProcessorRegs = (e9k_debug_read_processor_regs_fn_t)libretro_host_loadSymbol("e9k_debug_read_processor_regs");
+    libretro_host.debugReadProcessorMemory = (e9k_debug_read_processor_memory_fn_t)libretro_host_loadSymbol("e9k_debug_read_processor_memory");
+    libretro_host.debugWriteProcessorMemory = (e9k_debug_write_processor_memory_fn_t)libretro_host_loadSymbol("e9k_debug_write_processor_memory");
+    libretro_host.debugDisassembleProcessorQuick = (e9k_debug_disassemble_processor_quick_fn_t)libretro_host_loadSymbol("e9k_debug_disassemble_processor_quick");
+    libretro_host.debugSuppressProcessorBreakpointAtPc = (e9k_debug_suppress_processor_breakpoint_at_pc_fn_t)libretro_host_loadSymbol("e9k_debug_suppress_processor_breakpoint_at_pc");
+    libretro_host.debugStepProcessorInstr = (e9k_debug_step_processor_instr_fn_t)libretro_host_loadSymbol("e9k_debug_step_processor_instr");
     libretro_host.debugPause = (e9k_debug_pause_fn_t)libretro_host_loadSymbol("e9k_debug_pause");
     libretro_host.debugResume = (e9k_debug_resume_fn_t)libretro_host_loadSymbol("e9k_debug_resume");
     libretro_host.debugIsPaused = (e9k_debug_is_paused_fn_t)libretro_host_loadSymbol("e9k_debug_is_paused");
@@ -2022,6 +2048,8 @@ libretro_host_start(const char *corePath, const char *romPath,
     libretro_host.debugStepOut = (e9k_debug_step_out_fn_t)libretro_host_loadSymbol("e9k_debug_step_out");
     libretro_host.debugAddBreakpoint = (e9k_debug_add_breakpoint_fn_t)libretro_host_loadSymbol("e9k_debug_add_breakpoint");
     libretro_host.debugRemoveBreakpoint = (e9k_debug_remove_breakpoint_fn_t)libretro_host_loadSymbol("e9k_debug_remove_breakpoint");
+    libretro_host.debugAddProcessorBreakpoint = (e9k_debug_add_processor_breakpoint_fn_t)libretro_host_loadSymbol("e9k_debug_add_processor_breakpoint");
+    libretro_host.debugRemoveProcessorBreakpoint = (e9k_debug_remove_processor_breakpoint_fn_t)libretro_host_loadSymbol("e9k_debug_remove_processor_breakpoint");
     libretro_host.debugAddTempBreakpoint = (e9k_debug_add_temp_breakpoint_fn_t)libretro_host_loadSymbol("e9k_debug_add_temp_breakpoint");
     libretro_host.debugRemoveTempBreakpoint = (e9k_debug_remove_temp_breakpoint_fn_t)libretro_host_loadSymbol("e9k_debug_remove_temp_breakpoint");
     libretro_host.debugResetWatchpoints = (e9k_debug_reset_watchpoints_fn_t)libretro_host_loadSymbol("e9k_debug_reset_watchpoints");
@@ -2435,6 +2463,93 @@ libretro_host_readRegs(uint32_t *out, size_t cap, size_t *out_count)
 }
 
 bool
+libretro_host_debugReadProcessors(e9k_debug_processor_info_t *out, size_t cap, size_t *out_count)
+{
+    if (out_count) {
+        *out_count = 0;
+    }
+    if (!out || cap == 0 || !libretro_host.debugReadProcessors) {
+        return false;
+    }
+    size_t n = libretro_host.debugReadProcessors(out, cap);
+    if (out_count) {
+        *out_count = n;
+    }
+    return n > 0;
+}
+
+bool
+libretro_host_debugReadProcessorRegs(uint32_t processorId, e9k_debug_processor_reg_t *out, size_t cap, size_t *out_count)
+{
+    if (out_count) {
+        *out_count = 0;
+    }
+    if (!out || cap == 0 || !libretro_host.debugReadProcessorRegs) {
+        return false;
+    }
+    size_t n = libretro_host.debugReadProcessorRegs(processorId, out, cap);
+    if (out_count) {
+        *out_count = n;
+    }
+    return n > 0;
+}
+
+bool
+libretro_host_debugReadProcessorMemory(uint32_t processorId, uint32_t addr, void *out, size_t cap)
+{
+    if (!out || cap == 0 || !libretro_host.debugReadProcessorMemory) {
+        return false;
+    }
+    return libretro_host.debugReadProcessorMemory(processorId, addr, (uint8_t *)out, cap) == cap;
+}
+
+bool
+libretro_host_debugWriteProcessorMemory(uint32_t processorId, uint32_t addr, uint32_t value, size_t size)
+{
+    if (!libretro_host.debugWriteProcessorMemory) {
+        return false;
+    }
+    return libretro_host.debugWriteProcessorMemory(processorId, addr, value, size) ? true : false;
+}
+
+bool
+libretro_host_debugDisassembleProcessorQuick(uint32_t processorId, uint32_t pc, char *out, size_t cap, size_t *out_len)
+{
+    if (out_len) {
+        *out_len = 0;
+    }
+    if (out && cap > 0) {
+        out[0] = '\0';
+    }
+    if (!out || cap == 0 || !libretro_host.debugDisassembleProcessorQuick) {
+        return false;
+    }
+    size_t n = libretro_host.debugDisassembleProcessorQuick(processorId, pc, out, cap);
+    if (out_len) {
+        *out_len = n;
+    }
+    return n > 0;
+}
+
+bool
+libretro_host_debugSuppressProcessorBreakpointAtPc(uint32_t processorId)
+{
+    if (!libretro_host.debugSuppressProcessorBreakpointAtPc) {
+        return false;
+    }
+    return libretro_host.debugSuppressProcessorBreakpointAtPc(processorId) ? true : false;
+}
+
+bool
+libretro_host_debugStepProcessorInstr(uint32_t processorId)
+{
+    if (!libretro_host.debugStepProcessorInstr) {
+        return false;
+    }
+    return libretro_host.debugStepProcessorInstr(processorId) ? true : false;
+}
+
+bool
 libretro_host_debugPause(void)
 {
     if (!libretro_host.debugPause) {
@@ -2526,6 +2641,32 @@ libretro_host_debugRemoveBreakpoint(uint32_t addr)
         return false;
     }
     libretro_host.debugRemoveBreakpoint(addr);
+    return true;
+}
+
+bool
+libretro_host_debugAddProcessorBreakpoint(uint32_t processorId, uint32_t addr)
+{
+    if (processorId == MACHINE_PROCESSOR_PRIMARY) {
+        return libretro_host_debugAddBreakpoint(addr);
+    }
+    if (!libretro_host.debugAddProcessorBreakpoint) {
+        return false;
+    }
+    libretro_host.debugAddProcessorBreakpoint(processorId, addr);
+    return true;
+}
+
+bool
+libretro_host_debugRemoveProcessorBreakpoint(uint32_t processorId, uint32_t addr)
+{
+    if (processorId == MACHINE_PROCESSOR_PRIMARY) {
+        return libretro_host_debugRemoveBreakpoint(addr);
+    }
+    if (!libretro_host.debugRemoveProcessorBreakpoint) {
+        return false;
+    }
+    libretro_host.debugRemoveProcessorBreakpoint(processorId, addr);
     return true;
 }
 
@@ -3429,8 +3570,10 @@ libretro_host_resetCore(void)
             if (!bps[i].enabled) {
                 continue;
             }
-            uint32_t addr = (uint32_t)(bps[i].addr & 0x00ffffffu);
-            libretro_host_debugAddBreakpoint(addr);
+            uint32_t addr = bps[i].processorId == MACHINE_PROCESSOR_PRIMARY
+                ? (uint32_t)(bps[i].addr & 0x00ffffffu)
+                : (uint32_t)(bps[i].addr & 0x0000ffffu);
+            libretro_host_debugAddProcessorBreakpoint(bps[i].processorId, addr);
         }
     }
     if (debugger.config.neogeo.skipBiosLogo) {

@@ -287,6 +287,31 @@ target_amiga_stubMemoryTrackGetRanges(target_memory_range_t *outRanges, size_t c
     return 0;
 }
 
+static int
+target_amiga_stubMemoryGetSpaces(target_memory_space_t *outSpaces, size_t cap, size_t *outCount)
+{
+    (void)outSpaces;
+    (void)cap;
+    (void)outCount;
+    debug_error("BUG: target_amiga_stubMemoryGetSpaces called with E9K_ENABLE_AMIGA=0");
+    abort();
+    return 0;
+}
+
+static int
+target_amiga_stubRegistersReadExtra(const char **outTitle, e9k_debug_processor_reg_t *outRegs, size_t cap, size_t *outCount)
+{
+    (void)outRegs;
+    (void)cap;
+    if (outTitle) {
+        *outTitle = NULL;
+    }
+    if (outCount) {
+        *outCount = 0;
+    }
+    return 1;
+}
+
 static SDL_Texture *
 target_amiga_stubGetBadgeTexture(SDL_Renderer *renderer, target_iface_t *t, int *outW, int *outH)
 {
@@ -774,7 +799,9 @@ static target_iface_t target_amiga_stubTarget = {
     .coreIndex = TARGET_AMIGA,
     .mousePort = -1,
     .memoryGetLimits = target_amiga_stubMemoryGetLimits,
+    .memoryGetSpaces = target_amiga_stubMemoryGetSpaces,
     .memoryTrackGetRanges = target_amiga_stubMemoryTrackGetRanges,
+    .registersReadExtra = target_amiga_stubRegistersReadExtra,
     .getBadgeTexture = target_amiga_stubGetBadgeTexture,
     .configControllerPorts = target_amiga_stubConfigControllerPorts,
     .controllerMapButton = target_amiga_stubControllerMapButton,
