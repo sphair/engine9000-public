@@ -109,7 +109,7 @@ source_pane_source_view_drawSegment(e9ui_context_t *ctx, e9ui_component_t *owner
     }
 
     e9ui_text_select_drawText(ctx, owner, font, seg, color, x, y,
-                              lineHeight, hitW, sourceBucket, 0, 1);
+                              lineHeight, hitW, sourceBucket, 0, 0);
     if (seg != stackBuf) {
         free(seg);
     }
