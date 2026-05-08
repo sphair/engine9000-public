@@ -157,6 +157,13 @@ source_pane_source_view_pointInBounds(const e9ui_component_t *comp, int x, int y
 }
 
 static int
+source_pane_source_view_hoverSupportedMode(source_pane_mode_t mode)
+{
+    return (mode == source_pane_mode_c ||
+            mode == source_pane_mode_z80s) ? 1 : 0;
+}
+
+static int
 source_pane_source_view_getTarget(source_pane_state_t *st,
                                   int allowWhileRunning,
                                   const char **outPath,
@@ -664,7 +671,7 @@ source_pane_source_view_updateHoverTooltip(e9ui_component_t *self, e9ui_context_
     if (ev && ev->type != SDL_MOUSEMOTION) {
         return;
     }
-    if (st->viewMode != source_pane_mode_c) {
+    if (!source_pane_source_view_hoverSupportedMode(st->viewMode)) {
         source_pane_source_view_clearHover(self, st);
         return;
     }
@@ -723,9 +730,14 @@ source_pane_source_view_updateHoverTooltip(e9ui_component_t *self, e9ui_context_
         }
     }
 
-    unsigned long pcReg = 0;
-    (void)machine_findReg(&debugger.machine, "PC", &pcReg);
-    uint32_t pc = (uint32_t)pcReg;
+    uint32_t pc = 0;
+    if (st->viewMode == source_pane_mode_z80s) {
+        pc = (uint32_t)source_z80_getCurrentAddr(st);
+    } else {
+        unsigned long pcReg = 0;
+        (void)machine_findReg(&debugger.machine, "PC", &pcReg);
+        pc = (uint32_t)pcReg;
+    }
     int sameTarget = st->hoverActive &&
                      st->hoverLine == lineNo &&
                      st->hoverCol == column &&

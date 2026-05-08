@@ -11,6 +11,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+typedef struct print_resolved_address {
+    uint32_t address;
+    uint32_t processorId;
+    size_t size;
+    int hasProcessorMemory;
+} print_resolved_address_t;
+
 int
 print_eval_print(const char *expr);
 
@@ -28,6 +35,9 @@ print_eval_resolveSymbol(const char *name, uint32_t *outAddr, size_t *outSize);
 
 int
 print_eval_resolveAddress(const char *expr, uint32_t *outAddr, size_t *outSize);
+
+int
+print_eval_resolveAddressInfo(const char *expr, print_resolved_address_t *outAddress);
 
 int
 print_eval_resolveNamedKind(const char *name, int *outIsVariable);

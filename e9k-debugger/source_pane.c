@@ -1618,20 +1618,38 @@ source_pane_refreshModeOptions(e9ui_component_t *comp, source_pane_state_t *st)
         return;
     }
 
+    int optionsKind = 0;
     if (source_cpr_isModeAvailable()) {
-        e9ui_textbox_setOptions(select,
-                                modeOptionsAmiga,
-                                (int)(sizeof(modeOptionsAmiga) / sizeof(modeOptionsAmiga[0])));
+        optionsKind = 1;
     } else if (source_z80_isModeAvailable()) {
-        e9ui_textbox_setOptions(select,
-                                modeOptionsNeoGeo,
-                                (int)(sizeof(modeOptionsNeoGeo) / sizeof(modeOptionsNeoGeo[0])));
-    } else {
-        e9ui_textbox_setOptions(select,
-                                modeOptionsBase,
-                                (int)(sizeof(modeOptionsBase) / sizeof(modeOptionsBase[0])));
+        optionsKind = 2;
+    }
+    if (st->modeOptionsKind != optionsKind) {
+        if (optionsKind == 1) {
+            e9ui_textbox_setOptions(select,
+                                    modeOptionsAmiga,
+                                    (int)(sizeof(modeOptionsAmiga) / sizeof(modeOptionsAmiga[0])));
+        } else if (optionsKind == 2) {
+            e9ui_textbox_setOptions(select,
+                                    modeOptionsNeoGeo,
+                                    (int)(sizeof(modeOptionsNeoGeo) / sizeof(modeOptionsNeoGeo[0])));
+        } else {
+            e9ui_textbox_setOptions(select,
+                                    modeOptionsBase,
+                                    (int)(sizeof(modeOptionsBase) / sizeof(modeOptionsBase[0])));
+        }
+        st->modeOptionsKind = optionsKind;
     }
     e9ui_textbox_setSelectedValue(select, source_pane_modeValue(st->viewMode));
+}
+
+static void
+source_pane_forceRefreshModeOptions(e9ui_component_t *comp, source_pane_state_t *st)
+{
+    if (st) {
+        st->modeOptionsKind = -1;
+    }
+    source_pane_refreshModeOptions(comp, st);
 }
 
 static void
@@ -2161,14 +2179,6 @@ source_pane_render(e9ui_component_t *self, e9ui_context_t *ctx)
     SDL_Rect area = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
     source_pane_state_t *st = (source_pane_state_t*)self->state;
     if (st) {
-        if (st->viewMode == source_pane_mode_cpr && !source_cpr_isModeAvailable()) {
-            source_pane_setModeInternal(self, source_pane_mode_h, 0);
-        }
-        if ((st->viewMode == source_pane_mode_z80 ||
-             st->viewMode == source_pane_mode_z80s) && !source_z80_isModeAvailable()) {
-            source_pane_setModeInternal(self, source_pane_mode_a, 0);
-        }
-        source_pane_refreshModeOptions(self, st);
         source_pane_mode_t stepMode = st->viewMode;
         int stepEnabled = source_pane_areAsmViewStepButtonsEnabled(st);
         source_pane_step_buttons_action_ctx_t actionCtx = {
@@ -2451,13 +2461,6 @@ source_pane_handleEventComp(e9ui_component_t *self, e9ui_context_t *ctx, const e
         return 0;
     }
     source_pane_state_t *st = (source_pane_state_t*)self->state;
-    if (st && st->viewMode == source_pane_mode_cpr && !source_cpr_isModeAvailable()) {
-        source_pane_setModeInternal(self, source_pane_mode_h, 0);
-    }
-    if (st && (st->viewMode == source_pane_mode_z80 ||
-               st->viewMode == source_pane_mode_z80s) && !source_z80_isModeAvailable()) {
-        source_pane_setModeInternal(self, source_pane_mode_a, 0);
-    }
     source_pane_mode_t mode = st ? st->viewMode : source_pane_mode_c;
     inlineEdit = source_pane_inlineEditComponent(st);
     if (st && st->inlineEditActive && ctx && inlineEdit &&
@@ -3010,6 +3013,7 @@ source_pane_make(void)
   st->scrollLine = 1;
   st->scrollIndex = 0;
   st->scrollLocked = 0;
+  st->modeOptionsKind = -1;
   st->ownerPane = c;
   c->state = st;
   c->focusable = 1;
@@ -3095,7 +3099,7 @@ source_pane_make(void)
       e9ui_setHidden(inlineDataEdit, 1);
   }
 
-  source_pane_refreshModeOptions(c, st);
+  source_pane_forceRefreshModeOptions(c, st);
   
   return c;
 }

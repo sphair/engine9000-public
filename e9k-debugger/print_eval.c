@@ -29,13 +29,16 @@
 #include "libretro_host.h"
 #include "machine.h"
 #include "symbol_text_map.h"
+#include "source_z80.h"
 #include "strutil.h"
 
 typedef struct print_value {
     print_type_t *type;
     uint32_t address;
+    uint32_t processorId;
     uint64_t immediate;
     int hasAddress;
+    int hasProcessorMemory;
     int hasImmediate;
 } print_value_t;
 
@@ -48,6 +51,9 @@ static print_value_t
 print_eval_makeAddressValue(print_type_t *type, uint32_t addr);
 
 static print_value_t
+print_eval_makeProcessorAddressValue(print_type_t *type, uint32_t processorId, uint32_t addr);
+
+static print_value_t
 print_eval_makeImmediateValue(print_type_t *type, uint64_t immediate);
 
 static print_type_t *
@@ -58,6 +64,9 @@ print_eval_defaultU32(print_index_t *index);
 
 static uint32_t
 print_eval_hashString(const char *s);
+
+static void
+print_eval_buildDwarfLocalLookup(print_index_t *index);
 
 static print_index_t print_eval_index = {0};
 static char *print_eval_captureBuffer = NULL;
@@ -380,6 +389,9 @@ print_eval_resolveLocalDwarf(const char *name, print_index_t *index, print_value
     print_dwarf_node_t *bestNode = NULL;
     uint32_t bestTypeRef = 0;
     int bestChainIndex = INT_MAX;
+    if (!index->dwarfLocalLookup || index->dwarfLocalLookupMask == 0 || !index->dwarfLocalNext) {
+        print_eval_buildDwarfLocalLookup(index);
+    }
     if (index->dwarfLocalLookup && index->dwarfLocalLookupMask != 0 && index->dwarfLocalNext) {
         uint32_t h = print_eval_hashString(name);
         uint32_t pos = h & index->dwarfLocalLookupMask;
@@ -1779,7 +1791,6 @@ print_eval_loadIndex(print_index_t *index)
         }
     }
     print_eval_buildSymbolLookup(index);
-    print_eval_buildDwarfLocalLookup(index);
     uint64_t tLookup = 0;
     if (print_eval_perfEnabled()) {
         tLookup = print_eval_nowNs();
@@ -1829,10 +1840,37 @@ print_eval_findSymbol(print_index_t *index, const char *name)
 }
 
 static int
-print_eval_readMemory(uint32_t addr, void *out, size_t size)
+print_eval_findZ80Symbol(const char *name, uint16_t *outAddr)
+{
+    if (outAddr) {
+        *outAddr = 0;
+    }
+    if (!name || !*name || !outAddr || !source_z80_isModeAvailable()) {
+        return 0;
+    }
+    int count = source_z80_getSymbolCount();
+    for (int i = 0; i < count; ++i) {
+        const char *symbolName = NULL;
+        uint16_t addr = 0;
+        if (!source_z80_getSymbol(i, &symbolName, &addr)) {
+            continue;
+        }
+        if (symbolName && strcmp(symbolName, name) == 0) {
+            *outAddr = addr;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int
+print_eval_readMemory(uint32_t addr, uint32_t processorId, int hasProcessorMemory, void *out, size_t size)
 {
     if (!out || size == 0) {
         return 0;
+    }
+    if (hasProcessorMemory) {
+        return libretro_host_debugReadProcessorMemory(processorId, addr, out, size) ? 1 : 0;
     }
     if (libretro_host_debugReadMemory(addr, out, size)) {
         return 1;
@@ -1859,7 +1897,7 @@ print_eval_readMemory(uint32_t addr, void *out, size_t size)
 }
 
 static uint64_t
-print_eval_readUnsigned(uint32_t addr, size_t size, int *ok)
+print_eval_readUnsigned(uint32_t addr, uint32_t processorId, int hasProcessorMemory, size_t size, int *ok)
 {
     uint8_t buf[16];
     if (ok) {
@@ -1868,7 +1906,7 @@ print_eval_readUnsigned(uint32_t addr, size_t size, int *ok)
     if (size == 0 || size > sizeof(buf)) {
         return 0;
     }
-    if (!print_eval_readMemory(addr, buf, size)) {
+    if (!print_eval_readMemory(addr, processorId, hasProcessorMemory, buf, size)) {
         return 0;
     }
     uint64_t val = 0;
@@ -1934,7 +1972,8 @@ print_eval_printLine(int indent, const char *fmt, ...)
 }
 
 static void
-print_eval_dumpValueAt(print_type_t *type, uint32_t addr, int indent, const char *label)
+print_eval_dumpValueAt(print_type_t *type, uint32_t addr, uint32_t processorId, int hasProcessorMemory,
+                       int indent, const char *label)
 {
     print_type_t *resolved = print_eval_resolveType(type);
     if (!resolved) {
@@ -1945,7 +1984,7 @@ print_eval_dumpValueAt(print_type_t *type, uint32_t addr, int indent, const char
         case print_type_base: {
             int ok = 0;
             size_t size = resolved->byteSize > 0 ? resolved->byteSize : 4;
-            uint64_t val = print_eval_readUnsigned(addr, size, &ok);
+            uint64_t val = print_eval_readUnsigned(addr, processorId, hasProcessorMemory, size, &ok);
             if (!ok) {
                 if (print_eval_debugEnabled() && label && print_eval_debugWantsSymbol(label)) {
                     debug_printf("print: unreadable addr=0x%08X size=%u kind=base\n", (unsigned)addr, (unsigned)size);
@@ -1986,7 +2025,7 @@ print_eval_dumpValueAt(print_type_t *type, uint32_t addr, int indent, const char
         case print_type_pointer: {
             int ok = 0;
             size_t size = resolved->byteSize > 0 ? resolved->byteSize : 4;
-            uint64_t ptrVal = print_eval_readUnsigned(addr, size, &ok);
+            uint64_t ptrVal = print_eval_readUnsigned(addr, processorId, hasProcessorMemory, size, &ok);
             if (!ok) {
                 if (print_eval_debugEnabled() && label && print_eval_debugWantsSymbol(label)) {
                     debug_printf("print: unreadable addr=0x%08X size=%u kind=ptr\n", (unsigned)addr, (unsigned)size);
@@ -2003,7 +2042,8 @@ print_eval_dumpValueAt(print_type_t *type, uint32_t addr, int indent, const char
                 print_member_t *member = &resolved->members[i];
                 uint32_t memberAddr = addr + member->offset;
                 const char *memberName = member->name ? member->name : "<member>";
-                print_eval_dumpValueAt(member->type, memberAddr, indent + 2, memberName);
+                print_eval_dumpValueAt(member->type, memberAddr, processorId, hasProcessorMemory,
+                                       indent + 2, memberName);
             }
             return;
         }
@@ -2018,14 +2058,15 @@ print_eval_dumpValueAt(print_type_t *type, uint32_t addr, int indent, const char
                 uint32_t elemAddr = addr + (uint32_t)(i * elemSize);
                 char nameBuf[64];
                 snprintf(nameBuf, sizeof(nameBuf), "[%zu]", i);
-                print_eval_dumpValueAt(resolved->targetType, elemAddr, indent + 2, nameBuf);
+                print_eval_dumpValueAt(resolved->targetType, elemAddr, processorId, hasProcessorMemory,
+                                       indent + 2, nameBuf);
             }
             return;
         }
         case print_type_enum: {
             int ok = 0;
             size_t size = resolved->byteSize > 0 ? resolved->byteSize : 4;
-            uint64_t val = print_eval_readUnsigned(addr, size, &ok);
+            uint64_t val = print_eval_readUnsigned(addr, processorId, hasProcessorMemory, size, &ok);
             if (!ok) {
                 if (print_eval_debugEnabled() && label && print_eval_debugWantsSymbol(label)) {
                     debug_printf("print: unreadable addr=0x%08X size=%u kind=enum\n", (unsigned)addr, (unsigned)size);
@@ -2062,7 +2103,11 @@ print_eval_readPointerValue(const print_value_t *value, uint32_t *outAddr)
         size = value->type->byteSize;
     }
     int ok = 0;
-    uint64_t val = print_eval_readUnsigned(value->address, size, &ok);
+    uint64_t val = print_eval_readUnsigned(value->address,
+                                           value->processorId,
+                                           value->hasProcessorMemory,
+                                           size,
+                                           &ok);
     if (!ok) {
         return 0;
     }
@@ -2146,6 +2191,19 @@ print_eval_makeAddressValue(print_type_t *type, uint32_t addr)
     val.type = type;
     val.address = addr;
     val.hasAddress = 1;
+    return val;
+}
+
+static print_value_t
+print_eval_makeProcessorAddressValue(print_type_t *type, uint32_t processorId, uint32_t addr)
+{
+    print_value_t val;
+    memset(&val, 0, sizeof(val));
+    val.type = type;
+    val.address = addr;
+    val.processorId = processorId;
+    val.hasAddress = 1;
+    val.hasProcessorMemory = 1;
     return val;
 }
 
@@ -2235,7 +2293,11 @@ print_eval_valueToImmediate(const print_value_t *value, int typeOnly, uint64_t *
         size = resolved->byteSize;
     }
     int ok = 0;
-    uint64_t imm = print_eval_readUnsigned(value->address, size, &ok);
+    uint64_t imm = print_eval_readUnsigned(value->address,
+                                           value->processorId,
+                                           value->hasProcessorMemory,
+                                           size,
+                                           &ok);
     if (!ok) {
         return 0;
     }
@@ -2318,6 +2380,16 @@ print_eval_parsePrimary(const char **cursor, print_index_t *index, print_value_t
             }
             return 1;
         }
+        uint16_t z80Addr = 0;
+        if (print_eval_findZ80Symbol(ident, &z80Addr)) {
+            print_type_t *type = print_eval_defaultU8(index);
+            *out = print_eval_makeProcessorAddressValue(type, source_z80_processorId(), z80Addr);
+            if (print_eval_debugEnabled()) {
+                debug_printf("print: resolved z80 sym '%s' -> addr=0x%04X (processor memory)\n",
+                             ident, (unsigned)z80Addr);
+            }
+            return 1;
+        }
         unsigned long regValue = 0;
         if (machine_findReg(&debugger.machine, ident, &regValue)) {
             print_type_t *type = print_eval_defaultU32(index);
@@ -2385,6 +2457,8 @@ print_eval_parseUnary(const char **cursor, print_index_t *index, print_value_t *
             out->hasImmediate = 0;
         } else {
             *out = print_eval_makeImmediateValue(ptrType, inner.address);
+            out->processorId = inner.processorId;
+            out->hasProcessorMemory = inner.hasProcessorMemory;
         }
         return 1;
     }
@@ -2405,6 +2479,8 @@ print_eval_parseUnary(const char **cursor, print_index_t *index, print_value_t *
                     return 0;
                 }
                 *out = print_eval_makeAddressValue(resolved->targetType, addr);
+                out->processorId = inner.processorId;
+                out->hasProcessorMemory = inner.hasProcessorMemory;
             }
             return 1;
         }
@@ -2422,6 +2498,8 @@ print_eval_parseUnary(const char **cursor, print_index_t *index, print_value_t *
             return 0;
         }
         *out = print_eval_makeAddressValue(print_eval_defaultU32(index), addr);
+        out->processorId = inner.processorId;
+        out->hasProcessorMemory = inner.hasProcessorMemory;
         return 1;
     }
     return print_eval_parsePrimary(cursor, index, out, typeOnly);
@@ -2450,6 +2528,8 @@ print_eval_parsePostfix(const char **cursor, print_index_t *index, print_value_t
             }
             print_type_t *resolved = print_eval_resolveType(out->type);
             uint32_t baseAddr = 0;
+            uint32_t sourceProcessorId = out->processorId;
+            int sourceHasProcessorMemory = out->hasProcessorMemory;
             if (isArrow) {
                 if (!resolved || resolved->kind != print_type_pointer) {
                     return 0;
@@ -2487,6 +2567,8 @@ print_eval_parsePostfix(const char **cursor, print_index_t *index, print_value_t
             } else {
                 uint32_t memberAddr = baseAddr + member->offset;
                 *out = print_eval_makeAddressValue(member->type, memberAddr);
+                out->processorId = sourceProcessorId;
+                out->hasProcessorMemory = sourceHasProcessorMemory;
             }
             continue;
         }
@@ -2507,6 +2589,8 @@ print_eval_parsePostfix(const char **cursor, print_index_t *index, print_value_t
             }
             print_type_t *elemType = NULL;
             uint32_t baseAddr = 0;
+            uint32_t sourceProcessorId = out->processorId;
+            int sourceHasProcessorMemory = out->hasProcessorMemory;
             if (resolved->kind == print_type_array) {
                 elemType = resolved->targetType;
                 if (!out->hasAddress && !typeOnly) {
@@ -2528,6 +2612,8 @@ print_eval_parsePostfix(const char **cursor, print_index_t *index, print_value_t
             } else {
                 uint32_t elemAddr = baseAddr + (uint32_t)(indexVal * elemSize);
                 *out = print_eval_makeAddressValue(elemType, elemAddr);
+                out->processorId = sourceProcessorId;
+                out->hasProcessorMemory = sourceHasProcessorMemory;
             }
             continue;
         }
@@ -2917,7 +3003,13 @@ print_eval_resolveSymbol(const char *name, uint32_t *outAddr, size_t *outSize)
     if (!var) {
         print_symbol_t *sym = print_eval_findSymbol(&print_eval_index, name);
         if (!sym) {
-            return 0;
+            uint16_t z80Addr = 0;
+            if (!print_eval_findZ80Symbol(name, &z80Addr)) {
+                return 0;
+            }
+            *outAddr = z80Addr;
+            *outSize = 1;
+            return 1;
         }
         *outAddr = sym->addr;
         *outSize = 4;
@@ -2946,7 +3038,31 @@ print_eval_resolveSymbol(const char *name, uint32_t *outAddr, size_t *outSize)
 int
 print_eval_resolveAddress(const char *expr, uint32_t *outAddr, size_t *outSize)
 {
-    if (!expr || !*expr || !outAddr || !outSize) {
+    if (outAddr) {
+        *outAddr = 0;
+    }
+    if (outSize) {
+        *outSize = 0;
+    }
+    if (!outAddr || !outSize) {
+        return 0;
+    }
+    print_resolved_address_t address;
+    if (!print_eval_resolveAddressInfo(expr, &address)) {
+        return 0;
+    }
+    *outAddr = address.address;
+    *outSize = address.size;
+    return 1;
+}
+
+int
+print_eval_resolveAddressInfo(const char *expr, print_resolved_address_t *outAddress)
+{
+    if (outAddress) {
+        memset(outAddress, 0, sizeof(*outAddress));
+    }
+    if (!expr || !*expr || !outAddress) {
         return 0;
     }
     if (!print_eval_loadIndex(&print_eval_index)) {
@@ -2974,8 +3090,8 @@ print_eval_resolveAddress(const char *expr, uint32_t *outAddr, size_t *outSize)
             if (sizeImm == 0) {
                 sizeImm = 4;
             }
-            *outAddr = (uint32_t)(value.immediate & 0x00ffffffu);
-            *outSize = sizeImm;
+            outAddress->address = (uint32_t)(value.immediate & 0x00ffffffu);
+            outAddress->size = sizeImm;
             print_eval_freeTempTypes(tempTypes);
             return 1;
         }
@@ -2990,8 +3106,10 @@ print_eval_resolveAddress(const char *expr, uint32_t *outAddr, size_t *outSize)
     if (size == 0) {
         size = 4;
     }
-    *outAddr = value.address;
-    *outSize = size;
+    outAddress->address = value.address;
+    outAddress->processorId = value.processorId;
+    outAddress->size = size;
+    outAddress->hasProcessorMemory = value.hasProcessorMemory;
     print_eval_freeTempTypes(tempTypes);
     return 1;
 }
@@ -3014,6 +3132,11 @@ print_eval_resolveNamedKind(const char *name, int *outIsVariable)
     }
     if (print_eval_findSymbol(&print_eval_index, name)) {
         *outIsVariable = 0;
+        return 1;
+    }
+    uint16_t z80Addr = 0;
+    if (print_eval_findZ80Symbol(name, &z80Addr)) {
+        *outIsVariable = 1;
         return 1;
     }
     return 0;
@@ -3045,7 +3168,7 @@ print_eval_print(const char *expr)
         return 0;
     }
     if (value.hasAddress) {
-        print_eval_dumpValueAt(value.type, value.address, 0, expr);
+        print_eval_dumpValueAt(value.type, value.address, value.processorId, value.hasProcessorMemory, 0, expr);
     } else if (value.hasImmediate) {
         print_type_t *resolved = print_eval_resolveType(value.type);
         if (!resolved) {
@@ -3098,7 +3221,7 @@ print_eval_eval(const char *expr, char *out, size_t cap)
     print_eval_captureLen = 0;
     print_eval_captureEnabled = 1;
     if (value.hasAddress) {
-        print_eval_dumpValueAt(value.type, value.address, 0, expr);
+        print_eval_dumpValueAt(value.type, value.address, value.processorId, value.hasProcessorMemory, 0, expr);
     } else if (value.hasImmediate) {
         print_type_t *resolved = print_eval_resolveType(value.type);
         if (!resolved) {

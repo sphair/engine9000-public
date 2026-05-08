@@ -20,7 +20,6 @@
 #include "file.h"
 #include "strutil.h"
 #include "addr2line.h"
-#include "print_eval.h"
 #include "source_z80.h"
 #include "symbol_text_map.h"
 
@@ -437,6 +436,31 @@ source_pane_symbols_addSourceFile(source_pane_state_t *st, const char *path)
     return 1;
 }
 
+static int
+source_pane_symbols_addUniqueRawPath(const char ***paths, int *count, int *cap, const char *path)
+{
+    if (!paths || !count || !cap || !path || !path[0]) {
+        return 0;
+    }
+    for (int i = 0; i < *count; ++i) {
+        if ((*paths)[i] && strcmp((*paths)[i], path) == 0) {
+            return 0;
+        }
+    }
+    if (*count >= *cap) {
+        int nextCap = *cap > 0 ? *cap * 2 : 64;
+        const char **nextPaths = (const char **)alloc_realloc((void *)*paths,
+                                                              (size_t)nextCap * sizeof(*nextPaths));
+        if (!nextPaths) {
+            return 0;
+        }
+        *paths = nextPaths;
+        *cap = nextCap;
+    }
+    (*paths)[(*count)++] = path;
+    return 1;
+}
+
 static void
 source_pane_symbols_prependBlankSourceOption(source_pane_state_t *st)
 {
@@ -718,13 +742,23 @@ source_pane_symbols_collectZ80SourceFiles(source_pane_state_t *st)
 
     int added = 0;
     int count = source_z80_getSourceLocationCount();
+    int uniqueCount = 0;
+    int uniqueCap = 0;
+    const char **uniquePaths = NULL;
     for (int i = 0; i < count; ++i) {
         const char *path = NULL;
         if (!source_z80_getSourceLocation(i, NULL, &path, NULL)) {
             continue;
         }
-        added += source_pane_symbols_addSourceFile(st, path);
+        if (!source_pane_symbols_hasCSourceExtension(path)) {
+            continue;
+        }
+        (void)source_pane_symbols_addUniqueRawPath(&uniquePaths, &uniqueCount, &uniqueCap, path);
     }
+    for (int i = 0; i < uniqueCount; ++i) {
+        added += source_pane_symbols_addSourceFile(st, uniquePaths[i]);
+    }
+    alloc_free(uniquePaths);
     return added;
 }
 
@@ -1052,43 +1086,6 @@ source_pane_symbols_collectAsmSymbols(source_pane_state_t *st, const char *elf_p
         return source_pane_symbols_collectTextMapAsmSymbols(st, elf_path);
     }
 
-    int added = 0;
-    char **completions = NULL;
-    int completionCount = 0;
-    if (print_eval_complete("", &completions, &completionCount)) {
-        for (int i = 0; i < completionCount; ++i) {
-            const char *name = completions[i];
-            uint32_t addr = 0;
-            size_t size = 0;
-            if (!name || !name[0]) {
-                continue;
-            }
-            if (!print_eval_resolveSymbol(name, &addr, &size)) {
-                continue;
-            }
-            if (addr == 0) {
-                continue;
-            }
-            added += source_pane_symbols_addAsmSymbol(st, name, (uint64_t)(addr & 0x00ffffffu), NULL);
-        }
-        print_eval_freeCompletions(completions, completionCount);
-    }
-
-    if (st->ownerPane) {
-        source_pane_symbols_refreshSourceFunctions(st->ownerPane, st, NULL);
-        for (int i = 0; i < st->sourceFunctionCount; ++i) {
-            const char *name = st->sourceFunctionNames ? st->sourceFunctionNames[i] : NULL;
-            const char *value = st->sourceFunctionValues ? st->sourceFunctionValues[i] : NULL;
-            if (!name || !name[0] || !value || !value[0]) {
-                continue;
-            }
-            added += source_pane_symbols_addAsmSymbol(st, name, 0, value);
-        }
-    }
-
-    if (added > 0) {
-        return added;
-    }
     if (debugger_toolchainUsesHunkAddr2line()) {
         return source_pane_symbols_collectObjdumpTextAsmSymbols(st, elf_path);
     }
@@ -1110,7 +1107,7 @@ source_pane_symbols_collectAsmSymbols(source_pane_state_t *st, const char *elf_p
         return 0;
     }
 
-    added = 0;
+    int added = 0;
     char line[2048];
     while (fgets(line, sizeof(line), fp)) {
         char *tokens[12];

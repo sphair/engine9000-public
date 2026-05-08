@@ -1,4 +1,4 @@
-# ENGINE9000 68k Retro Debugger/Profiler
+# ENGINE9000 68k/z80 Retro Debugger/Profiler
 
 Amiga/Neo Geo/Mega Drive debugger/profiler - under heavy development so likely to be unstable for the time being. 
 
@@ -56,7 +56,9 @@ NOTE: Testing on Linux/Windows builds has been minimal at this stage.
 - Trainer/cheat mode
 - Smoke tester (record scenarios, replay, check all video frames identical)
 - Debug peripherals for debug console and profile checkpoints
-- Neo Geo Sprite debug visualiser
+- Amiga hardware visualisers
+- Neo Geo hardware visualisers
+- Source level z80 debugger (z80) - see readme-z80.md for details
 
 ### Debugging Features
 
@@ -88,7 +90,8 @@ NOTE: Testing on Linux/Windows builds has been minimal at this stage.
 ### Neo Geo Debug Peripherals
 
 - `0xFFFF0` - characters written to this address will be output in the console and terminal
-- `0xFFFEC` - writing a checkpoint slot from 0-64 for checkpoint profiling stats
+- `0xFFFEC` - write checkpoint slot index (`0-63`) for checkpoint profiling
+- `0xFFE00` - checkpoint description array base (`uint32_t[64]`), write `description_ptr` to `0xFFE00 + index*4`
 - These overlay with ROM addresses - other emulators or real neo geo might crash if you use these
 
 ### Amiga Debug Peripherals
@@ -98,9 +101,9 @@ NOTE: Testing on Linux/Windows builds has been minimal at this stage.
 - `0xFC0008` - writing a long word to this address sets this as the base address of the .data section
 - `0xFC000C` - writing a long word to this address sets this as the base address of the .bss section
 - `0xFC0010` - writing a long word to this address sets a breakpoint at the written address
+- `0xFC0020` - write checkpoint slot index (`0-63`) for checkpoint profiling
+- `0xFC0100` - checkpoint description array base (`uint32_t[64]`), write `description_ptr` to `0xFC0100 + index*4`
 - These overlay with ROM addresses - other emulators or real Amiga might crash if you use these
-
-Checkpoints are not yet implemented on Amiga.
 
 ### Profiling Features
 
@@ -113,7 +116,10 @@ There are two complementary profiling mechanisms:
   - Analysis/export can emits a web bases results view.
 - **Checkpoint profiler**: a fixed set of lightweight “checkpoints”.
   - Checkpoints are set by the target by writing to a fake peripheral
-  - Checkpoint execution stats displayed
+  - Captures per-checkpoint cycle segment stats (`current/avg/min/max`)
+  - Captures checkpoint write scanline (`live/avg/min/max`)
+  - Supports per-checkpoint descriptions via fake register arrays
+  - Optional scanline overlay can be toggled from the checkpoint panel (Neo Geo and Amiga)
 
 ### Timeline / Rewind-Oriented Tools
 
@@ -135,13 +141,31 @@ The debugger keeps a rolling save-state timeline (“state buffer”) implemente
 - Smoke test recording (`--make-smoke`) and compare mode (`--smoke-test`)
   - Designed for “record inputs + frames” and later replay/compare
 
-### Neo Geo Sprite Debug Window
+### Neo Geo Debug Features
 
 ![Neo Geo Sprite Debug](assets/sprite_debug.png)
+
+#### Sprite Debug
 
 - Available via a hidden button in the emulator window - hover in top right hand corner to reveal
 - Renders a full view of the Neo Geo coordinate space allowing visualsation of off screen sprites
 - Renders a "sprite-line" histogram showing how close you are to hitting the Neo Geo sprites-per-line limits
+- Displays a mini window showing non empty fix layer sprites
+- Color sprites based on shink factor, palette usage, or sprite chain membership
+
+#### RAM/ROM Visualiser
+
+- View ram/rom as bitplane data
+- Renders with selected palette when visible on screen
+
+#### Palette Visualiser
+
+- View all current palette sets as mini palette swatches
+- Updates live allowing palette effects to be analysed
+
+#### Audio Meter
+
+- Display live audio levels from each audio source
 
 ### Amiga Custom Chipset Controls
 
@@ -297,10 +321,14 @@ Steps a single instruction
 ### `print` (alias: `p`)
 
 SYNOPSIS  
-`print <expr>`
+`print <expr> [size=8|16|32]`  
+`print addr <expr> [size=8|16|32]`
 
 DESCRIPTION  
 Evaluates and prints an expression using DWARF + symbol information from the configured ELF.
+
+- `size=8|16|32` forces the memory read size when reading from a resolved address.
+- `print addr <expr>` prints the resolved runtime address for an expression.
 
 There is also a fast path for simple numeric expressions so that dereferences like `print *0xADDR` work even without an ELF:
 
@@ -311,7 +339,8 @@ There is also a fast path for simple numeric expressions so that dereferences li
 
 EXAMPLES  
 `print playerLives`  
-`print *0x00100000`
+`print *0x00100000 size=16`  
+`print addr playerLives`
 
 ---
 
@@ -344,7 +373,7 @@ EXAMPLES
 ### `watch` (alias: `wa`)
 
 SYNOPSIS  
-`watch [addr] [r|w|rw] [size=8|16|32] [mask=0x...] [val=0x...] [old=0x...] [diff=0x...]`  
+`watch [addr|symbol] [r|w|rw] [size=8|16|32] [mask=0x...] [val=0x...|value=0x...] [old=0x...] [diff=0x...|neq=0x...] [src=...]`  
 `watch del <idx>`  
 `watch clear`
 
@@ -354,20 +383,35 @@ Lists, adds, or removes watchpoints.
 - With no arguments, prints the current watchpoint table plus the enabled mask.
 - `watch clear` resets all watchpoints.
 - `watch del <idx>` removes a watchpoint by index.
-- Otherwise, adds a watchpoint at `<addr>` with the selected options.
+- Otherwise, adds a watchpoint at `<addr|symbol>` with the selected options.
 
 OPTIONS  
 `r`, `w`, `rw` select access type. If omitted, defaults to `rw`.  
 `size=8|16|32` matches access size.  
 `mask=0x...` applies an address compare mask.  
-`val=0x...` matches a value equality operand.  
+`val=0x...` or `value=0x...` matches a value equality operand.  
 `old=0x...` matches an old-value equality operand.  
-`diff=0x...` (or `neq=0x...`) matches “value != old” (with an operand).
+`diff=0x...` or `neq=0x...` matches “value != old” (with an operand).
+`src=...` matches the access source. Valid values depend on the current target:
+
+- Amiga: `cpu`, `blitter`, `copper`
+- Neo Geo: `cpu`
+
+NOTES
+- The debugger only shows and accepts `src=` values that can currently be emitted by the active core.
+- On Amiga, source tagging is not symmetric for all access types:
+  - generic RAM writes are currently tagged as `cpu` or `blitter`
+  - custom-register writes are currently tagged as `cpu`, `copper`, or `blitter`
+  - reads are currently only tagged as `cpu`
+- Some internal paths may still report `unknown`; this is not intended as a user-facing `src=` filter value.
 
 EXAMPLES  
 `watch`  
 `watch 0x0010ABCD rw size=16`  
+`watch playerLives w value=0x00000003`  
 `watch 0x0010ABCD w val=0x00000010`  
+`watch 0x00DFF180 w src=copper`  
+`watch 0x00020000 w src=blitter`  
 `watch del 3`  
 `watch clear`
 
@@ -595,7 +639,7 @@ A simple Amiga program is available in:
 
 `tools/amiga/load9000`
 
-This program is run on the emulated Amiga and will parse your hunk looking for three sections (.text, .bss, .data). 
+This program is run on the emulated Amiga and parses the hunk section table before calling `LoadSeg`.
 
 `load9000` will load your application, inform the debugger of your section base addresses and then optionally set a breakpoint at the entry point.
 

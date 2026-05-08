@@ -91,6 +91,7 @@ typedef struct source_pane_state {
     int curSrcLine;
     char *toggleBtnMeta;
     char *lockBtnMeta;
+    int modeOptionsKind;
     int gutterPending;
     int gutterLine;
     uint32_t gutterAddr;

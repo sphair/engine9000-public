@@ -1141,17 +1141,21 @@ console_cmd_parseSizeBitsOpt(const char *tok, uint32_t *out_size_bits)
 }
 
 static int
-console_cmd_readMemoryValueBe(uint32_t addr, size_t sizeBytes, uint32_t *outValue)
+console_cmd_readMemoryValueFromInfo(const print_resolved_address_t *address, size_t sizeBytes, uint32_t *outValue)
 {
     if (outValue) {
         *outValue = 0u;
     }
-    if (!outValue || (sizeBytes != 1u && sizeBytes != 2u && sizeBytes != 4u)) {
+    if (!address || !outValue || (sizeBytes != 1u && sizeBytes != 2u && sizeBytes != 4u)) {
         return 0;
     }
 
     uint8_t buf[4] = {0, 0, 0, 0};
-    if (!libretro_host_debugReadMemory(addr, buf, sizeBytes)) {
+    if (address->hasProcessorMemory) {
+        if (!libretro_host_debugReadProcessorMemory(address->processorId, address->address, buf, sizeBytes)) {
+            return 0;
+        }
+    } else if (!libretro_host_debugReadMemory(address->address, buf, sizeBytes)) {
         return 0;
     }
 
@@ -1169,6 +1173,15 @@ console_cmd_readMemoryValueBe(uint32_t addr, size_t sizeBytes, uint32_t *outValu
                 ((uint32_t)buf[2] << 8) |
                 (uint32_t)buf[3];
     return 1;
+}
+
+static int
+console_cmd_readMemoryValueBe(uint32_t addr, size_t sizeBytes, uint32_t *outValue)
+{
+    print_resolved_address_t address;
+    memset(&address, 0, sizeof(address));
+    address.address = addr;
+    return console_cmd_readMemoryValueFromInfo(&address, sizeBytes, outValue);
 }
 
 static const char *
@@ -1782,16 +1795,19 @@ console_cmd_watch(int argc, char **argv)
         return 1;
     }
 
-    uint32_t addr = 0;
-    if (!console_cmd_parseHex(argv[1], &addr)) {
-        size_t resolvedSize = 0;
-        if (!print_eval_resolveAddress(argv[1], &addr, &resolvedSize)) {
+    print_resolved_address_t resolvedAddress;
+    memset(&resolvedAddress, 0, sizeof(resolvedAddress));
+    if (!console_cmd_parseHex(argv[1], &resolvedAddress.address)) {
+        if (!print_eval_resolveAddressInfo(argv[1], &resolvedAddress)) {
             debug_error("watch: expected address or symbol, got '%s'", argv[1]);
             return 0;
         }
-        (void)resolvedSize;
+        if (resolvedAddress.hasProcessorMemory) {
+            debug_error("watch: processor-memory symbols are not supported by watchpoints");
+            return 0;
+        }
     }
-    addr &= 0x00ffffffu;
+    uint32_t addr = resolvedAddress.address & 0x00ffffffu;
 
     uint32_t op_mask = 0;
     uint32_t diff_operand = 0;
@@ -2301,12 +2317,13 @@ console_cmd_write(int argc, char **argv)
         debug_printf("%s = 0x%llX (%zu bits)\n", dest, (unsigned long long)value, value_size * 8);
         return 1;
     }
-    uint32_t sym_addr = 0;
-    size_t sym_size = 0;
-    if (!print_eval_resolveAddress(dest, &sym_addr, &sym_size)) {
+    print_resolved_address_t symAddress;
+    if (!print_eval_resolveAddressInfo(dest, &symAddress)) {
         debug_error("write: unknown symbol '%s'", dest);
         return 0;
     }
+    uint32_t sym_addr = symAddress.address;
+    size_t sym_size = symAddress.size;
     if (sym_size > 4) {
         debug_error("write: can't write to %s (size %zu); use \"write 0x%08X %s\" to write the address directly",
                     dest, sym_size, sym_addr, value_str);
@@ -2316,7 +2333,10 @@ console_cmd_write(int argc, char **argv)
         debug_error("write: value too large for %s (%zu bytes)", dest, sym_size);
         return 0;
     }
-    if (!libretro_host_debugWriteMemory(sym_addr, (uint32_t)value, sym_size)) {
+    int wrote = symAddress.hasProcessorMemory
+        ? libretro_host_debugWriteProcessorMemory(symAddress.processorId, sym_addr, (uint32_t)value, sym_size)
+        : libretro_host_debugWriteMemory(sym_addr, (uint32_t)value, sym_size);
+    if (!wrote) {
         debug_error("write: failed to write 0x%llX to %s", (unsigned long long)value, dest);
         return 0;
     }
@@ -2683,17 +2703,24 @@ console_cmd_print(int argc, char **argv)
     }
 
     if (addrMode) {
-        uint32_t addr = 0;
-        size_t sizeBytes = 0;
-        if (!print_eval_resolveAddress(expr, &addr, &sizeBytes)) {
+        print_resolved_address_t address;
+        if (!print_eval_resolveAddressInfo(expr, &address)) {
             debug_error("print: failed to resolve address '%s'", expr);
             return 0;
         }
         uint32_t bits = sizeBitsOpt;
         if (bits == 0u) {
-            bits = (uint32_t)(sizeBytes > 0 ? sizeBytes * 8u : 32u);
+            bits = (uint32_t)(address.size > 0 ? address.size * 8u : 32u);
         }
-        debug_printf("%s: 0x%06X (%u bits)\n", expr, (unsigned)(addr & 0x00ffffffu), (unsigned)bits);
+        if (address.hasProcessorMemory) {
+            debug_printf("%s: processor[%u]:0x%04X (%u bits)\n",
+                         expr,
+                         (unsigned)address.processorId,
+                         (unsigned)(address.address & 0xffffu),
+                         (unsigned)bits);
+            return 1;
+        }
+        debug_printf("%s: 0x%06X (%u bits)\n", expr, (unsigned)(address.address & 0x00ffffffu), (unsigned)bits);
         return 1;
     }
 
@@ -2773,19 +2800,21 @@ console_cmd_print(int argc, char **argv)
     }
 
     if (sizeBitsOpt != 0u) {
-        uint32_t addr = 0u;
-        size_t resolvedSizeBytes = 0u;
-        if (!print_eval_resolveAddress(expr, &addr, &resolvedSizeBytes)) {
+        print_resolved_address_t address;
+        if (!print_eval_resolveAddressInfo(expr, &address)) {
             debug_error("print: size override requires an address expression");
             return 0;
         }
         size_t sizeBytes = (size_t)(sizeBitsOpt / 8u);
         uint32_t val = 0u;
-        if (!console_cmd_readMemoryValueBe(addr, sizeBytes, &val)) {
-            debug_error("print: failed to read memory at 0x%06X", (unsigned)(addr & 0x00ffffffu));
+        if (!console_cmd_readMemoryValueFromInfo(&address, sizeBytes, &val)) {
+            if (address.hasProcessorMemory) {
+                debug_error("print: failed to read processor memory at 0x%04X", (unsigned)(address.address & 0xffffu));
+            } else {
+                debug_error("print: failed to read memory at 0x%06X", (unsigned)(address.address & 0x00ffffffu));
+            }
             return 0;
         }
-        (void)resolvedSizeBytes;
         debug_printf("%s: %u (0x%X) [%u bits]\n", expr, (unsigned)val, (unsigned)val, (unsigned)sizeBitsOpt);
         return 1;
     }

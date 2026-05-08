@@ -25,7 +25,8 @@
 enum
 {
     SOURCE_Z80_MAX_INSN_BYTES = 4,
-    SOURCE_Z80_MAX_BANK_NOI_FILES = 16
+    SOURCE_Z80_MAX_BANK_NOI_FILES = 16,
+    SOURCE_Z80_BASENAME_CAP = 128
 };
 
 typedef struct source_z80_symbol {
@@ -41,6 +42,7 @@ typedef struct source_z80_symbol_cache {
     int nextOrder;
     int ready;
     char symbolBaseDir[PATH_MAX];
+    char symbolBaseName[SOURCE_Z80_BASENAME_CAP];
 } source_z80_symbol_cache_t;
 
 typedef struct source_z80_source_entry {
@@ -54,13 +56,25 @@ typedef struct source_z80_source_cache {
     int entryCount;
     int entryCap;
     int ready;
-    time_t sourceMapMtime;
     char symbolBaseDir[PATH_MAX];
+    char sourceMapBaseName[SOURCE_Z80_BASENAME_CAP];
 } source_z80_source_cache_t;
 
 static source_z80_symbol_cache_t source_z80_symbolCache;
 static source_z80_source_cache_t source_z80_sourceCache;
 static uint64_t source_z80_sourceMapRevision;
+static int source_z80_processorIdCached;
+static uint32_t source_z80_cachedProcessorId;
+
+typedef struct source_z80_sidecar_detect {
+    const char *symbolBaseDir;
+    char singleNoi[SOURCE_Z80_BASENAME_CAP];
+    char singleSourceMap[SOURCE_Z80_BASENAME_CAP];
+    char singlePair[SOURCE_Z80_BASENAME_CAP];
+    int noiCount;
+    int sourceMapCount;
+    int pairCount;
+} source_z80_sidecar_detect_t;
 
 static int
 source_z80_findProcessorId(uint32_t *outProcessorId);
@@ -73,6 +87,13 @@ source_z80_resolveExactSymbol(uint16_t addr, const char **outName);
 
 static int
 source_z80_isHexDigit(char ch);
+
+static void
+source_z80_detectSidecars(const char *symbolBaseDir,
+                          char *outSymbolBaseName,
+                          size_t symbolBaseNameCap,
+                          char *outSourceMapBaseName,
+                          size_t sourceMapBaseNameCap);
 
 static int
 source_z80_pathExistsDir(const char *path)
@@ -88,21 +109,199 @@ source_z80_pathExistsDir(const char *path)
     return S_ISDIR(st.st_mode) ? 1 : 0;
 }
 
-static time_t
-source_z80_sourceMapMtime(const char *symbolBaseDir)
+static int
+source_z80_pathExistsRegular(const char *path)
 {
-    if (!symbolBaseDir || !symbolBaseDir[0]) {
+    struct stat st;
+
+    if (!path || !path[0]) {
         return 0;
     }
-
-    char path[PATH_MAX];
-    strutil_pathJoinTrunc(path, sizeof(path), symbolBaseDir, "demo_driver.z80srcmap");
-
-    struct stat st;
     if (stat(path, &st) != 0) {
         return 0;
     }
-    return st.st_mtime;
+    return S_ISREG(st.st_mode) ? 1 : 0;
+}
+
+static int
+source_z80_hasSuffix(const char *text, const char *suffix)
+{
+    if (!text || !suffix) {
+        return 0;
+    }
+    size_t textLen = strlen(text);
+    size_t suffixLen = strlen(suffix);
+    if (suffixLen > textLen) {
+        return 0;
+    }
+    return strcmp(text + textLen - suffixLen, suffix) == 0;
+}
+
+static void
+source_z80_stemFromLeaf(char *out, size_t cap, const char *leaf, const char *suffix)
+{
+    if (!out || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (!leaf || !suffix || !source_z80_hasSuffix(leaf, suffix)) {
+        return;
+    }
+    size_t suffixLen = strlen(suffix);
+    size_t stemLen = strlen(leaf) - suffixLen;
+    if (stemLen >= cap) {
+        stemLen = cap - 1;
+    }
+    memcpy(out, leaf, stemLen);
+    out[stemLen] = '\0';
+}
+
+static int
+source_z80_makeLeaf(char *out, size_t cap, const char *stem, const char *suffix)
+{
+    size_t stemLen;
+    size_t suffixLen;
+
+    if (!out || cap == 0 || !stem || !stem[0] || !suffix) {
+        return 0;
+    }
+    out[0] = '\0';
+    stemLen = strlen(stem);
+    suffixLen = strlen(suffix);
+    if (stemLen + suffixLen + 1u > cap) {
+        return 0;
+    }
+    memcpy(out, stem, stemLen);
+    memcpy(out + stemLen, suffix, suffixLen + 1u);
+    return 1;
+}
+
+static int
+source_z80_isBankNoiStem(const char *stem)
+{
+    if (!stem) {
+        return 0;
+    }
+    const char *bank = strstr(stem, "_bank");
+    if (!bank || !bank[5]) {
+        return 0;
+    }
+    const char *digits = bank + 5;
+    for (const char *p = digits; *p; ++p) {
+        if (!isdigit((unsigned char)*p)) {
+            return 0;
+        }
+    }
+    return digits[0] ? 1 : 0;
+}
+
+static int
+source_z80_sidecarExists(const char *symbolBaseDir, const char *stem, const char *suffix)
+{
+    char leaf[SOURCE_Z80_BASENAME_CAP + 16];
+    char path[PATH_MAX];
+
+    if (!symbolBaseDir || !symbolBaseDir[0] || !stem || !stem[0] || !suffix) {
+        return 0;
+    }
+    if (!source_z80_makeLeaf(leaf, sizeof(leaf), stem, suffix)) {
+        return 0;
+    }
+    strutil_pathJoinTrunc(path, sizeof(path), symbolBaseDir, leaf);
+    return source_z80_pathExistsRegular(path);
+}
+
+static const char *
+source_z80_basename(const char *path)
+{
+    const char *slash = path ? strrchr(path, '/') : NULL;
+    const char *back = path ? strrchr(path, '\\') : NULL;
+    const char *sep = slash;
+
+    if (back && (!sep || back > sep)) {
+        sep = back;
+    }
+    return sep ? sep + 1 : path;
+}
+
+static int
+source_z80_detectSidecarFile(const char *path, void *user)
+{
+    source_z80_sidecar_detect_t *detect = (source_z80_sidecar_detect_t *)user;
+    const char *leaf = source_z80_basename(path);
+    char stem[SOURCE_Z80_BASENAME_CAP];
+
+    if (!detect || !leaf || !leaf[0]) {
+        return 1;
+    }
+    if (source_z80_hasSuffix(leaf, ".noi")) {
+        source_z80_stemFromLeaf(stem, sizeof(stem), leaf, ".noi");
+        if (stem[0] && !source_z80_isBankNoiStem(stem)) {
+            detect->noiCount++;
+            strutil_strlcpy(detect->singleNoi, sizeof(detect->singleNoi), stem);
+        }
+    } else if (source_z80_hasSuffix(leaf, ".z80srcmap")) {
+        source_z80_stemFromLeaf(stem, sizeof(stem), leaf, ".z80srcmap");
+        if (stem[0]) {
+            detect->sourceMapCount++;
+            strutil_strlcpy(detect->singleSourceMap, sizeof(detect->singleSourceMap), stem);
+            if (source_z80_sidecarExists(detect->symbolBaseDir, stem, ".noi")) {
+                detect->pairCount++;
+                strutil_strlcpy(detect->singlePair, sizeof(detect->singlePair), stem);
+            }
+        }
+    }
+    return 1;
+}
+
+static void
+source_z80_detectSidecars(const char *symbolBaseDir,
+                          char *outSymbolBaseName,
+                          size_t symbolBaseNameCap,
+                          char *outSourceMapBaseName,
+                          size_t sourceMapBaseNameCap)
+{
+    source_z80_sidecar_detect_t detect;
+    memset(&detect, 0, sizeof(detect));
+    detect.symbolBaseDir = symbolBaseDir;
+
+    if (outSymbolBaseName && symbolBaseNameCap > 0) {
+        outSymbolBaseName[0] = '\0';
+    }
+    if (outSourceMapBaseName && sourceMapBaseNameCap > 0) {
+        outSourceMapBaseName[0] = '\0';
+    }
+
+    if (!symbolBaseDir || !symbolBaseDir[0]) {
+        return;
+    }
+    if (!debugger_platform_scanFolder(symbolBaseDir, source_z80_detectSidecarFile, &detect)) {
+        return;
+    }
+
+    if (detect.pairCount == 1) {
+        if (outSymbolBaseName && symbolBaseNameCap > 0) {
+            strutil_strlcpy(outSymbolBaseName, symbolBaseNameCap, detect.singlePair);
+        }
+        if (outSourceMapBaseName && sourceMapBaseNameCap > 0) {
+            strutil_strlcpy(outSourceMapBaseName, sourceMapBaseNameCap, detect.singlePair);
+        }
+        return;
+    }
+    if (detect.pairCount > 1) {
+        printf("source_z80: multiple Z80 sidecar pairs in %s\n", symbolBaseDir);
+        return;
+    }
+    if (detect.noiCount == 1 && outSymbolBaseName && symbolBaseNameCap > 0) {
+        strutil_strlcpy(outSymbolBaseName, symbolBaseNameCap, detect.singleNoi);
+    } else if (detect.noiCount > 1) {
+        printf("source_z80: multiple Z80 .noi files in %s\n", symbolBaseDir);
+    }
+    if (detect.sourceMapCount == 1 && outSourceMapBaseName && sourceMapBaseNameCap > 0) {
+        strutil_strlcpy(outSourceMapBaseName, sourceMapBaseNameCap, detect.singleSourceMap);
+    } else if (detect.sourceMapCount > 1) {
+        printf("source_z80: multiple Z80 .z80srcmap files in %s\n", symbolBaseDir);
+    }
 }
 
 int
@@ -125,6 +324,12 @@ source_z80_findProcessorId(uint32_t *outProcessorId)
     if (outProcessorId) {
         *outProcessorId = 0;
     }
+    if (target == target_neogeo() && source_z80_processorIdCached) {
+        if (outProcessorId) {
+            *outProcessorId = source_z80_cachedProcessorId;
+        }
+        return 1;
+    }
     if (!libretro_host_debugReadProcessors(processors, countof(processors), &count)) {
         return 0;
     }
@@ -133,6 +338,8 @@ source_z80_findProcessorId(uint32_t *outProcessorId)
     }
     for (size_t i = 0; i < count; ++i) {
         if (strcasecmp(processors[i].name, "Z80") == 0) {
+            source_z80_cachedProcessorId = processors[i].id;
+            source_z80_processorIdCached = 1;
             if (outProcessorId) {
                 *outProcessorId = processors[i].id;
             }
@@ -207,6 +414,7 @@ source_z80_clearSymbols(void)
     source_z80_symbolCache.nextOrder = 0;
     source_z80_symbolCache.ready = 0;
     source_z80_symbolCache.symbolBaseDir[0] = '\0';
+    source_z80_symbolCache.symbolBaseName[0] = '\0';
 }
 
 static int
@@ -376,7 +584,7 @@ source_z80_loadNoiFile(const char *path)
 }
 
 static void
-source_z80_buildNoiPath(char *out, size_t cap, const char *leaf)
+source_z80_buildSidecarPath(char *out, size_t cap, const char *leaf)
 {
     char symbolBaseDir[PATH_MAX];
 
@@ -392,22 +600,36 @@ static void
 source_z80_loadSymbols(void)
 {
     char symbolBaseDir[PATH_MAX];
+    char symbolBaseName[SOURCE_Z80_BASENAME_CAP];
 
     source_z80_copySymbolBaseDir(symbolBaseDir, sizeof(symbolBaseDir));
     if (!symbolBaseDir[0]) {
         source_z80_symbolCache.ready = 1;
         return;
     }
+    source_z80_detectSidecars(symbolBaseDir, symbolBaseName, sizeof(symbolBaseName), NULL, 0);
 
     char path[PATH_MAX];
-    source_z80_buildNoiPath(path, sizeof(path), "demo_driver.noi");
+    char leaf[SOURCE_Z80_BASENAME_CAP + 32];
+    if (!source_z80_makeLeaf(leaf, sizeof(leaf), symbolBaseName, ".noi")) {
+        strutil_strlcpy(source_z80_symbolCache.symbolBaseDir,
+                        sizeof(source_z80_symbolCache.symbolBaseDir),
+                        symbolBaseDir);
+        source_z80_symbolCache.symbolBaseName[0] = '\0';
+        source_z80_symbolCache.ready = 1;
+        return;
+    }
+    source_z80_buildSidecarPath(path, sizeof(path), leaf);
     (void)source_z80_loadNoiFile(path);
 
     for (int bank = 1; bank < SOURCE_Z80_MAX_BANK_NOI_FILES; ++bank) {
-        char leaf[64];
+        char suffix[32];
 
-        snprintf(leaf, sizeof(leaf), "demo_driver_bank%d.noi", bank);
-        source_z80_buildNoiPath(path, sizeof(path), leaf);
+        snprintf(suffix, sizeof(suffix), "_bank%d.noi", bank);
+        if (!source_z80_makeLeaf(leaf, sizeof(leaf), symbolBaseName, suffix)) {
+            continue;
+        }
+        source_z80_buildSidecarPath(path, sizeof(path), leaf);
         (void)source_z80_loadNoiFile(path);
     }
 
@@ -420,6 +642,9 @@ source_z80_loadSymbols(void)
     strutil_strlcpy(source_z80_symbolCache.symbolBaseDir,
                     sizeof(source_z80_symbolCache.symbolBaseDir),
                     symbolBaseDir);
+    strutil_strlcpy(source_z80_symbolCache.symbolBaseName,
+                    sizeof(source_z80_symbolCache.symbolBaseName),
+                    symbolBaseName);
     source_z80_symbolCache.ready = 1;
 }
 
@@ -583,8 +808,8 @@ source_z80_clearSourceMap(void)
     source_z80_sourceCache.entryCount = 0;
     source_z80_sourceCache.entryCap = 0;
     source_z80_sourceCache.ready = 0;
-    source_z80_sourceCache.sourceMapMtime = 0;
     source_z80_sourceCache.symbolBaseDir[0] = '\0';
+    source_z80_sourceCache.sourceMapBaseName[0] = '\0';
 }
 
 static int
@@ -719,6 +944,7 @@ static void
 source_z80_loadSourceMap(void)
 {
     char symbolBaseDir[PATH_MAX];
+    char sourceMapBaseName[SOURCE_Z80_BASENAME_CAP];
     char path[PATH_MAX];
 
     source_z80_copySymbolBaseDir(symbolBaseDir, sizeof(symbolBaseDir));
@@ -727,14 +953,27 @@ source_z80_loadSourceMap(void)
         source_z80_sourceMapRevision++;
         return;
     }
-    strutil_pathJoinTrunc(path, sizeof(path), symbolBaseDir, "demo_driver.z80srcmap");
+    source_z80_detectSidecars(symbolBaseDir, NULL, 0, sourceMapBaseName, sizeof(sourceMapBaseName));
+    char leaf[SOURCE_Z80_BASENAME_CAP + 16];
+    if (!source_z80_makeLeaf(leaf, sizeof(leaf), sourceMapBaseName, ".z80srcmap")) {
+        strutil_strlcpy(source_z80_sourceCache.symbolBaseDir,
+                        sizeof(source_z80_sourceCache.symbolBaseDir),
+                        symbolBaseDir);
+        source_z80_sourceCache.sourceMapBaseName[0] = '\0';
+        source_z80_sourceCache.ready = 1;
+        source_z80_sourceMapRevision++;
+        return;
+    }
+    strutil_pathJoinTrunc(path, sizeof(path), symbolBaseDir, leaf);
 
     FILE *fp = fopen(path, "r");
     if (!fp) {
         strutil_strlcpy(source_z80_sourceCache.symbolBaseDir,
                         sizeof(source_z80_sourceCache.symbolBaseDir),
                         symbolBaseDir);
-        source_z80_sourceCache.sourceMapMtime = source_z80_sourceMapMtime(symbolBaseDir);
+        strutil_strlcpy(source_z80_sourceCache.sourceMapBaseName,
+                        sizeof(source_z80_sourceCache.sourceMapBaseName),
+                        sourceMapBaseName);
         source_z80_sourceCache.ready = 1;
         source_z80_sourceMapRevision++;
         return;
@@ -764,7 +1003,9 @@ source_z80_loadSourceMap(void)
     strutil_strlcpy(source_z80_sourceCache.symbolBaseDir,
                     sizeof(source_z80_sourceCache.symbolBaseDir),
                     symbolBaseDir);
-    source_z80_sourceCache.sourceMapMtime = source_z80_sourceMapMtime(symbolBaseDir);
+    strutil_strlcpy(source_z80_sourceCache.sourceMapBaseName,
+                    sizeof(source_z80_sourceCache.sourceMapBaseName),
+                    sourceMapBaseName);
     source_z80_sourceCache.ready = 1;
     source_z80_sourceMapRevision++;
     printf("source_z80: loaded %d source map rows from %s\n", source_z80_sourceCache.entryCount, path);
@@ -776,10 +1017,8 @@ source_z80_ensureSourceMap(void)
     char symbolBaseDir[PATH_MAX];
 
     source_z80_copySymbolBaseDir(symbolBaseDir, sizeof(symbolBaseDir));
-    time_t sourceMapMtime = source_z80_sourceMapMtime(symbolBaseDir);
     if (source_z80_sourceCache.ready &&
-        strcmp(source_z80_sourceCache.symbolBaseDir, symbolBaseDir) == 0 &&
-        source_z80_sourceCache.sourceMapMtime == sourceMapMtime) {
+        strcmp(source_z80_sourceCache.symbolBaseDir, symbolBaseDir) == 0) {
         return;
     }
 
