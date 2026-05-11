@@ -6,6 +6,7 @@
  * See COPYING for license details
  */
 
+#include <ctype.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -17,7 +18,6 @@
 #include "alloc.h"
 #include "aux_window.h"
 #include "config.h"
-#include "debugger.h"
 #include "e9ui.h"
 #include "e9ui_box.h"
 #include "e9ui_button.h"
@@ -37,6 +37,9 @@
 #define NEOGEO_MEMVIEW_TITLE "ENGINE9000 DEBUGGER - RAM/ROMS"
 #define NEOGEO_MEMVIEW_RAM_BASE_MIN 0x00100000u
 #define NEOGEO_MEMVIEW_RAM_BASE_MAX 0x0010ffffu
+#define NEOGEO_MEMVIEW_ZRAM_BASE_MIN 0x0000f800u
+#define NEOGEO_MEMVIEW_ZRAM_BASE_MAX 0x0000ffffu
+#define NEOGEO_MEMVIEW_Z80_PROCESSOR_ID 1u
 #define NEOGEO_MEMVIEW_DEFAULT_RAM_ROW_BYTES 32u
 #define NEOGEO_MEMVIEW_MAX_RAM_ROW_BYTES 256u
 #define NEOGEO_MEMVIEW_DEFAULT_CROM_TILES_PER_ROW 8u
@@ -65,10 +68,26 @@
 #define NEOGEO_MEMVIEW_FOLLOW_MIN_SCORE 256u
 #define NEOGEO_MEMVIEW_FOLLOW_STABLE_FRAMES 3u
 #define NEOGEO_MEMVIEW_TOOLBAR_MAX_ROW_ITEMS 64
+#define NEOGEO_MEMVIEW_SPRITE_COUNT 382u
+#define NEOGEO_MEMVIEW_SPRITE_FIRST_VISIBLE 1u
+#define NEOGEO_MEMVIEW_SPRITE_CHAIN_SCAN_END 381u
+#define NEOGEO_MEMVIEW_SPRITE_MAX_ROWS 32u
+#define NEOGEO_MEMVIEW_SPRITE_VRAM_WORDS_PER_SPRITE 64u
+#define NEOGEO_MEMVIEW_SPRITE_TILE_ROW_WORDS 2u
+#define NEOGEO_MEMVIEW_SCB3_WORD_OFFSET 0x8200u
+#define NEOGEO_MEMVIEW_SCB3_CHAIN_FLAG 0x40u
+#define NEOGEO_MEMVIEW_SCB3_ROW_MASK 0x3fu
+#define NEOGEO_MEMVIEW_SCB3_YPOS_MASK 0x01ffu
+#define NEOGEO_MEMVIEW_SCB3_YPOS_SHIFT 7u
+#define NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_MASK 0x00f0u
+#define NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_SHIFT 12u
+#define NEOGEO_MEMVIEW_SPRITE_PALETTE_SHIFT 8u
+#define NEOGEO_MEMVIEW_SPRITE_PALETTE_MASK 0x00ffu
 
 typedef enum neogeo_memview_mode {
     neogeo_memview_mode_ram = 0,
-    neogeo_memview_mode_crom = 1
+    neogeo_memview_mode_crom = 1,
+    neogeo_memview_mode_zram = 2
 } neogeo_memview_mode_t;
 
 typedef struct neogeo_memview_overview_range {
@@ -92,6 +111,12 @@ typedef struct neogeo_memview_toolbar_wrap_state {
     int gapPx;
 } neogeo_memview_toolbar_wrap_state_t;
 
+typedef struct neogeo_memview_checkbox_binding {
+    int *value;
+    int *hasSaved;
+    int resetFollow;
+} neogeo_memview_checkbox_binding_t;
+
 typedef struct neogeo_memview_step_buttons_action_ctx {
     neogeo_memview_state_t *ui;
     e9ui_component_t *canvas;
@@ -104,6 +129,7 @@ struct neogeo_memview_state {
     e9ui_component_t *canvas;
     e9ui_component_t *modeButtonRam;
     e9ui_component_t *modeButtonCrom;
+    e9ui_component_t *modeButtonZram;
     e9ui_component_t *addressBox;
     e9ui_component_t *widthBox;
     e9ui_component_t *widthSeek;
@@ -113,6 +139,7 @@ struct neogeo_memview_state {
     neogeo_memview_mode_t mode;
     uint32_t ramBaseAddr;
     uint32_t cromBaseAddr;
+    uint32_t zramBaseAddr;
     uint32_t ramRowBytes;
     uint32_t cromTilesPerRow;
     int zoomLevel;
@@ -123,6 +150,7 @@ struct neogeo_memview_state {
     int modeHasSaved;
     int ramBaseAddrHasSaved;
     int cromBaseAddrHasSaved;
+    int zramBaseAddrHasSaved;
     int ramRowBytesHasSaved;
     int cromTilesPerRowHasSaved;
     int zoomHasSaved;
@@ -176,6 +204,7 @@ static neogeo_memview_state_t neogeo_memview_stateSingleton = {
     .mode = neogeo_memview_mode_ram,
     .ramBaseAddr = NEOGEO_MEMVIEW_RAM_BASE_MIN,
     .cromBaseAddr = 0u,
+    .zramBaseAddr = NEOGEO_MEMVIEW_ZRAM_BASE_MIN,
     .ramRowBytes = NEOGEO_MEMVIEW_DEFAULT_RAM_ROW_BYTES,
     .cromTilesPerRow = NEOGEO_MEMVIEW_DEFAULT_CROM_TILES_PER_ROW,
     .zoomLevel = NEOGEO_MEMVIEW_ZOOM_DEFAULT,
@@ -190,6 +219,18 @@ static const aux_window_ops_t neogeo_memview_auxWindowOps = {
     .render = neogeo_memview_render,
 };
 
+static const neogeo_memview_mode_t neogeo_memview_modeButtonModes[] = {
+    neogeo_memview_mode_ram,
+    neogeo_memview_mode_crom,
+    neogeo_memview_mode_zram
+};
+
+static neogeo_memview_checkbox_binding_t neogeo_memview_checkboxBindings[] = {
+    { &neogeo_memview_stateSingleton.showAddressColumn, &neogeo_memview_stateSingleton.showAddressColumnHasSaved, 0 },
+    { &neogeo_memview_stateSingleton.showOverviewColumn, &neogeo_memview_stateSingleton.showOverviewColumnHasSaved, 0 },
+    { &neogeo_memview_stateSingleton.followActiveSprites, &neogeo_memview_stateSingleton.followActiveSpritesHasSaved, 1 }
+};
+
 static int
 neogeo_memview_stepButtonsGutterWidth(const e9ui_context_t *ctx, e9ui_component_t *self);
 
@@ -201,9 +242,6 @@ neogeo_memview_clampBaseForView(const neogeo_memview_state_t *ui, const e9ui_rec
 
 static void
 neogeo_memview_syncTextboxesFromState(neogeo_memview_state_t *ui);
-
-static void
-neogeo_memview_saveWindowState(neogeo_memview_state_t *ui);
 
 static int
 neogeo_memview_parseInt(const char *value, int *out)
@@ -236,7 +274,7 @@ neogeo_memview_parseU64SmartHex(const char *text, unsigned long long *outValue, 
         return 0;
     }
     cursor = text;
-    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') {
+    while (isspace((unsigned char)*cursor)) {
         cursor++;
     }
     if (*cursor == '$') {
@@ -244,10 +282,10 @@ neogeo_memview_parseU64SmartHex(const char *text, unsigned long long *outValue, 
         base = 16;
     } else if (!(cursor[0] == '0' && (cursor[1] == 'x' || cursor[1] == 'X'))) {
         for (const char *scan = cursor; *scan; ++scan) {
-            if (*scan == ' ' || *scan == '\t' || *scan == '\r' || *scan == '\n') {
+            if (isspace((unsigned char)*scan)) {
                 break;
             }
-            if ((*scan >= 'a' && *scan <= 'f') || (*scan >= 'A' && *scan <= 'F')) {
+            if (isxdigit((unsigned char)*scan) && isalpha((unsigned char)*scan)) {
                 base = 16;
                 break;
             }
@@ -258,7 +296,7 @@ neogeo_memview_parseU64SmartHex(const char *text, unsigned long long *outValue, 
     if (!end || end == cursor) {
         return 0;
     }
-    while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') {
+    while (isspace((unsigned char)*end)) {
         end++;
     }
     if (outEnd) {
@@ -303,63 +341,67 @@ neogeo_memview_measureToolbarTextboxWidth(TTF_Font *font,
 }
 
 static int
+neogeo_memview_clampInt(int value, int minValue, int maxValue)
+{
+    if (value < minValue) {
+        value = minValue;
+    }
+    if (value > maxValue) {
+        value = maxValue;
+    }
+    return value;
+}
+
+static int
 neogeo_memview_clampZoomLevel(int zoomLevel)
 {
-    if (zoomLevel < NEOGEO_MEMVIEW_ZOOM_MIN) {
-        zoomLevel = NEOGEO_MEMVIEW_ZOOM_MIN;
-    }
-    if (zoomLevel > NEOGEO_MEMVIEW_ZOOM_MAX) {
-        zoomLevel = NEOGEO_MEMVIEW_ZOOM_MAX;
-    }
-    return zoomLevel;
+    return neogeo_memview_clampInt(zoomLevel, NEOGEO_MEMVIEW_ZOOM_MIN, NEOGEO_MEMVIEW_ZOOM_MAX);
 }
 
 static int
 neogeo_memview_clampOverviewZoomLevel(int zoomLevel)
 {
-    if (zoomLevel < NEOGEO_MEMVIEW_OVERVIEW_ZOOM_MIN) {
-        zoomLevel = NEOGEO_MEMVIEW_OVERVIEW_ZOOM_MIN;
+    return neogeo_memview_clampInt(zoomLevel, NEOGEO_MEMVIEW_OVERVIEW_ZOOM_MIN, NEOGEO_MEMVIEW_OVERVIEW_ZOOM_MAX);
+}
+
+static uint32_t
+neogeo_memview_clampU32(uint32_t value, uint32_t minValue, uint32_t maxValue)
+{
+    if (value < minValue) {
+        value = minValue;
     }
-    if (zoomLevel > NEOGEO_MEMVIEW_OVERVIEW_ZOOM_MAX) {
-        zoomLevel = NEOGEO_MEMVIEW_OVERVIEW_ZOOM_MAX;
+    if (value > maxValue) {
+        value = maxValue;
     }
-    return zoomLevel;
+    return value;
 }
 
 static uint32_t
 neogeo_memview_clampRamRowBytes(uint32_t rowBytes)
 {
-    if (rowBytes < 1u) {
-        rowBytes = NEOGEO_MEMVIEW_DEFAULT_RAM_ROW_BYTES;
-    }
-    if (rowBytes > NEOGEO_MEMVIEW_MAX_RAM_ROW_BYTES) {
-        rowBytes = NEOGEO_MEMVIEW_MAX_RAM_ROW_BYTES;
-    }
-    return rowBytes;
+    return neogeo_memview_clampU32(rowBytes ? rowBytes : NEOGEO_MEMVIEW_DEFAULT_RAM_ROW_BYTES,
+                                   1u,
+                                   NEOGEO_MEMVIEW_MAX_RAM_ROW_BYTES);
 }
 
 static uint32_t
 neogeo_memview_clampCromTilesPerRow(uint32_t tilesPerRow)
 {
-    if (tilesPerRow < 1u) {
-        tilesPerRow = NEOGEO_MEMVIEW_DEFAULT_CROM_TILES_PER_ROW;
-    }
-    if (tilesPerRow > NEOGEO_MEMVIEW_MAX_CROM_TILES_PER_ROW) {
-        tilesPerRow = NEOGEO_MEMVIEW_MAX_CROM_TILES_PER_ROW;
-    }
-    return tilesPerRow;
+    return neogeo_memview_clampU32(tilesPerRow ? tilesPerRow : NEOGEO_MEMVIEW_DEFAULT_CROM_TILES_PER_ROW,
+                                   1u,
+                                   NEOGEO_MEMVIEW_MAX_CROM_TILES_PER_ROW);
 }
 
 static uint32_t
 neogeo_memview_clampRamBaseAddr(uint32_t baseAddr)
 {
-    if (baseAddr < NEOGEO_MEMVIEW_RAM_BASE_MIN) {
-        baseAddr = NEOGEO_MEMVIEW_RAM_BASE_MIN;
-    }
-    if (baseAddr > NEOGEO_MEMVIEW_RAM_BASE_MAX) {
-        baseAddr = NEOGEO_MEMVIEW_RAM_BASE_MAX;
-    }
-    return baseAddr;
+    return neogeo_memview_clampU32(baseAddr, NEOGEO_MEMVIEW_RAM_BASE_MIN, NEOGEO_MEMVIEW_RAM_BASE_MAX);
+}
+
+static uint32_t
+neogeo_memview_clampZramBaseAddr(uint32_t baseAddr)
+{
+    return neogeo_memview_clampU32(baseAddr, NEOGEO_MEMVIEW_ZRAM_BASE_MIN, NEOGEO_MEMVIEW_ZRAM_BASE_MAX);
 }
 
 static uint32_t
@@ -399,9 +441,6 @@ neogeo_memview_alignCromBaseAddrToRow(const neogeo_memview_state_t *ui, uint32_t
     uint32_t rowBytes = 0u;
 
     baseAddr = neogeo_memview_clampCromBaseAddr(baseAddr);
-    if (!ui) {
-        return baseAddr;
-    }
     rowBytes = neogeo_memview_clampCromTilesPerRow(ui->cromTilesPerRow) * NEOGEO_MEMVIEW_TILE_BYTES;
     if (rowBytes == 0u) {
         return baseAddr;
@@ -411,56 +450,68 @@ neogeo_memview_alignCromBaseAddrToRow(const neogeo_memview_state_t *ui, uint32_t
 }
 
 static int
-neogeo_memview_ramBitPx(const neogeo_memview_state_t *ui)
+neogeo_memview_zoomScaledPx(const neogeo_memview_state_t *ui, int basePx)
 {
-    int scaled = e9ui_scale_px(&ui->ctx, NEOGEO_MEMVIEW_RAM_BIT_PX);
-    int zoomLevel = ui ? neogeo_memview_clampZoomLevel(ui->zoomLevel) : NEOGEO_MEMVIEW_ZOOM_DEFAULT;
+    int scaled = e9ui_scale_px(&ui->ctx, basePx);
+    int zoomLevel = neogeo_memview_clampZoomLevel(ui->zoomLevel);
 
     scaled = (scaled * zoomLevel) / 8;
     if (scaled < 1) {
         scaled = 1;
     }
     return scaled;
+}
+
+static int
+neogeo_memview_ramBitPx(const neogeo_memview_state_t *ui)
+{
+    return neogeo_memview_zoomScaledPx(ui, NEOGEO_MEMVIEW_RAM_BIT_PX);
 }
 
 static int
 neogeo_memview_ramRowPx(const neogeo_memview_state_t *ui)
 {
-    int scaled = e9ui_scale_px(&ui->ctx, NEOGEO_MEMVIEW_RAM_ROW_PX);
-    int zoomLevel = ui ? neogeo_memview_clampZoomLevel(ui->zoomLevel) : NEOGEO_MEMVIEW_ZOOM_DEFAULT;
-
-    scaled = (scaled * zoomLevel) / 8;
-    if (scaled < 1) {
-        scaled = 1;
-    }
-    return scaled;
+    return neogeo_memview_zoomScaledPx(ui, NEOGEO_MEMVIEW_RAM_ROW_PX);
 }
 
 static int
 neogeo_memview_tilePixelPx(const neogeo_memview_state_t *ui)
 {
-    int bitPx = neogeo_memview_ramBitPx(ui);
-
-    if (bitPx < 1) {
-        bitPx = 1;
-    }
-    return bitPx;
+    return neogeo_memview_ramBitPx(ui);
 }
 
 static uint32_t
 neogeo_memview_currentBaseAddr(const neogeo_memview_state_t *ui)
 {
-    if (!ui) {
-        return 0u;
+    if (ui->mode == neogeo_memview_mode_crom) {
+        return ui->cromBaseAddr;
     }
-    return ui->mode == neogeo_memview_mode_crom ? ui->cromBaseAddr : ui->ramBaseAddr;
+    if (ui->mode == neogeo_memview_mode_zram) {
+        return ui->zramBaseAddr;
+    }
+    return ui->ramBaseAddr;
+}
+
+static void
+neogeo_memview_setCurrentBaseAddrSaved(neogeo_memview_state_t *ui, uint32_t baseAddr)
+{
+    if (ui->mode == neogeo_memview_mode_crom) {
+        ui->cromBaseAddr = baseAddr;
+        ui->cromBaseAddrHasSaved = 1;
+    } else if (ui->mode == neogeo_memview_mode_zram) {
+        ui->zramBaseAddr = baseAddr;
+        ui->zramBaseAddrHasSaved = 1;
+    } else {
+        ui->ramBaseAddr = baseAddr;
+        ui->ramBaseAddrHasSaved = 1;
+    }
 }
 
 static uint32_t
 neogeo_memview_cromTotalRows(const neogeo_memview_state_t *ui)
 {
     uint32_t cromTiles = neogeo_memview_cromSize() / NEOGEO_MEMVIEW_TILE_BYTES;
-    uint32_t tilesPerRow = ui ? neogeo_memview_clampCromTilesPerRow(ui->cromTilesPerRow) : NEOGEO_MEMVIEW_DEFAULT_CROM_TILES_PER_ROW;
+    uint32_t tilesPerRow = neogeo_memview_clampCromTilesPerRow(ui->cromTilesPerRow);
 
     if (cromTiles == 0u || tilesPerRow == 0u) {
         return 0u;
@@ -474,7 +525,7 @@ neogeo_memview_cromOverviewWindow(neogeo_memview_state_t *ui,
                                   uint32_t *outVisibleRows)
 {
     uint32_t totalRows = neogeo_memview_cromTotalRows(ui);
-    uint32_t zoomLevel = (uint32_t)neogeo_memview_clampOverviewZoomLevel(ui ? ui->overviewZoomLevel : NEOGEO_MEMVIEW_OVERVIEW_ZOOM_DEFAULT);
+    uint32_t zoomLevel = (uint32_t)neogeo_memview_clampOverviewZoomLevel(ui->overviewZoomLevel);
     uint32_t visibleRows = 0u;
     uint32_t currentTile = 0u;
     uint32_t currentRow = 0u;
@@ -487,7 +538,7 @@ neogeo_memview_cromOverviewWindow(neogeo_memview_state_t *ui,
     if (outVisibleRows) {
         *outVisibleRows = totalRows;
     }
-    if (!ui || totalRows == 0u) {
+    if (totalRows == 0u) {
         return;
     }
     visibleRows = (totalRows + zoomLevel - 1u) / zoomLevel;
@@ -535,9 +586,6 @@ neogeo_memview_cromOverviewWindow(neogeo_memview_state_t *ui,
 static uint32_t
 neogeo_memview_currentRowBytes(const neogeo_memview_state_t *ui)
 {
-    if (!ui) {
-        return 0u;
-    }
     if (ui->mode == neogeo_memview_mode_crom) {
         return neogeo_memview_clampCromTilesPerRow(ui->cromTilesPerRow) * NEOGEO_MEMVIEW_TILE_BYTES;
     }
@@ -549,9 +597,6 @@ neogeo_memview_initOverviewRanges(neogeo_memview_state_t *ui)
 {
     uint32_t cromSize = 0u;
 
-    if (!ui) {
-        return;
-    }
     memset(ui->overviewRanges, 0, sizeof(ui->overviewRanges));
     if (ui->mode == neogeo_memview_mode_crom) {
         cromSize = neogeo_memview_cromSize();
@@ -561,8 +606,91 @@ neogeo_memview_initOverviewRanges(neogeo_memview_state_t *ui)
         }
         return;
     }
+    if (ui->mode == neogeo_memview_mode_zram) {
+        ui->overviewRanges[0].baseAddr = NEOGEO_MEMVIEW_ZRAM_BASE_MIN;
+        ui->overviewRanges[0].sizeBytes = NEOGEO_MEMVIEW_ZRAM_BASE_MAX - NEOGEO_MEMVIEW_ZRAM_BASE_MIN + 1u;
+        return;
+    }
     ui->overviewRanges[0].baseAddr = NEOGEO_MEMVIEW_RAM_BASE_MIN;
     ui->overviewRanges[0].sizeBytes = NEOGEO_MEMVIEW_RAM_BASE_MAX - NEOGEO_MEMVIEW_RAM_BASE_MIN + 1u;
+}
+
+static void
+neogeo_memview_countActiveSpriteRows(const e9k_debug_sprite_state_t *spriteState,
+                                     uint32_t cromTiles,
+                                     uint32_t tilesPerRow,
+                                     uint32_t totalRows,
+                                     const uint16_t *prevVram,
+                                     size_t prevVramWords,
+                                     uint32_t *rowActiveCounts,
+                                     uint32_t *rowChangedCounts)
+{
+    const uint16_t *vram = NULL;
+    const uint16_t *scb3 = NULL;
+    int screenHeight = 0;
+
+    if (!spriteState || !spriteState->vram ||
+        spriteState->vram_words <= NEOGEO_MEMVIEW_SCB3_WORD_OFFSET + NEOGEO_MEMVIEW_SPRITE_CHAIN_SCAN_END ||
+        cromTiles == 0u || tilesPerRow == 0u || totalRows == 0u || !rowActiveCounts) {
+        return;
+    }
+    vram = spriteState->vram;
+    scb3 = vram + NEOGEO_MEMVIEW_SCB3_WORD_OFFSET;
+    screenHeight = spriteState->screen_h > 0 ? spriteState->screen_h : 256;
+    for (unsigned i = NEOGEO_MEMVIEW_SPRITE_FIRST_VISIBLE; i < NEOGEO_MEMVIEW_SPRITE_CHAIN_SCAN_END; ) {
+        unsigned len = 1u;
+        uint16_t scb3w = 0u;
+        unsigned spriteRows = 0u;
+        unsigned ypos = 0u;
+
+        scb3w = scb3[i];
+        if (scb3w & NEOGEO_MEMVIEW_SCB3_CHAIN_FLAG) {
+            ++i;
+            continue;
+        }
+        while ((i + len) < NEOGEO_MEMVIEW_SPRITE_CHAIN_SCAN_END &&
+               (scb3[i + len] & NEOGEO_MEMVIEW_SCB3_CHAIN_FLAG)) {
+            ++len;
+        }
+        spriteRows = (unsigned)(scb3w & NEOGEO_MEMVIEW_SCB3_ROW_MASK);
+        ypos = (unsigned)((scb3w >> NEOGEO_MEMVIEW_SCB3_YPOS_SHIFT) & NEOGEO_MEMVIEW_SCB3_YPOS_MASK);
+        if (spriteRows != 0u && ypos != (unsigned)screenHeight) {
+            if (spriteRows > NEOGEO_MEMVIEW_SPRITE_MAX_ROWS) {
+                spriteRows = NEOGEO_MEMVIEW_SPRITE_MAX_ROWS;
+            }
+            for (unsigned chainIndex = 0u; chainIndex < len; ++chainIndex) {
+                unsigned spriteIndex = i + chainIndex;
+
+                for (unsigned row = 0u; row < spriteRows; ++row) {
+                    unsigned evenWordOffset = spriteIndex * NEOGEO_MEMVIEW_SPRITE_VRAM_WORDS_PER_SPRITE +
+                                              row * NEOGEO_MEMVIEW_SPRITE_TILE_ROW_WORDS;
+                    unsigned oddWordOffset = evenWordOffset + 1u;
+                    uint32_t spriteTileNum = 0u;
+                    uint32_t spriteRow = 0u;
+
+                    if (oddWordOffset >= spriteState->vram_words) {
+                        break;
+                    }
+                    spriteTileNum = (uint32_t)(vram[evenWordOffset] |
+                                               ((vram[oddWordOffset] & NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_MASK) <<
+                                                NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_SHIFT));
+                    spriteTileNum %= cromTiles;
+                    spriteRow = spriteTileNum / tilesPerRow;
+                    if (spriteRow < totalRows) {
+                        rowActiveCounts[spriteRow]++;
+                        if (rowChangedCounts &&
+                            prevVram &&
+                            prevVramWords == spriteState->vram_words &&
+                            (prevVram[evenWordOffset] != vram[evenWordOffset] ||
+                             prevVram[oddWordOffset] != vram[oddWordOffset])) {
+                            rowChangedCounts[spriteRow]++;
+                        }
+                    }
+                }
+            }
+        }
+        i += len;
+    }
 }
 
 static void
@@ -582,9 +710,6 @@ neogeo_memview_followActiveCromWindow(neogeo_memview_state_t *ui, const e9ui_rec
     uint32_t bestStartRow = 0u;
     uint32_t *rowActiveCounts = NULL;
     uint32_t *rowChangedCounts = NULL;
-    const uint16_t *vram = NULL;
-    const uint16_t *scb3 = NULL;
-    int screenHeight = 0;
     size_t prevBytes = 0u;
     uint16_t *nextPrevVram = NULL;
     uint64_t currentScore = 0u;
@@ -596,7 +721,7 @@ neogeo_memview_followActiveCromWindow(neogeo_memview_state_t *ui, const e9ui_rec
     uint32_t bootstrapBestActiveSum = 0u;
     int bestQualified = 0;
 
-    if (!ui || !bounds || ui->mode != neogeo_memview_mode_crom || !ui->followActiveSprites) {
+    if (!bounds || ui->mode != neogeo_memview_mode_crom || !ui->followActiveSprites) {
         return;
     }
     if (!libretro_host_debugGetSpriteState(&spriteState) || !spriteState.vram || spriteState.vram_words == 0u) {
@@ -634,62 +759,14 @@ neogeo_memview_followActiveCromWindow(neogeo_memview_state_t *ui, const e9ui_rec
         }
         ui->followPrevSpriteVram = nextPrevVram;
     }
-    vram = spriteState.vram;
-    scb3 = vram + 0x8200u;
-    screenHeight = spriteState.screen_h > 0 ? spriteState.screen_h : 256;
-    for (unsigned i = 1u; i < 381u; ) {
-        unsigned len = 1u;
-        uint16_t scb3w = 0u;
-        unsigned spriteRows = 0u;
-        unsigned ypos = 0u;
-
-        scb3w = scb3[i];
-        if (scb3w & 0x40u) {
-            ++i;
-            continue;
-        }
-        while ((i + len) < 381u && (scb3[i + len] & 0x40u)) {
-            ++len;
-        }
-        spriteRows = (unsigned)(scb3w & 0x3fu);
-        ypos = (unsigned)((scb3w >> 7) & 0x01ffu);
-        if (spriteRows != 0u && ypos != (unsigned)screenHeight) {
-            if (spriteRows > 32u) {
-                spriteRows = 32u;
-            }
-            for (unsigned chainIndex = 0u; chainIndex < len; ++chainIndex) {
-                unsigned spriteIndex = i + chainIndex;
-
-                for (unsigned row = 0u; row < spriteRows; ++row) {
-                    unsigned evenWordOffset = (spriteIndex << 6) + (row << 1);
-                    unsigned oddWordOffset = evenWordOffset + 1u;
-                    uint32_t spriteTileNum = 0u;
-                    uint32_t spriteRow = 0u;
-                    int changed = 0;
-
-                    if (oddWordOffset >= spriteState.vram_words) {
-                        break;
-                    }
-                    spriteTileNum = (uint32_t)(vram[evenWordOffset] | ((vram[oddWordOffset] & 0x00f0u) << 12));
-                    spriteTileNum %= cromTiles;
-                    spriteRow = spriteTileNum / tilesPerRow;
-                    if (spriteRow < totalRows) {
-                        rowActiveCounts[spriteRow]++;
-                        if (ui->followPrevSpriteVram &&
-                            ui->followPrevSpriteVramWords == spriteState.vram_words &&
-                            (ui->followPrevSpriteVram[evenWordOffset] != vram[evenWordOffset] ||
-                             ui->followPrevSpriteVram[oddWordOffset] != vram[oddWordOffset])) {
-                            changed = 1;
-                        }
-                        if (changed) {
-                            rowChangedCounts[spriteRow]++;
-                        }
-                    }
-                }
-            }
-        }
-        i += len;
-    }
+    neogeo_memview_countActiveSpriteRows(&spriteState,
+                                         cromTiles,
+                                         tilesPerRow,
+                                         totalRows,
+                                         ui->followPrevSpriteVram,
+                                         ui->followPrevSpriteVramWords,
+                                         rowActiveCounts,
+                                         rowChangedCounts);
     for (uint32_t row = currentRow; row < currentRow + visibleRows; ++row) {
         currentActiveSum += rowActiveCounts[row];
         currentChangedSum += rowChangedCounts[row];
@@ -740,25 +817,25 @@ neogeo_memview_followActiveCromWindow(neogeo_memview_state_t *ui, const e9ui_rec
     }
     if ((!ui->followPrevSpriteVramWords || ui->followPrevSpriteVramWords != spriteState.vram_words) &&
         bootstrapBestActiveSum > 0u && bootstrapBestStartRow != currentRow) {
-        ui->cromBaseAddr = neogeo_memview_clampBaseForView(ui,
-                                                           bounds,
-                                                           bootstrapBestStartRow * tilesPerRow * NEOGEO_MEMVIEW_TILE_BYTES);
-        ui->cromBaseAddrHasSaved = 1;
+        neogeo_memview_setCurrentBaseAddrSaved(ui,
+                                               neogeo_memview_clampBaseForView(ui,
+                                                                               bounds,
+                                                                               bootstrapBestStartRow * tilesPerRow * NEOGEO_MEMVIEW_TILE_BYTES));
         ui->followPendingStartRow = bootstrapBestStartRow;
         ui->followPendingFrames = 0u;
         neogeo_memview_syncTextboxesFromState(ui);
-        neogeo_memview_saveWindowState(ui);
+        config_saveConfig();
     }
     if (ui->followPrevSpriteVram && ui->followPrevSpriteVramWords == spriteState.vram_words &&
         bestQualified && ui->followPendingFrames >= NEOGEO_MEMVIEW_FOLLOW_STABLE_FRAMES) {
-        ui->cromBaseAddr = neogeo_memview_clampBaseForView(ui,
-                                                           bounds,
-                                                           bestStartRow * tilesPerRow * NEOGEO_MEMVIEW_TILE_BYTES);
-        ui->cromBaseAddrHasSaved = 1;
+        neogeo_memview_setCurrentBaseAddrSaved(ui,
+                                               neogeo_memview_clampBaseForView(ui,
+                                                                               bounds,
+                                                                               bestStartRow * tilesPerRow * NEOGEO_MEMVIEW_TILE_BYTES));
         ui->followPendingStartRow = bestStartRow;
         ui->followPendingFrames = 0u;
         neogeo_memview_syncTextboxesFromState(ui);
-        neogeo_memview_saveWindowState(ui);
+        config_saveConfig();
     }
     if (ui->followPrevSpriteVram && spriteState.vram_words != 0u) {
         memcpy(ui->followPrevSpriteVram, spriteState.vram, prevBytes);
@@ -772,20 +849,14 @@ static uint32_t
 neogeo_memview_findInitialCromBaseAddr(const neogeo_memview_state_t *ui)
 {
     e9k_debug_sprite_state_t spriteState;
-    const uint16_t *vram = NULL;
-    const uint16_t *scb3 = NULL;
     uint32_t cromTiles = 0u;
     uint32_t tilesPerRow = 0u;
     uint32_t totalRows = 0u;
     uint32_t *rowActiveCounts = NULL;
     uint32_t bestRow = 0u;
     uint32_t bestCount = 0u;
-    int screenHeight = 0;
     uint32_t baseAddr = 0u;
 
-    if (!ui) {
-        return 0u;
-    }
     if (!libretro_host_debugGetSpriteState(&spriteState) || !spriteState.vram || spriteState.vram_words == 0u) {
         return 0u;
     }
@@ -799,54 +870,19 @@ neogeo_memview_findInitialCromBaseAddr(const neogeo_memview_state_t *ui)
     if (!rowActiveCounts) {
         return 0u;
     }
-    vram = spriteState.vram;
-    scb3 = vram + 0x8200u;
-    screenHeight = spriteState.screen_h > 0 ? spriteState.screen_h : 256;
-    for (unsigned i = 1u; i < 381u; ) {
-        unsigned len = 1u;
-        uint16_t scb3w = scb3[i];
-        unsigned spriteRows = 0u;
-        unsigned ypos = 0u;
-
-        if (scb3w & 0x40u) {
-            ++i;
-            continue;
+    neogeo_memview_countActiveSpriteRows(&spriteState,
+                                         cromTiles,
+                                         tilesPerRow,
+                                         totalRows,
+                                         NULL,
+                                         0u,
+                                         rowActiveCounts,
+                                         NULL);
+    for (uint32_t row = 0u; row < totalRows; ++row) {
+        if (rowActiveCounts[row] > bestCount) {
+            bestCount = rowActiveCounts[row];
+            bestRow = row;
         }
-        while ((i + len) < 381u && (scb3[i + len] & 0x40u)) {
-            ++len;
-        }
-        spriteRows = (unsigned)(scb3w & 0x3fu);
-        ypos = (unsigned)((scb3w >> 7) & 0x01ffu);
-        if (spriteRows != 0u && ypos != (unsigned)screenHeight) {
-            if (spriteRows > 32u) {
-                spriteRows = 32u;
-            }
-            for (unsigned chainIndex = 0u; chainIndex < len; ++chainIndex) {
-                unsigned spriteIndex = i + chainIndex;
-
-                for (unsigned row = 0u; row < spriteRows; ++row) {
-                    unsigned evenWordOffset = (spriteIndex << 6) + (row << 1);
-                    unsigned oddWordOffset = evenWordOffset + 1u;
-                    uint32_t spriteTileNum = 0u;
-                    uint32_t spriteRow = 0u;
-
-                    if (oddWordOffset >= spriteState.vram_words) {
-                        break;
-                    }
-                    spriteTileNum = (uint32_t)(vram[evenWordOffset] | ((vram[oddWordOffset] & 0x00f0u) << 12));
-                    spriteTileNum %= cromTiles;
-                    spriteRow = spriteTileNum / tilesPerRow;
-                    if (spriteRow < totalRows) {
-                        rowActiveCounts[spriteRow]++;
-                        if (rowActiveCounts[spriteRow] > bestCount) {
-                            bestCount = rowActiveCounts[spriteRow];
-                            bestRow = spriteRow;
-                        }
-                    }
-                }
-            }
-        }
-        i += len;
     }
     baseAddr = bestCount > 0u ? bestRow * tilesPerRow * NEOGEO_MEMVIEW_TILE_BYTES : 0u;
     alloc_free(rowActiveCounts);
@@ -858,9 +894,6 @@ neogeo_memview_overviewRangeCount(const neogeo_memview_state_t *ui)
 {
     int count = 0;
 
-    if (!ui) {
-        return 0;
-    }
     for (int i = 0; i < (int)(sizeof(ui->overviewRanges) / sizeof(ui->overviewRanges[0])); ++i) {
         if (ui->overviewRanges[i].sizeBytes != 0u) {
             count++;
@@ -875,7 +908,7 @@ neogeo_memview_canvasVisibleRows(const neogeo_memview_state_t *ui, const e9ui_re
     int usableHeight = 0;
     int rowPx = 1;
 
-    if (!ui || !bounds) {
+    if (!bounds) {
         return 1;
     }
     usableHeight = bounds->h - e9ui_scale_px(&ui->ctx, NEOGEO_MEMVIEW_TOP_PAD_PX) -
@@ -907,7 +940,7 @@ neogeo_memview_clampBaseForView(const neogeo_memview_state_t *ui, const e9ui_rec
     uint64_t viewBytes = 0u;
     uint64_t maxBase = 0u;
 
-    if (!ui || !bounds) {
+    if (!bounds) {
         return baseAddr;
     }
     if (ui->mode == neogeo_memview_mode_crom) {
@@ -916,6 +949,9 @@ neogeo_memview_clampBaseForView(const neogeo_memview_state_t *ui, const e9ui_rec
         if (rangeSize < NEOGEO_MEMVIEW_TILE_BYTES) {
             return 0u;
         }
+    } else if (ui->mode == neogeo_memview_mode_zram) {
+        rangeStart = NEOGEO_MEMVIEW_ZRAM_BASE_MIN;
+        rangeSize = NEOGEO_MEMVIEW_ZRAM_BASE_MAX - NEOGEO_MEMVIEW_ZRAM_BASE_MIN + 1u;
     } else {
         rangeStart = NEOGEO_MEMVIEW_RAM_BASE_MIN;
         rangeSize = NEOGEO_MEMVIEW_RAM_BASE_MAX - NEOGEO_MEMVIEW_RAM_BASE_MIN + 1u;
@@ -931,6 +967,8 @@ neogeo_memview_clampBaseForView(const neogeo_memview_state_t *ui, const e9ui_rec
 
     if (ui->mode == neogeo_memview_mode_crom) {
         baseAddr = neogeo_memview_alignCromBaseAddrToRow(ui, baseAddr);
+    } else if (ui->mode == neogeo_memview_mode_zram) {
+        baseAddr = neogeo_memview_clampZramBaseAddr(baseAddr);
     } else {
         baseAddr = neogeo_memview_clampRamBaseAddr(baseAddr);
     }
@@ -950,9 +988,6 @@ neogeo_memview_syncTextboxesFromState(neogeo_memview_state_t *ui)
     uint32_t baseAddr = 0u;
     uint32_t widthValue = 0u;
 
-    if (!ui) {
-        return;
-    }
     baseAddr = neogeo_memview_currentBaseAddr(ui);
     widthValue = ui->mode == neogeo_memview_mode_crom ?
         neogeo_memview_clampCromTilesPerRow(ui->cromTilesPerRow) :
@@ -996,62 +1031,49 @@ neogeo_memview_syncTextboxesFromState(neogeo_memview_state_t *ui)
 }
 
 static void
+neogeo_memview_updateModeButton(e9ui_component_t *button, int active, const e9k_theme_button_t *activeTheme)
+{
+    if (!button) {
+        return;
+    }
+    if (active) {
+        e9ui_button_setTheme(button, activeTheme);
+    } else {
+        e9ui_button_clearTheme(button);
+    }
+}
+
+static void
 neogeo_memview_updateModeButtons(neogeo_memview_state_t *ui)
 {
     const e9k_theme_button_t *activeTheme = e9ui_theme_button_preset_profile_active();
 
-    if (!ui) {
-        return;
-    }
-    if (ui->modeButtonRam) {
-        if (ui->mode == neogeo_memview_mode_ram) {
-            e9ui_button_setTheme(ui->modeButtonRam, activeTheme);
-        } else {
-            e9ui_button_clearTheme(ui->modeButtonRam);
-        }
-    }
-    if (ui->modeButtonCrom) {
-        if (ui->mode == neogeo_memview_mode_crom) {
-            e9ui_button_setTheme(ui->modeButtonCrom, activeTheme);
-        } else {
-            e9ui_button_clearTheme(ui->modeButtonCrom);
-        }
-    }
+    neogeo_memview_updateModeButton(ui->modeButtonRam, ui->mode == neogeo_memview_mode_ram, activeTheme);
+    neogeo_memview_updateModeButton(ui->modeButtonCrom, ui->mode == neogeo_memview_mode_crom, activeTheme);
+    neogeo_memview_updateModeButton(ui->modeButtonZram, ui->mode == neogeo_memview_mode_zram, activeTheme);
 }
 
 static void
-neogeo_memview_saveWindowState(neogeo_memview_state_t *ui)
+neogeo_memview_setView(neogeo_memview_state_t *ui, uint32_t baseAddr, uint32_t rowBytes, int resetScroll)
 {
-    (void)ui;
-    config_saveConfig();
-}
+    const e9ui_rect_t *bounds = ui->canvas ? &ui->canvas->bounds : &(e9ui_rect_t){ 0, 0, 640, 360 };
 
-static void
-neogeo_memview_setView(neogeo_memview_state_t *ui, uint32_t baseAddr, uint32_t rowBytesLike, int resetScroll)
-{
-    if (!ui) {
-        return;
-    }
     if (ui->mode == neogeo_memview_mode_crom) {
-        ui->cromTilesPerRow = neogeo_memview_clampCromTilesPerRow(rowBytesLike / NEOGEO_MEMVIEW_TILE_BYTES);
+        ui->cromTilesPerRow = neogeo_memview_clampCromTilesPerRow(rowBytes / NEOGEO_MEMVIEW_TILE_BYTES);
         ui->cromTilesPerRowHasSaved = 1;
-        ui->cromBaseAddr = neogeo_memview_clampBaseForView(ui,
-                                                           ui->canvas ? &ui->canvas->bounds : &(e9ui_rect_t){ 0, 0, 640, 360 },
-                                                           baseAddr);
-        ui->cromBaseAddrHasSaved = 1;
-    } else {
-        ui->ramRowBytes = neogeo_memview_clampRamRowBytes(rowBytesLike);
+    } else if (ui->mode == neogeo_memview_mode_zram) {
+        ui->ramRowBytes = neogeo_memview_clampRamRowBytes(rowBytes);
         ui->ramRowBytesHasSaved = 1;
-        ui->ramBaseAddr = neogeo_memview_clampBaseForView(ui,
-                                                          ui->canvas ? &ui->canvas->bounds : &(e9ui_rect_t){ 0, 0, 640, 360 },
-                                                          baseAddr);
-        ui->ramBaseAddrHasSaved = 1;
+    } else {
+        ui->ramRowBytes = neogeo_memview_clampRamRowBytes(rowBytes);
+        ui->ramRowBytesHasSaved = 1;
     }
+    neogeo_memview_setCurrentBaseAddrSaved(ui, neogeo_memview_clampBaseForView(ui, bounds, baseAddr));
     if (resetScroll) {
         ui->scrollX = 0;
     }
     neogeo_memview_syncTextboxesFromState(ui);
-    neogeo_memview_saveWindowState(ui);
+    config_saveConfig();
 }
 
 static int
@@ -1059,7 +1081,7 @@ neogeo_memview_readRange(const neogeo_memview_state_t *ui, uint32_t addr, void *
 {
     e9k_debug_rom_region_t crom = { 0 };
 
-    if (!ui || !out || sizeBytes == 0u) {
+    if (!out || sizeBytes == 0u) {
         return 0;
     }
     if (ui->mode == neogeo_memview_mode_crom) {
@@ -1077,6 +1099,31 @@ neogeo_memview_readRange(const neogeo_memview_state_t *ui, uint32_t addr, void *
         }
         memcpy(out, crom.data + addr, sizeBytes);
         return 1;
+    }
+    if (ui->mode == neogeo_memview_mode_zram) {
+        uint32_t readAddr = addr;
+        size_t dstOffset = 0u;
+        size_t readableBytes = sizeBytes;
+
+        memset(out, 0, sizeBytes);
+        if (readAddr < NEOGEO_MEMVIEW_ZRAM_BASE_MIN) {
+            dstOffset = (size_t)(NEOGEO_MEMVIEW_ZRAM_BASE_MIN - readAddr);
+            if (dstOffset >= sizeBytes) {
+                return 0;
+            }
+            readAddr = NEOGEO_MEMVIEW_ZRAM_BASE_MIN;
+            readableBytes = sizeBytes - dstOffset;
+        }
+        if (readAddr > NEOGEO_MEMVIEW_ZRAM_BASE_MAX) {
+            return 0;
+        }
+        if ((uint64_t)readAddr + (uint64_t)readableBytes > (uint64_t)NEOGEO_MEMVIEW_ZRAM_BASE_MAX + 1u) {
+            readableBytes = (size_t)((uint64_t)NEOGEO_MEMVIEW_ZRAM_BASE_MAX + 1u - (uint64_t)readAddr);
+        }
+        return libretro_host_debugReadProcessorMemory(NEOGEO_MEMVIEW_Z80_PROCESSOR_ID,
+                                                      readAddr,
+                                                      (uint8_t *)out + dstOffset,
+                                                      readableBytes) ? 1 : 0;
     }
     return libretro_host_debugReadMemory(addr, out, sizeBytes) ? 1 : 0;
 }
@@ -1101,13 +1148,42 @@ neogeo_memview_amberColor(unsigned index)
 }
 
 static uint64_t
+neogeo_memview_hashMemoryRange(const neogeo_memview_state_t *ui,
+                               uint32_t startAddr,
+                               uint32_t endAddr,
+                               uint64_t hash,
+                               int readRange)
+{
+    uint8_t chunk[256];
+
+    for (uint32_t addr = startAddr; addr <= endAddr; addr += (uint32_t)sizeof(chunk)) {
+        size_t toRead = sizeof(chunk);
+
+        if (addr + toRead - 1u > endAddr) {
+            toRead = (size_t)(endAddr - addr + 1u);
+        }
+        memset(chunk, 0, sizeof(chunk));
+        if (readRange) {
+            (void)neogeo_memview_readRange(ui, addr, chunk, toRead);
+        } else {
+            (void)libretro_host_debugReadMemory(addr, chunk, toRead);
+        }
+        for (size_t i = 0; i < toRead; ++i) {
+            hash ^= (uint64_t)chunk[i];
+            hash *= 1099511628211ull;
+        }
+        if (toRead < sizeof(chunk)) {
+            break;
+        }
+    }
+    return hash;
+}
+
+static uint64_t
 neogeo_memview_overviewContentToken(const neogeo_memview_state_t *ui)
 {
     uint64_t hash = 1469598103934665603ull;
 
-    if (!ui) {
-        return 0u;
-    }
     if (ui->mode == neogeo_memview_mode_crom) {
         e9k_debug_rom_region_t crom = { 0 };
 
@@ -1119,26 +1195,10 @@ neogeo_memview_overviewContentToken(const neogeo_memview_state_t *ui)
         hash ^= (uint64_t)crom.size;
         hash *= 1099511628211ull;
         return hash;
+    } else if (ui->mode == neogeo_memview_mode_zram) {
+        return neogeo_memview_hashMemoryRange(ui, NEOGEO_MEMVIEW_ZRAM_BASE_MIN, NEOGEO_MEMVIEW_ZRAM_BASE_MAX, hash, 1);
     } else {
-        uint8_t chunk[256];
-
-        for (uint32_t addr = NEOGEO_MEMVIEW_RAM_BASE_MIN; addr <= NEOGEO_MEMVIEW_RAM_BASE_MAX; addr += (uint32_t)sizeof(chunk)) {
-            size_t toRead = sizeof(chunk);
-
-            if (addr + toRead - 1u > NEOGEO_MEMVIEW_RAM_BASE_MAX) {
-                toRead = (size_t)(NEOGEO_MEMVIEW_RAM_BASE_MAX - addr + 1u);
-            }
-            memset(chunk, 0, sizeof(chunk));
-            (void)libretro_host_debugReadMemory(addr, chunk, toRead);
-            for (size_t i = 0; i < toRead; ++i) {
-                hash ^= (uint64_t)chunk[i];
-                hash *= 1099511628211ull;
-            }
-            if (toRead < sizeof(chunk)) {
-                break;
-            }
-        }
-        return hash;
+        return neogeo_memview_hashMemoryRange(ui, NEOGEO_MEMVIEW_RAM_BASE_MIN, NEOGEO_MEMVIEW_RAM_BASE_MAX, hash, 0);
     }
 }
 
@@ -1286,9 +1346,10 @@ neogeo_memview_buildVisibleTilePaletteMap(const uint32_t *visibleTileNums,
     visibleEndTile = (uint32_t)((visibleBaseTile + (uint32_t)visibleTileCount) % cromTiles);
     wraps = visibleTileCount > (size_t)(cromTiles - visibleBaseTile) ? 1 : 0;
     vram = spriteState.vram;
-    for (unsigned i = 0; i < 382u; ++i) {
-        for (unsigned row = 0; row < 32u; ++row) {
-            unsigned evenWordOffset = (i << 6) + (row << 1);
+    for (unsigned i = 0; i < NEOGEO_MEMVIEW_SPRITE_COUNT; ++i) {
+        for (unsigned row = 0; row < NEOGEO_MEMVIEW_SPRITE_MAX_ROWS; ++row) {
+            unsigned evenWordOffset = i * NEOGEO_MEMVIEW_SPRITE_VRAM_WORDS_PER_SPRITE +
+                                      row * NEOGEO_MEMVIEW_SPRITE_TILE_ROW_WORDS;
             unsigned oddWordOffset = evenWordOffset + 1u;
             uint32_t spriteTileNum = 0u;
             size_t tileIndex = 0u;
@@ -1298,9 +1359,12 @@ neogeo_memview_buildVisibleTilePaletteMap(const uint32_t *visibleTileNums,
             if (oddWordOffset >= spriteState.vram_words) {
                 break;
             }
-            spriteTileNum = (uint32_t)(vram[evenWordOffset] | ((vram[oddWordOffset] & 0x00f0u) << 12));
+            spriteTileNum = (uint32_t)(vram[evenWordOffset] |
+                                       ((vram[oddWordOffset] & NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_MASK) <<
+                                        NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_SHIFT));
             spriteTileNum %= cromTiles;
-            paletteBank = (uint8_t)((vram[oddWordOffset] >> 8) & 0x00ffu);
+            paletteBank = (uint8_t)((vram[oddWordOffset] >> NEOGEO_MEMVIEW_SPRITE_PALETTE_SHIFT) &
+                                    NEOGEO_MEMVIEW_SPRITE_PALETTE_MASK);
 
             if (!wraps) {
                 if (spriteTileNum >= visibleBaseTile && spriteTileNum < visibleBaseTile + (uint32_t)visibleTileCount) {
@@ -1342,7 +1406,7 @@ neogeo_memview_overviewLiveTilePos(neogeo_memview_state_t *ui,
     uint64_t rowIndex = 0u;
     uint64_t colIndex = 0u;
 
-    if (!ui || !outX || !outY || contentWidth <= 0 || contentHeight <= 0) {
+    if (!outX || !outY || contentWidth <= 0 || contentHeight <= 0) {
         return 0;
     }
     cromTiles = neogeo_memview_cromSize() / NEOGEO_MEMVIEW_TILE_BYTES;
@@ -1405,9 +1469,6 @@ neogeo_memview_leftGutterPx(const neogeo_memview_state_t *ui, const e9ui_context
 {
     int left = 0;
 
-    if (!ui) {
-        return 0;
-    }
     if (ui->showAddressColumn) {
         left += neogeo_memview_measureAddressGutterPx(ctx, font);
     }
@@ -1429,7 +1490,7 @@ neogeo_memview_overviewBounds(const neogeo_memview_state_t *ui, e9ui_component_t
     e9ui_rect_t bounds = { 0, 0, 0, 0 };
     int x = 0;
 
-    if (!ui || !self || !ctx || !ui->showOverviewColumn || neogeo_memview_overviewRangeCount(ui) <= 0) {
+    if (!self || !ctx || !ui->showOverviewColumn || neogeo_memview_overviewRangeCount(ui) <= 0) {
         return bounds;
     }
     x = self->bounds.x;
@@ -1478,7 +1539,7 @@ neogeo_memview_hscrollBounds(const neogeo_memview_state_t *ui, const e9ui_compon
     e9ui_rect_t bounds = { 0, 0, 0, 0 };
     int rightGutter = 0;
 
-    if (!ui || !self) {
+    if (!self) {
         return bounds;
     }
     rightGutter = neogeo_memview_stepButtonsGutterWidth(&ui->ctx, (e9ui_component_t *)self);
@@ -1522,19 +1583,172 @@ neogeo_memview_drawAddressLabel(const neogeo_memview_state_t *ui,
                             0);
 }
 
+static void
+neogeo_memview_renderCromOverviewBackground(neogeo_memview_state_t *ui, const e9ui_rect_t *contentBounds)
+{
+    e9k_debug_rom_region_t crom = { 0 };
+    uint32_t cromTiles = neogeo_memview_cromSize() / NEOGEO_MEMVIEW_TILE_BYTES;
+    uint32_t tilesPerRow = neogeo_memview_clampCromTilesPerRow(ui->cromTilesPerRow);
+    uint32_t totalRows = neogeo_memview_cromTotalRows(ui);
+    uint32_t overviewStartRow = 0u;
+    uint32_t overviewVisibleRows = totalRows;
+
+    (void)libretro_host_debugGetCRom(&crom);
+    if (!crom.data || crom.size < NEOGEO_MEMVIEW_TILE_BYTES || cromTiles == 0u || tilesPerRow == 0u || totalRows == 0u) {
+        return;
+    }
+
+    neogeo_memview_cromOverviewWindow(ui, &overviewStartRow, &overviewVisibleRows);
+    for (uint32_t tileRow = overviewStartRow; tileRow < overviewStartRow + overviewVisibleRows; ++tileRow) {
+        uint32_t localRow = tileRow - overviewStartRow;
+        int y0 = (int)(((uint64_t)localRow * (uint64_t)contentBounds->h) / (uint64_t)overviewVisibleRows);
+        int y1 = (int)(((uint64_t)(localRow + 1u) * (uint64_t)contentBounds->h) / (uint64_t)overviewVisibleRows);
+
+        if (y1 <= y0) {
+            y1 = y0 + 1;
+        }
+        if (y0 >= contentBounds->h) {
+            break;
+        }
+        if (y1 > contentBounds->h) {
+            y1 = contentBounds->h;
+        }
+        for (uint32_t tileCol = 0; tileCol < tilesPerRow; ++tileCol) {
+            uint32_t tileNum = tileRow * tilesPerRow + tileCol;
+            uint32_t tileBase = 0u;
+            uint64_t pixelSum = 0u;
+            uint64_t pixelCount = 0u;
+            uint32_t brightness = 0u;
+            int x0 = (int)(((uint64_t)tileCol * (uint64_t)contentBounds->w) / (uint64_t)tilesPerRow);
+            int x1 = (int)(((uint64_t)(tileCol + 1u) * (uint64_t)contentBounds->w) / (uint64_t)tilesPerRow);
+            uint32_t color = 0u;
+
+            if (tileNum >= cromTiles) {
+                continue;
+            }
+            if (x1 <= x0) {
+                x1 = x0 + 1;
+            }
+            if (x0 >= contentBounds->w) {
+                continue;
+            }
+            if (x1 > contentBounds->w) {
+                x1 = contentBounds->w;
+            }
+            tileBase = tileNum * NEOGEO_MEMVIEW_TILE_BYTES;
+            for (unsigned py = 0; py < NEOGEO_MEMVIEW_TILE_H; py += 2u) {
+                for (unsigned px = 0; px < NEOGEO_MEMVIEW_TILE_W; px += 2u) {
+                    pixelSum += neogeo_memview_readCromPixel(crom.data, crom.size, tileBase, px, py);
+                    ++pixelCount;
+                }
+            }
+            if (pixelCount > 0u) {
+                brightness = (uint32_t)(pixelSum / pixelCount);
+            }
+            if (brightness > 15u) {
+                brightness = 15u;
+            }
+            color = neogeo_memview_amberColor(brightness);
+            for (int yy = y0; yy < y1; ++yy) {
+                for (int xx = x0; xx < x1; ++xx) {
+                    ui->overviewBackgroundPixels[(size_t)yy * (size_t)contentBounds->w + (size_t)xx] = color;
+                }
+            }
+        }
+    }
+}
+
+static void
+neogeo_memview_renderRamOverviewBackground(neogeo_memview_state_t *ui, const e9ui_rect_t *contentBounds)
+{
+    uint32_t sample[256];
+    neogeo_memview_overview_range_t *range = &ui->overviewRanges[0];
+    uint32_t rowBytes = neogeo_memview_clampRamRowBytes(ui->ramRowBytes);
+    uint32_t totalRows = rowBytes > 0u ? (range->sizeBytes + rowBytes - 1u) / rowBytes : 0u;
+    const uint8_t offR = 33u;
+    const uint8_t offG = 18u;
+    const uint8_t offB = 0u;
+    const uint8_t onR = 255u;
+    const uint8_t onG = 189u;
+    const uint8_t onB = 115u;
+
+    if (range->sizeBytes == 0u || rowBytes == 0u || totalRows == 0u) {
+        return;
+    }
+
+    for (int yy = 0; yy < contentBounds->h; ++yy) {
+        uint32_t sourceRow = (uint32_t)(((uint64_t)yy * (uint64_t)totalRows) / (uint64_t)contentBounds->h);
+        uint32_t rowBaseAddr = 0u;
+        uint32_t readableBytes = rowBytes;
+        const uint8_t *sampleBytes = (const uint8_t *)sample;
+
+        if (sourceRow >= totalRows) {
+            sourceRow = totalRows - 1u;
+        }
+        rowBaseAddr = range->baseAddr + sourceRow * rowBytes;
+        if (rowBaseAddr < range->baseAddr || rowBaseAddr >= range->baseAddr + range->sizeBytes) {
+            continue;
+        }
+        if (rowBaseAddr + readableBytes > range->baseAddr + range->sizeBytes) {
+            readableBytes = range->baseAddr + range->sizeBytes - rowBaseAddr;
+        }
+
+        memset(sample, 0, sizeof(sample));
+        (void)neogeo_memview_readRange(ui, rowBaseAddr, sample, readableBytes);
+        for (int xx = 0; xx < contentBounds->w; ++xx) {
+            uint32_t rowBits = rowBytes * 8u;
+            uint32_t startBit = (uint32_t)(((uint64_t)xx * (uint64_t)rowBits) / (uint64_t)contentBounds->w);
+            uint32_t endBit = (uint32_t)((((uint64_t)xx + 1u) * (uint64_t)rowBits) / (uint64_t)contentBounds->w);
+            uint32_t setBits = 0u;
+            uint32_t sampleBits = 0u;
+            uint32_t intensity = 0u;
+            uint8_t r = 0u;
+            uint8_t g = 0u;
+            uint8_t b = 0u;
+            uint32_t color = 0u;
+
+            if (endBit <= startBit) {
+                endBit = startBit + 1u;
+            }
+            if (endBit > rowBits) {
+                endBit = rowBits;
+            }
+            for (uint32_t bitIndex = startBit; bitIndex < endBit; ++bitIndex) {
+                uint32_t byteIndex = bitIndex >> 3;
+                uint32_t bitInByte = bitIndex & 7u;
+
+                if (byteIndex >= readableBytes) {
+                    continue;
+                }
+                if (sampleBytes[byteIndex] & (uint8_t)(0x80u >> bitInByte)) {
+                    setBits++;
+                }
+                sampleBits++;
+            }
+            if (sampleBits == 0u) {
+                sampleBits = 1u;
+            }
+            intensity = (setBits * 255u) / sampleBits;
+            r = (uint8_t)(offR + (((uint32_t)(onR - offR) * intensity) / 255u));
+            g = (uint8_t)(offG + (((uint32_t)(onG - offG) * intensity) / 255u));
+            b = (uint8_t)(offB + (((uint32_t)(onB - offB) * intensity) / 255u));
+            color = neogeo_memview_argb(r, g, b);
+            ui->overviewBackgroundPixels[(size_t)yy * (size_t)contentBounds->w + (size_t)xx] = color;
+        }
+    }
+}
+
 static int
 neogeo_memview_rebuildOverviewBackgroundTexture(neogeo_memview_state_t *ui, e9ui_context_t *ctx)
 {
     e9ui_rect_t overviewBounds;
     e9ui_rect_t contentBounds;
-    uint32_t sample[256];
-    e9k_debug_rom_region_t crom = { 0 };
     uint32_t cacheStartRow = 0u;
     uint32_t cacheVisibleRows = 0u;
     uint32_t cacheTilesPerRow = 0u;
     uint64_t cacheContentToken = 0u;
 
-    if (!ui || !ctx || !ui->canvas) {
+    if (!ctx || !ui->canvas) {
         return 0;
     }
     overviewBounds = neogeo_memview_overviewBounds(ui, ui->canvas, ctx, ctx->font);
@@ -1570,165 +1784,9 @@ neogeo_memview_rebuildOverviewBackgroundTexture(neogeo_memview_state_t *ui, e9ui
 
     memset(ui->overviewBackgroundPixels, 0, (size_t)contentBounds.w * (size_t)contentBounds.h * sizeof(*ui->overviewBackgroundPixels));
     if (ui->mode == neogeo_memview_mode_crom) {
-        (void)libretro_host_debugGetCRom(&crom);
-    }
-    if (ui->mode == neogeo_memview_mode_crom) {
-        uint32_t cromTiles = neogeo_memview_cromSize() / NEOGEO_MEMVIEW_TILE_BYTES;
-        uint32_t tilesPerRow = neogeo_memview_clampCromTilesPerRow(ui->cromTilesPerRow);
-        uint32_t totalRows = neogeo_memview_cromTotalRows(ui);
-        uint32_t overviewStartRow = 0u;
-        uint32_t overviewVisibleRows = totalRows;
-
-        if (crom.data && crom.size >= NEOGEO_MEMVIEW_TILE_BYTES && cromTiles > 0u && tilesPerRow > 0u && totalRows > 0u) {
-            neogeo_memview_cromOverviewWindow(ui, &overviewStartRow, &overviewVisibleRows);
-            for (uint32_t tileRow = overviewStartRow; tileRow < overviewStartRow + overviewVisibleRows; ++tileRow) {
-                uint32_t localRow = tileRow - overviewStartRow;
-                int y0 = (int)(((uint64_t)localRow * (uint64_t)contentBounds.h) / (uint64_t)overviewVisibleRows);
-                int y1 = (int)(((uint64_t)(localRow + 1u) * (uint64_t)contentBounds.h) / (uint64_t)overviewVisibleRows);
-
-                if (y1 <= y0) {
-                    y1 = y0 + 1;
-                }
-                if (y0 >= contentBounds.h) {
-                    break;
-                }
-                if (y1 > contentBounds.h) {
-                    y1 = contentBounds.h;
-                }
-                for (uint32_t tileCol = 0; tileCol < tilesPerRow; ++tileCol) {
-                    uint32_t tileNum = tileRow * tilesPerRow + tileCol;
-                    uint32_t tileBase = 0u;
-                    uint64_t pixelSum = 0u;
-                    uint64_t pixelCount = 0u;
-                    uint32_t brightness = 0u;
-                    int x0 = (int)(((uint64_t)tileCol * (uint64_t)contentBounds.w) / (uint64_t)tilesPerRow);
-                    int x1 = (int)(((uint64_t)(tileCol + 1u) * (uint64_t)contentBounds.w) / (uint64_t)tilesPerRow);
-                    uint32_t color = 0u;
-
-                    if (tileNum >= cromTiles) {
-                        continue;
-                    }
-                    if (x1 <= x0) {
-                        x1 = x0 + 1;
-                    }
-                    if (x0 >= contentBounds.w) {
-                        continue;
-                    }
-                    if (x1 > contentBounds.w) {
-                        x1 = contentBounds.w;
-                    }
-                    tileBase = tileNum * NEOGEO_MEMVIEW_TILE_BYTES;
-                    for (unsigned py = 0; py < NEOGEO_MEMVIEW_TILE_H; py += 2u) {
-                        for (unsigned px = 0; px < NEOGEO_MEMVIEW_TILE_W; px += 2u) {
-                            pixelSum += neogeo_memview_readCromPixel(crom.data, crom.size, tileBase, px, py);
-                            ++pixelCount;
-                        }
-                    }
-                    if (pixelCount > 0u) {
-                        brightness = (uint32_t)(pixelSum / pixelCount);
-                    }
-                    if (brightness > 15u) {
-                        brightness = 15u;
-                    }
-                    color = neogeo_memview_amberColor(brightness);
-                    for (int yy = y0; yy < y1; ++yy) {
-                        for (int xx = x0; xx < x1; ++xx) {
-                            ui->overviewBackgroundPixels[(size_t)yy * (size_t)contentBounds.w + (size_t)xx] = color;
-                        }
-                    }
-                }
-            }
-            SDL_UpdateTexture(ui->overviewBackgroundTexture,
-                              NULL,
-                              ui->overviewBackgroundPixels,
-                              contentBounds.w * (int)sizeof(*ui->overviewBackgroundPixels));
-            ui->overviewBackgroundMode = (int)ui->mode;
-            ui->overviewBackgroundStartRow = cacheStartRow;
-            ui->overviewBackgroundVisibleRows = cacheVisibleRows;
-            ui->overviewBackgroundTilesPerRow = cacheTilesPerRow;
-            ui->overviewBackgroundContentToken = cacheContentToken;
-            return 1;
-        }
-    }
-
-    for (int yy = 0; yy < contentBounds.h; ++yy) {
-        neogeo_memview_overview_range_t *range = &ui->overviewRanges[0];
-
-        if (range->sizeBytes == 0u) {
-            continue;
-        }
-        if (ui->mode != neogeo_memview_mode_crom) {
-            uint32_t rowBytes = neogeo_memview_clampRamRowBytes(ui->ramRowBytes);
-            uint32_t totalRows = rowBytes > 0u ? (range->sizeBytes + rowBytes - 1u) / rowBytes : 0u;
-            uint32_t sourceRow = 0u;
-            uint32_t rowBaseAddr = 0u;
-            uint32_t readableBytes = rowBytes;
-            const uint8_t *sampleBytes = (const uint8_t *)sample;
-            const uint8_t offR = 33u;
-            const uint8_t offG = 18u;
-            const uint8_t offB = 0u;
-            const uint8_t onR = 255u;
-            const uint8_t onG = 189u;
-            const uint8_t onB = 115u;
-
-            if (rowBytes == 0u || totalRows == 0u) {
-                continue;
-            }
-            sourceRow = (uint32_t)(((uint64_t)yy * (uint64_t)totalRows) / (uint64_t)contentBounds.h);
-            if (sourceRow >= totalRows) {
-                sourceRow = totalRows - 1u;
-            }
-            rowBaseAddr = range->baseAddr + sourceRow * rowBytes;
-            if (rowBaseAddr < range->baseAddr || rowBaseAddr >= range->baseAddr + range->sizeBytes) {
-                continue;
-            }
-            if (rowBaseAddr + readableBytes > range->baseAddr + range->sizeBytes) {
-                readableBytes = range->baseAddr + range->sizeBytes - rowBaseAddr;
-            }
-
-            memset(sample, 0, sizeof(sample));
-            (void)neogeo_memview_readRange(ui, rowBaseAddr, sample, readableBytes);
-            for (int xx = 0; xx < contentBounds.w; ++xx) {
-                uint32_t rowBits = rowBytes * 8u;
-                uint32_t startBit = (uint32_t)(((uint64_t)xx * (uint64_t)rowBits) / (uint64_t)contentBounds.w);
-                uint32_t endBit = (uint32_t)((((uint64_t)xx + 1u) * (uint64_t)rowBits) / (uint64_t)contentBounds.w);
-                uint32_t setBits = 0u;
-                uint32_t sampleBits = 0u;
-                uint32_t intensity = 0u;
-                uint8_t r = 0u;
-                uint8_t g = 0u;
-                uint8_t b = 0u;
-                uint32_t color = 0u;
-
-                if (endBit <= startBit) {
-                    endBit = startBit + 1u;
-                }
-                if (endBit > rowBits) {
-                    endBit = rowBits;
-                }
-                for (uint32_t bitIndex = startBit; bitIndex < endBit; ++bitIndex) {
-                    uint32_t byteIndex = bitIndex >> 3;
-                    uint32_t bitInByte = bitIndex & 7u;
-
-                    if (byteIndex >= readableBytes) {
-                        continue;
-                    }
-                    if (sampleBytes[byteIndex] & (uint8_t)(0x80u >> bitInByte)) {
-                        setBits++;
-                    }
-                    sampleBits++;
-                }
-                if (sampleBits == 0u) {
-                    sampleBits = 1u;
-                }
-                intensity = (setBits * 255u) / sampleBits;
-                r = (uint8_t)(offR + (((uint32_t)(onR - offR) * intensity) / 255u));
-                g = (uint8_t)(offG + (((uint32_t)(onG - offG) * intensity) / 255u));
-                b = (uint8_t)(offB + (((uint32_t)(onB - offB) * intensity) / 255u));
-                color = neogeo_memview_argb(r, g, b);
-                ui->overviewBackgroundPixels[(size_t)yy * (size_t)contentBounds.w + (size_t)xx] = color;
-            }
-        }
+        neogeo_memview_renderCromOverviewBackground(ui, &contentBounds);
+    } else {
+        neogeo_memview_renderRamOverviewBackground(ui, &contentBounds);
     }
 
     SDL_UpdateTexture(ui->overviewBackgroundTexture,
@@ -1757,7 +1815,7 @@ neogeo_memview_renderOverviewSelection(neogeo_memview_state_t *ui,
     uint64_t endOff = 0u;
     SDL_Rect selection;
 
-    if (!ui || !ctx || !overviewBounds || overviewBounds->w <= 0 || overviewBounds->h <= 0 || visibleRows <= 0) {
+    if (!ctx || !overviewBounds || overviewBounds->w <= 0 || overviewBounds->h <= 0 || visibleRows <= 0) {
         return;
     }
     range = &ui->overviewRanges[0];
@@ -1825,7 +1883,7 @@ neogeo_memview_rebuildOverviewTexture(neogeo_memview_state_t *ui,
     e9k_debug_sprite_state_t spriteState;
     const uint16_t *vram = NULL;
 
-    if (!ui || !ctx || !overviewBounds || ui->mode != neogeo_memview_mode_crom) {
+    if (!ctx || !overviewBounds || ui->mode != neogeo_memview_mode_crom) {
         return 0;
     }
     contentBounds = neogeo_memview_overviewContentBounds(ctx, overviewBounds);
@@ -1852,9 +1910,10 @@ neogeo_memview_rebuildOverviewTexture(neogeo_memview_state_t *ui,
         return 0;
     }
     vram = spriteState.vram;
-    for (unsigned i = 0; i < 382u; ++i) {
-        for (unsigned row = 0; row < 32u; ++row) {
-            unsigned evenWordOffset = (i << 6) + (row << 1);
+    for (unsigned i = 0; i < NEOGEO_MEMVIEW_SPRITE_COUNT; ++i) {
+        for (unsigned row = 0; row < NEOGEO_MEMVIEW_SPRITE_MAX_ROWS; ++row) {
+            unsigned evenWordOffset = i * NEOGEO_MEMVIEW_SPRITE_VRAM_WORDS_PER_SPRITE +
+                                      row * NEOGEO_MEMVIEW_SPRITE_TILE_ROW_WORDS;
             unsigned oddWordOffset = evenWordOffset + 1u;
             uint32_t spriteTileNum = 0u;
             int markerX = 0;
@@ -1863,7 +1922,9 @@ neogeo_memview_rebuildOverviewTexture(neogeo_memview_state_t *ui,
             if (oddWordOffset >= spriteState.vram_words) {
                 break;
             }
-            spriteTileNum = (uint32_t)(vram[evenWordOffset] | ((vram[oddWordOffset] & 0x00f0u) << 12));
+            spriteTileNum = (uint32_t)(vram[evenWordOffset] |
+                                       ((vram[oddWordOffset] & NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_MASK) <<
+                                        NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_SHIFT));
             if (!neogeo_memview_overviewLiveTilePos(ui,
                                                     contentBounds.w,
                                                     contentBounds.h,
@@ -1897,7 +1958,7 @@ neogeo_memview_overviewNavigate(neogeo_memview_state_t *ui, e9ui_component_t *se
     uint64_t pos = 0u;
     uint32_t baseAddr = 0u;
 
-    if (!ui || !self || !ctx) {
+    if (!self || !ctx) {
         return 0;
     }
     overviewBounds = neogeo_memview_overviewBounds(ui, self, ctx, ctx->font);
@@ -1934,7 +1995,9 @@ neogeo_memview_overviewNavigate(neogeo_memview_state_t *ui, e9ui_component_t *se
         baseAddr = neogeo_memview_clampCromBaseAddr(targetTile * NEOGEO_MEMVIEW_TILE_BYTES);
         neogeo_memview_setView(ui, baseAddr, ui->cromTilesPerRow * NEOGEO_MEMVIEW_TILE_BYTES, 1);
     } else {
-        baseAddr = neogeo_memview_clampRamBaseAddr(baseAddr);
+        baseAddr = ui->mode == neogeo_memview_mode_zram ?
+            neogeo_memview_clampZramBaseAddr(baseAddr) :
+            neogeo_memview_clampRamBaseAddr(baseAddr);
         neogeo_memview_setView(ui, baseAddr, ui->ramRowBytes, 1);
     }
     return 1;
@@ -1946,7 +2009,7 @@ neogeo_memview_scrollRows(neogeo_memview_state_t *ui, const e9ui_rect_t *bounds,
     int64_t delta = 0;
     uint32_t baseAddr = 0u;
 
-    if (!ui || !bounds || rows == 0) {
+    if (!bounds || rows == 0) {
         return;
     }
     delta = (int64_t)rows * (int64_t)neogeo_memview_currentRowBytes(ui);
@@ -1957,15 +2020,9 @@ neogeo_memview_scrollRows(neogeo_memview_state_t *ui, const e9ui_rect_t *bounds,
         baseAddr = (uint32_t)((int64_t)baseAddr + delta);
     }
     baseAddr = neogeo_memview_clampBaseForView(ui, bounds, baseAddr);
-    if (ui->mode == neogeo_memview_mode_crom) {
-        ui->cromBaseAddr = baseAddr;
-        ui->cromBaseAddrHasSaved = 1;
-    } else {
-        ui->ramBaseAddr = baseAddr;
-        ui->ramBaseAddrHasSaved = 1;
-    }
+    neogeo_memview_setCurrentBaseAddrSaved(ui, baseAddr);
     neogeo_memview_syncTextboxesFromState(ui);
-    neogeo_memview_saveWindowState(ui);
+    config_saveConfig();
 }
 
 static int
@@ -1975,7 +2032,7 @@ neogeo_memview_stepButtonsOnAction(void *user, e9ui_step_buttons_action_t action
     int rows = 0;
     int pageRows = 0;
 
-    if (!actionCtx || !actionCtx->ui || !actionCtx->canvas) {
+    if (!actionCtx || !actionCtx->canvas) {
         return 0;
     }
     pageRows = neogeo_memview_canvasVisibleRows(actionCtx->ui, &actionCtx->canvas->bounds) / 4;
@@ -2374,7 +2431,7 @@ neogeo_memview_initSeekBar(e9ui_component_t *seekBar,
 static void
 neogeo_memview_switchMode(neogeo_memview_state_t *ui, neogeo_memview_mode_t mode)
 {
-    if (!ui || ui->mode == mode) {
+    if (ui->mode == mode) {
         return;
     }
     ui->mode = mode;
@@ -2384,67 +2441,29 @@ neogeo_memview_switchMode(neogeo_memview_state_t *ui, neogeo_memview_mode_t mode
     neogeo_memview_initOverviewRanges(ui);
     neogeo_memview_syncTextboxesFromState(ui);
     neogeo_memview_updateModeButtons(ui);
-    neogeo_memview_saveWindowState(ui);
+    config_saveConfig();
 }
 
 static void
-neogeo_memview_setRamMode(e9ui_context_t *ctx, void *user)
+neogeo_memview_setMode(e9ui_context_t *ctx, void *user)
 {
     (void)ctx;
-    neogeo_memview_switchMode((neogeo_memview_state_t *)user, neogeo_memview_mode_ram);
+    neogeo_memview_switchMode(&neogeo_memview_stateSingleton, *(const neogeo_memview_mode_t *)user);
 }
 
 static void
-neogeo_memview_setCromMode(e9ui_context_t *ctx, void *user)
+neogeo_memview_onCheckboxChanged(e9ui_component_t *self, e9ui_context_t *ctx, int checked, void *user)
 {
-    (void)ctx;
-    neogeo_memview_switchMode((neogeo_memview_state_t *)user, neogeo_memview_mode_crom);
-}
-
-static void
-neogeo_memview_onShowAddressColumnChanged(e9ui_component_t *self, e9ui_context_t *ctx, int checked, void *user)
-{
-    neogeo_memview_state_t *ui = (neogeo_memview_state_t *)user;
+    neogeo_memview_checkbox_binding_t *binding = (neogeo_memview_checkbox_binding_t *)user;
 
     (void)self;
     (void)ctx;
-    if (!ui) {
-        return;
+    *binding->value = checked ? 1 : 0;
+    *binding->hasSaved = 1;
+    if (binding->resetFollow) {
+        neogeo_memview_stateSingleton.followPrevSpriteVramWords = 0u;
     }
-    ui->showAddressColumn = checked ? 1 : 0;
-    ui->showAddressColumnHasSaved = 1;
-    neogeo_memview_saveWindowState(ui);
-}
-
-static void
-neogeo_memview_onShowOverviewColumnChanged(e9ui_component_t *self, e9ui_context_t *ctx, int checked, void *user)
-{
-    neogeo_memview_state_t *ui = (neogeo_memview_state_t *)user;
-
-    (void)self;
-    (void)ctx;
-    if (!ui) {
-        return;
-    }
-    ui->showOverviewColumn = checked ? 1 : 0;
-    ui->showOverviewColumnHasSaved = 1;
-    neogeo_memview_saveWindowState(ui);
-}
-
-static void
-neogeo_memview_onFollowActiveSpritesChanged(e9ui_component_t *self, e9ui_context_t *ctx, int checked, void *user)
-{
-    neogeo_memview_state_t *ui = (neogeo_memview_state_t *)user;
-
-    (void)self;
-    (void)ctx;
-    if (!ui) {
-        return;
-    }
-    ui->followActiveSprites = checked ? 1 : 0;
-    ui->followActiveSpritesHasSaved = 1;
-    ui->followPrevSpriteVramWords = 0u;
-    neogeo_memview_saveWindowState(ui);
+    config_saveConfig();
 }
 
 static void
@@ -2456,7 +2475,7 @@ neogeo_memview_onAddressSubmit(e9ui_context_t *ctx, void *user)
     char *end = NULL;
 
     (void)ctx;
-    if (!ui || !ui->addressBox) {
+    if (!ui->addressBox) {
         return;
     }
     text = e9ui_textbox_getText(ui->addressBox);
@@ -2466,9 +2485,28 @@ neogeo_memview_onAddressSubmit(e9ui_context_t *ctx, void *user)
     }
     if (ui->mode == neogeo_memview_mode_crom) {
         neogeo_memview_setView(ui, neogeo_memview_clampCromBaseAddr((uint32_t)parsed), ui->cromTilesPerRow * NEOGEO_MEMVIEW_TILE_BYTES, 1);
+    } else if (ui->mode == neogeo_memview_mode_zram) {
+        neogeo_memview_setView(ui, neogeo_memview_clampZramBaseAddr((uint32_t)parsed), ui->ramRowBytes, 1);
     } else {
         neogeo_memview_setView(ui, neogeo_memview_clampRamBaseAddr((uint32_t)parsed), ui->ramRowBytes, 1);
     }
+}
+
+static void
+neogeo_memview_setWidthValue(neogeo_memview_state_t *ui, uint32_t value)
+{
+    if (ui->mode == neogeo_memview_mode_crom) {
+        ui->cromTilesPerRow = neogeo_memview_clampCromTilesPerRow(value);
+        ui->cromTilesPerRowHasSaved = 1;
+        ui->cromBaseAddr = neogeo_memview_alignCromBaseAddrToRow(ui, ui->cromBaseAddr);
+        ui->cromBaseAddrHasSaved = 1;
+    } else {
+        ui->ramRowBytes = neogeo_memview_clampRamRowBytes(value);
+        ui->ramRowBytesHasSaved = 1;
+    }
+    ui->scrollX = 0;
+    neogeo_memview_syncTextboxesFromState(ui);
+    config_saveConfig();
 }
 
 static void
@@ -2480,7 +2518,7 @@ neogeo_memview_onWidthSubmit(e9ui_context_t *ctx, void *user)
     char *end = NULL;
 
     (void)ctx;
-    if (!ui || !ui->widthBox) {
+    if (!ui->widthBox) {
         return;
     }
     text = e9ui_textbox_getText(ui->widthBox);
@@ -2488,18 +2526,7 @@ neogeo_memview_onWidthSubmit(e9ui_context_t *ctx, void *user)
         neogeo_memview_syncTextboxesFromState(ui);
         return;
     }
-    if (ui->mode == neogeo_memview_mode_crom) {
-        ui->cromTilesPerRow = neogeo_memview_clampCromTilesPerRow((uint32_t)parsed);
-        ui->cromTilesPerRowHasSaved = 1;
-        ui->cromBaseAddr = neogeo_memview_alignCromBaseAddrToRow(ui, ui->cromBaseAddr);
-        ui->cromBaseAddrHasSaved = 1;
-    } else {
-        ui->ramRowBytes = neogeo_memview_clampRamRowBytes((uint32_t)parsed);
-        ui->ramRowBytesHasSaved = 1;
-    }
-    ui->scrollX = 0;
-    neogeo_memview_syncTextboxesFromState(ui);
-    neogeo_memview_saveWindowState(ui);
+    neogeo_memview_setWidthValue(ui, (uint32_t)parsed);
 }
 
 static void
@@ -2508,7 +2535,7 @@ neogeo_memview_widthSeekTooltip(float percent, char *out, size_t cap, void *user
     neogeo_memview_state_t *ui = (neogeo_memview_state_t *)user;
     uint32_t value = 1u;
 
-    if (!out || cap == 0u || !ui) {
+    if (!out || cap == 0u) {
         return;
     }
     if (ui->mode == neogeo_memview_mode_crom) {
@@ -2557,23 +2584,12 @@ neogeo_memview_onWidthSeekChanged(float percent, void *user)
     neogeo_memview_state_t *ui = (neogeo_memview_state_t *)user;
     uint32_t value = 1u;
 
-    if (!ui) {
-        return;
-    }
     if (ui->mode == neogeo_memview_mode_crom) {
         value = 1u + (uint32_t)(percent * (float)(NEOGEO_MEMVIEW_MAX_CROM_TILES_PER_ROW - 1u) + 0.5f);
-        ui->cromTilesPerRow = neogeo_memview_clampCromTilesPerRow(value);
-        ui->cromTilesPerRowHasSaved = 1;
-        ui->cromBaseAddr = neogeo_memview_alignCromBaseAddrToRow(ui, ui->cromBaseAddr);
-        ui->cromBaseAddrHasSaved = 1;
     } else {
         value = 1u + (uint32_t)(percent * (float)(NEOGEO_MEMVIEW_MAX_RAM_ROW_BYTES - 1u) + 0.5f);
-        ui->ramRowBytes = neogeo_memview_clampRamRowBytes(value);
-        ui->ramRowBytesHasSaved = 1;
     }
-    ui->scrollX = 0;
-    neogeo_memview_syncTextboxesFromState(ui);
-    neogeo_memview_saveWindowState(ui);
+    neogeo_memview_setWidthValue(ui, value);
 }
 
 static void
@@ -2582,16 +2598,13 @@ neogeo_memview_onZoomSeekChanged(float percent, void *user)
     neogeo_memview_state_t *ui = (neogeo_memview_state_t *)user;
     int zoomLevel = 0;
 
-    if (!ui) {
-        return;
-    }
     zoomLevel = NEOGEO_MEMVIEW_ZOOM_MIN +
         (int)(percent * (float)(NEOGEO_MEMVIEW_ZOOM_MAX - NEOGEO_MEMVIEW_ZOOM_MIN) + 0.5f);
     ui->zoomLevel = neogeo_memview_clampZoomLevel(zoomLevel);
     ui->zoomHasSaved = 1;
     ui->scrollX = 0;
     neogeo_memview_syncTextboxesFromState(ui);
-    neogeo_memview_saveWindowState(ui);
+    config_saveConfig();
 }
 
 static void
@@ -2601,12 +2614,24 @@ neogeo_memview_onOverviewZoomSeekChanged(float percent, void *user)
     int zoomLevel = NEOGEO_MEMVIEW_OVERVIEW_ZOOM_MIN +
                     (int)(percent * (float)(NEOGEO_MEMVIEW_OVERVIEW_ZOOM_MAX - NEOGEO_MEMVIEW_OVERVIEW_ZOOM_MIN) + 0.5f);
 
-    if (!ui) {
-        return;
-    }
     ui->overviewZoomLevel = neogeo_memview_clampOverviewZoomLevel(zoomLevel);
     ui->overviewZoomHasSaved = 1;
-    neogeo_memview_saveWindowState(ui);
+    config_saveConfig();
+}
+
+static int
+neogeo_memview_keyStep(SDL_Keycode key)
+{
+    switch (key) {
+    case SDLK_LEFT:
+    case SDLK_DOWN:
+        return -1;
+    case SDLK_RIGHT:
+    case SDLK_UP:
+        return 1;
+    default:
+        return 0;
+    }
 }
 
 static int
@@ -2614,9 +2639,6 @@ neogeo_memview_handleWidthKey(neogeo_memview_state_t *ui, SDL_Keycode key)
 {
     int nextValue = 0;
 
-    if (!ui) {
-        return 0;
-    }
     nextValue = ui->mode == neogeo_memview_mode_crom ? (int)ui->cromTilesPerRow : (int)ui->ramRowBytes;
     if (key == SDLK_LEFT) {
         nextValue--;
@@ -2625,18 +2647,7 @@ neogeo_memview_handleWidthKey(neogeo_memview_state_t *ui, SDL_Keycode key)
     } else {
         return 0;
     }
-    if (ui->mode == neogeo_memview_mode_crom) {
-        ui->cromTilesPerRow = neogeo_memview_clampCromTilesPerRow((uint32_t)nextValue);
-        ui->cromTilesPerRowHasSaved = 1;
-        ui->cromBaseAddr = neogeo_memview_alignCromBaseAddrToRow(ui, ui->cromBaseAddr);
-        ui->cromBaseAddrHasSaved = 1;
-    } else {
-        ui->ramRowBytes = neogeo_memview_clampRamRowBytes((uint32_t)nextValue);
-        ui->ramRowBytesHasSaved = 1;
-    }
-    ui->scrollX = 0;
-    neogeo_memview_syncTextboxesFromState(ui);
-    neogeo_memview_saveWindowState(ui);
+    neogeo_memview_setWidthValue(ui, (uint32_t)nextValue);
     return 1;
 }
 
@@ -2663,27 +2674,19 @@ static int
 neogeo_memview_zoomSeekHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event_t *ev)
 {
     neogeo_memview_state_t *ui = &neogeo_memview_stateSingleton;
+    int step = 0;
 
     if (!self || !ctx || !ev) {
         return 0;
     }
-    if (ev->type == SDL_KEYDOWN && e9ui_getFocus(ctx) == self) {
-        if (ev->key.keysym.sym == SDLK_LEFT || ev->key.keysym.sym == SDLK_DOWN) {
-            ui->zoomLevel = neogeo_memview_clampZoomLevel(ui->zoomLevel - 1);
-            ui->zoomHasSaved = 1;
-            ui->scrollX = 0;
-            neogeo_memview_syncTextboxesFromState(ui);
-            neogeo_memview_saveWindowState(ui);
-            return 1;
-        }
-        if (ev->key.keysym.sym == SDLK_RIGHT || ev->key.keysym.sym == SDLK_UP) {
-            ui->zoomLevel = neogeo_memview_clampZoomLevel(ui->zoomLevel + 1);
-            ui->zoomHasSaved = 1;
-            ui->scrollX = 0;
-            neogeo_memview_syncTextboxesFromState(ui);
-            neogeo_memview_saveWindowState(ui);
-            return 1;
-        }
+    step = ev->type == SDL_KEYDOWN && e9ui_getFocus(ctx) == self ? neogeo_memview_keyStep(ev->key.keysym.sym) : 0;
+    if (step != 0) {
+        ui->zoomLevel = neogeo_memview_clampZoomLevel(ui->zoomLevel + step);
+        ui->zoomHasSaved = 1;
+        ui->scrollX = 0;
+        neogeo_memview_syncTextboxesFromState(ui);
+        config_saveConfig();
+        return 1;
     }
     if (ui->zoomSeekDefaultHandleEvent) {
         return ui->zoomSeekDefaultHandleEvent(self, ctx, ev);
@@ -2695,29 +2698,18 @@ static int
 neogeo_memview_overviewZoomSeekHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event_t *ev)
 {
     neogeo_memview_state_t *ui = &neogeo_memview_stateSingleton;
+    int step = 0;
 
-    if (!self || !ctx || !ev || !ui) {
+    if (!self || !ctx || !ev) {
         return 0;
     }
-    if (ev->type == SDL_KEYDOWN && ev->key.repeat == 0) {
-        switch (ev->key.keysym.sym) {
-        case SDLK_LEFT:
-        case SDLK_DOWN:
-            ui->overviewZoomLevel = neogeo_memview_clampOverviewZoomLevel(ui->overviewZoomLevel - 1);
-            ui->overviewZoomHasSaved = 1;
-            neogeo_memview_syncTextboxesFromState(ui);
-            neogeo_memview_saveWindowState(ui);
-            return 1;
-        case SDLK_RIGHT:
-        case SDLK_UP:
-            ui->overviewZoomLevel = neogeo_memview_clampOverviewZoomLevel(ui->overviewZoomLevel + 1);
-            ui->overviewZoomHasSaved = 1;
-            neogeo_memview_syncTextboxesFromState(ui);
-            neogeo_memview_saveWindowState(ui);
-            return 1;
-        default:
-            break;
-        }
+    step = ev->type == SDL_KEYDOWN && ev->key.repeat == 0 ? neogeo_memview_keyStep(ev->key.keysym.sym) : 0;
+    if (step != 0) {
+        ui->overviewZoomLevel = neogeo_memview_clampOverviewZoomLevel(ui->overviewZoomLevel + step);
+        ui->overviewZoomHasSaved = 1;
+        neogeo_memview_syncTextboxesFromState(ui);
+        config_saveConfig();
+        return 1;
     }
     if (ui->overviewZoomSeekDefaultHandleEvent) {
         return ui->overviewZoomSeekDefaultHandleEvent(self, ctx, ev);
@@ -2736,27 +2728,59 @@ neogeo_memview_canvasLayout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_re
 }
 
 static void
+neogeo_memview_renderMainTexture(neogeo_memview_state_t *ui,
+                                 e9ui_context_t *ctx,
+                                 int texW,
+                                 int texH,
+                                 int bitViewW,
+                                 int rowAreaY,
+                                 int bitAreaX)
+{
+    SDL_Rect srcRect = { ui->scrollX, 0, bitViewW < texW - ui->scrollX ? bitViewW : texW - ui->scrollX, texH };
+
+    SDL_UpdateTexture(ui->mainTexture, NULL, ui->mainPixels, texW * (int)sizeof(*ui->mainPixels));
+    ui->contentPixelWidth = texW;
+    if (srcRect.w > 0 && srcRect.h > 0) {
+        SDL_RenderCopy(ctx->renderer,
+                       ui->mainTexture,
+                       &srcRect,
+                       &(SDL_Rect){ bitAreaX, rowAreaY, srcRect.w, srcRect.h });
+    }
+}
+
+static void
 neogeo_memview_canvasRenderRam(neogeo_memview_state_t *ui,
                                e9ui_context_t *ctx,
                                e9ui_component_t *self,
                                int bitViewW,
                                int rowAreaY,
-                               int bitAreaX,
-                               int leftGutterPx)
+                               int bitAreaX)
 {
     int rowBytes = (int)neogeo_memview_clampRamRowBytes(ui->ramRowBytes);
     int bitPx = neogeo_memview_ramBitPx(ui);
     int rowPx = neogeo_memview_ramRowPx(ui);
     int visibleRows = neogeo_memview_canvasVisibleRows(ui, &self->bounds);
-    int texW = rowBytes * 8 * bitPx + e9ui_scale_px(&ui->ctx, NEOGEO_MEMVIEW_RIGHT_PAD_PX);
-    int texH = visibleRows * rowPx;
-    SDL_Rect srcRect;
-    SDL_Rect dstRect;
+    int texW = 0;
+    int texH = 0;
     uint8_t *rowData = NULL;
     size_t dataSize = (size_t)rowBytes * (size_t)visibleRows;
     TTF_Font *font = e9ui->theme.text.source ? e9ui->theme.text.source : ctx->font;
     int labelStepRows = 8;
     int fontHeight = 16;
+    uint32_t baseAddr = neogeo_memview_currentBaseAddr(ui);
+    uint32_t rangeStart = NEOGEO_MEMVIEW_RAM_BASE_MIN;
+    uint32_t rangeEnd = NEOGEO_MEMVIEW_RAM_BASE_MAX;
+
+    if (ui->mode == neogeo_memview_mode_zram) {
+        uint32_t clampedBaseAddr = neogeo_memview_clampBaseForView(ui, &self->bounds, baseAddr);
+
+        rangeStart = NEOGEO_MEMVIEW_ZRAM_BASE_MIN;
+        rangeEnd = NEOGEO_MEMVIEW_ZRAM_BASE_MAX;
+        if (clampedBaseAddr != baseAddr) {
+            ui->zramBaseAddr = clampedBaseAddr;
+            baseAddr = clampedBaseAddr;
+        }
+    }
 
     if (font) {
         fontHeight = TTF_FontHeight(font);
@@ -2767,6 +2791,9 @@ neogeo_memview_canvasRenderRam(neogeo_memview_state_t *ui,
             }
         }
     }
+    texW = rowBytes * 8 * bitPx + e9ui_scale_px(&ui->ctx, NEOGEO_MEMVIEW_RIGHT_PAD_PX);
+    texH = visibleRows * rowPx;
+    dataSize = (size_t)rowBytes * (size_t)visibleRows;
     if (!neogeo_memview_ensureTexture(ctx->renderer,
                                       &ui->mainTexture,
                                       &ui->mainPixels,
@@ -2782,16 +2809,25 @@ neogeo_memview_canvasRenderRam(neogeo_memview_state_t *ui,
     if (!rowData) {
         return;
     }
-    (void)neogeo_memview_readRange(ui, ui->ramBaseAddr, rowData, dataSize);
+    (void)neogeo_memview_readRange(ui, baseAddr, rowData, dataSize);
 
     for (int row = 0; row < visibleRows; ++row) {
-        uint32_t rowAddr = ui->ramBaseAddr + (uint32_t)row * (uint32_t)rowBytes;
+        uint32_t rowAddr = baseAddr + (uint32_t)row * (uint32_t)rowBytes;
+
+        if (ui->mode == neogeo_memview_mode_zram && (rowAddr < rangeStart || rowAddr > rangeEnd)) {
+            continue;
+        }
         if (ui->showAddressColumn && (row % labelStepRows) == 0 && font) {
             neogeo_memview_drawAddressLabel(ui, ctx, font, rowAddr, self->bounds.x + 6, rowAreaY + row * rowPx - 1);
         }
         for (int byteIndex = 0; byteIndex < rowBytes; ++byteIndex) {
+            uint32_t byteAddr = rowAddr + (uint32_t)byteIndex;
             uint8_t value = rowData[row * rowBytes + byteIndex];
             int byteX = byteIndex * 8 * bitPx;
+
+            if (ui->mode == neogeo_memview_mode_zram && (byteAddr < rangeStart || byteAddr > rangeEnd)) {
+                continue;
+            }
             if ((byteIndex & 1) == 0) {
                 neogeo_memview_fillRect(ui->mainPixels, texW, texW, texH, byteX, row * rowPx, 1, rowPx, neogeo_memview_argb(38, 42, 52));
             }
@@ -2810,21 +2846,8 @@ neogeo_memview_canvasRenderRam(neogeo_memview_state_t *ui,
         }
     }
 
-    SDL_UpdateTexture(ui->mainTexture, NULL, ui->mainPixels, texW * (int)sizeof(*ui->mainPixels));
-    ui->contentPixelWidth = texW;
-    srcRect.x = ui->scrollX;
-    srcRect.y = 0;
-    srcRect.w = bitViewW < texW - ui->scrollX ? bitViewW : texW - ui->scrollX;
-    srcRect.h = texH;
-    if (srcRect.w > 0 && srcRect.h > 0) {
-        dstRect.x = bitAreaX;
-        dstRect.y = rowAreaY;
-        dstRect.w = srcRect.w;
-        dstRect.h = srcRect.h;
-        SDL_RenderCopy(ctx->renderer, ui->mainTexture, &srcRect, &dstRect);
-    }
+    neogeo_memview_renderMainTexture(ui, ctx, texW, texH, bitViewW, rowAreaY, bitAreaX);
     alloc_free(rowData);
-    (void)leftGutterPx;
 }
 
 static void
@@ -2846,8 +2869,6 @@ neogeo_memview_canvasRenderCrom(neogeo_memview_state_t *ui,
     uint32_t cromTiles = neogeo_memview_cromSize() / NEOGEO_MEMVIEW_TILE_BYTES;
     size_t dataSize = (size_t)visibleRows * (size_t)tilesPerRow * NEOGEO_MEMVIEW_TILE_BYTES;
     uint8_t *tileData = NULL;
-    SDL_Rect srcRect;
-    SDL_Rect dstRect;
     TTF_Font *font = e9ui->theme.text.source ? e9ui->theme.text.source : ctx->font;
     e9k_debug_palette_state_t paletteState;
     uint32_t *visibleTileNums = NULL;
@@ -2913,7 +2934,6 @@ neogeo_memview_canvasRenderCrom(neogeo_memview_state_t *ui,
         for (int tile = 0; tile < tilesPerRow; ++tile) {
             size_t tileIndex = (size_t)row * (size_t)tilesPerRow + (size_t)tile;
             uint32_t tileBase = (uint32_t)((row * tilesPerRow + tile) * NEOGEO_MEMVIEW_TILE_BYTES);
-            uint32_t tileNum = visibleTileNums ? visibleTileNums[tileIndex] : 0u;
             uint32_t paletteOffset = 0u;
             int tileX = tile * tileStridePx;
             int tileY = row * rowStridePx;
@@ -2945,23 +2965,10 @@ neogeo_memview_canvasRenderCrom(neogeo_memview_state_t *ui,
                                             color);
                 }
             }
-            (void)tileNum;
         }
     }
 
-    SDL_UpdateTexture(ui->mainTexture, NULL, ui->mainPixels, texW * (int)sizeof(*ui->mainPixels));
-    ui->contentPixelWidth = texW;
-    srcRect.x = ui->scrollX;
-    srcRect.y = 0;
-    srcRect.w = bitViewW < texW - ui->scrollX ? bitViewW : texW - ui->scrollX;
-    srcRect.h = texH;
-    if (srcRect.w > 0 && srcRect.h > 0) {
-        dstRect.x = bitAreaX;
-        dstRect.y = rowAreaY;
-        dstRect.w = srcRect.w;
-        dstRect.h = srcRect.h;
-        SDL_RenderCopy(ctx->renderer, ui->mainTexture, &srcRect, &dstRect);
-    }
+    neogeo_memview_renderMainTexture(ui, ctx, texW, texH, bitViewW, rowAreaY, bitAreaX);
     alloc_free(tileData);
     alloc_free(visibleTileNums);
     alloc_free(tilePaletteBanks);
@@ -2991,9 +2998,6 @@ neogeo_memview_canvasRender(e9ui_component_t *self, e9ui_context_t *ctx)
         return;
     }
     ui = (neogeo_memview_state_t *)self->state;
-    if (!ui) {
-        return;
-    }
     hadClip = SDL_RenderIsClipEnabled(ctx->renderer) ? 1 : 0;
     if (hadClip) {
         SDL_RenderGetClipRect(ctx->renderer, &prevClip);
@@ -3058,7 +3062,7 @@ neogeo_memview_canvasRender(e9ui_component_t *self, e9ui_context_t *ctx)
     if (ui->mode == neogeo_memview_mode_crom) {
         neogeo_memview_canvasRenderCrom(ui, ctx, self, bitViewW, rowAreaY, bitAreaX);
     } else {
-        neogeo_memview_canvasRenderRam(ui, ctx, self, bitViewW, rowAreaY, bitAreaX, leftGutterPx);
+        neogeo_memview_canvasRenderRam(ui, ctx, self, bitViewW, rowAreaY, bitAreaX);
     }
 
     hscrollBounds = neogeo_memview_hscrollBounds(ui, self);
@@ -3108,9 +3112,6 @@ neogeo_memview_canvasHandleEvent(e9ui_component_t *self, e9ui_context_t *ctx, co
         return 0;
     }
     ui = (neogeo_memview_state_t *)self->state;
-    if (!ui) {
-        return 0;
-    }
 
     actionCtx.ui = ui;
     actionCtx.canvas = self;
@@ -3226,9 +3227,6 @@ neogeo_memview_makeCanvas(neogeo_memview_state_t *ui)
 {
     e9ui_component_t *canvas = NULL;
 
-    if (!ui) {
-        return NULL;
-    }
     canvas = (e9ui_component_t *)alloc_calloc(1, sizeof(*canvas));
     if (!canvas) {
         return NULL;
@@ -3247,12 +3245,10 @@ neogeo_memview_makeCanvas(neogeo_memview_state_t *ui)
 static void
 neogeo_memview_clearUiRefs(neogeo_memview_state_t *ui)
 {
-    if (!ui) {
-        return;
-    }
     ui->canvas = NULL;
     ui->modeButtonRam = NULL;
     ui->modeButtonCrom = NULL;
+    ui->modeButtonZram = NULL;
     ui->addressBox = NULL;
     ui->widthBox = NULL;
     ui->widthSeek = NULL;
@@ -3264,68 +3260,26 @@ neogeo_memview_clearUiRefs(neogeo_memview_state_t *ui)
 static e9ui_component_t *
 neogeo_memview_buildRoot(neogeo_memview_state_t *ui)
 {
-    e9ui_component_t *root = NULL;
-    e9ui_component_t *toolbar = NULL;
-    e9ui_component_t *toolbarBox = NULL;
-    e9ui_component_t *groupGeneral = NULL;
-    e9ui_component_t *groupAddress = NULL;
-    e9ui_component_t *groupWidth = NULL;
-    e9ui_component_t *groupZoom = NULL;
-    e9ui_component_t *groupOverviewZoom = NULL;
-    e9ui_component_t *groupGeneralItem = NULL;
-    e9ui_component_t *groupAddressItem = NULL;
-    e9ui_component_t *groupWidthItem = NULL;
-    e9ui_component_t *groupZoomItem = NULL;
-    e9ui_component_t *groupOverviewZoomItem = NULL;
-    e9ui_component_t *showAddress = NULL;
-    e9ui_component_t *showOverview = NULL;
-    e9ui_component_t *followActive = NULL;
-    e9ui_component_t *addressLabel = NULL;
-    e9ui_component_t *widthLabel = NULL;
-    e9ui_component_t *zoomLabel = NULL;
-    TTF_Font *toolbarFont = NULL;
-    int gapSmall = 0;
-    int modeButtonW = 0;
-    int checkboxAddrW = 0;
-    int checkboxOverviewW = 0;
-    int checkboxFollowW = 0;
-    int labelAddrW = 0;
-    int addrBoxW = 0;
-    int labelWidthW = 0;
-    int widthBoxW = 0;
-    int widthSeekW = 0;
-    int zoomLabelW = 0;
-    int zoomSeekW = 0;
-    int overviewZoomSeekW = 0;
-    int textH = 0;
-    int groupGeneralW = 0;
-    int groupAddressW = 0;
-    int groupWidthW = 0;
-    int groupZoomW = 0;
-    int groupOverviewZoomW = 0;
+    e9ui_component_t *root = e9ui_stack_makeVertical();
+    e9ui_component_t *toolbar = neogeo_memview_makeToolbarWrap();
 
-    if (!ui) {
-        return NULL;
-    }
-
-    root = e9ui_stack_makeVertical();
-    toolbar = neogeo_memview_makeToolbarWrap();
     ui->addressBox = e9ui_textbox_make(32, neogeo_memview_onAddressSubmit, NULL, ui);
     ui->widthBox = e9ui_textbox_make(16, neogeo_memview_onWidthSubmit, NULL, ui);
     ui->widthSeek = e9ui_seek_bar_make();
     ui->zoomSeek = e9ui_seek_bar_make();
     ui->overviewZoomSeek = e9ui_seek_bar_make();
-    ui->modeButtonRam = e9ui_button_make("RAM", neogeo_memview_setRamMode, ui);
-    ui->modeButtonCrom = e9ui_button_make("CROM", neogeo_memview_setCromMode, ui);
+    ui->modeButtonRam = e9ui_button_make("RAM", neogeo_memview_setMode, (void *)&neogeo_memview_modeButtonModes[0]);
+    ui->modeButtonCrom = e9ui_button_make("CROM", neogeo_memview_setMode, (void *)&neogeo_memview_modeButtonModes[1]);
+    ui->modeButtonZram = e9ui_button_make("ZRAM", neogeo_memview_setMode, (void *)&neogeo_memview_modeButtonModes[2]);
     ui->canvas = neogeo_memview_makeCanvas(ui);
 
-    addressLabel = e9ui_text_make("Address");
-    widthLabel = e9ui_text_make("Width");
-    zoomLabel = e9ui_text_make("Zoom");
+    e9ui_component_t *addressLabel = e9ui_text_make("Address");
+    e9ui_component_t *widthLabel = e9ui_text_make("Width");
+    e9ui_component_t *zoomLabel = e9ui_text_make("Zoom");
     e9ui_component_t *overviewZoomLabel = e9ui_text_make("Ov Zoom");
-    showAddress = e9ui_checkbox_make("Addr", ui->showAddressColumn, neogeo_memview_onShowAddressColumnChanged, ui);
-    showOverview = e9ui_checkbox_make("Overview", ui->showOverviewColumn, neogeo_memview_onShowOverviewColumnChanged, ui);
-    followActive = e9ui_checkbox_make("Follow", ui->followActiveSprites, neogeo_memview_onFollowActiveSpritesChanged, ui);
+    e9ui_component_t *showAddress = e9ui_checkbox_make("Addr", ui->showAddressColumn, neogeo_memview_onCheckboxChanged, &neogeo_memview_checkboxBindings[0]);
+    e9ui_component_t *showOverview = e9ui_checkbox_make("Overview", ui->showOverviewColumn, neogeo_memview_onCheckboxChanged, &neogeo_memview_checkboxBindings[1]);
+    e9ui_component_t *followActive = e9ui_checkbox_make("Follow", ui->followActiveSprites, neogeo_memview_onCheckboxChanged, &neogeo_memview_checkboxBindings[2]);
 
     e9ui_textbox_setPlaceholder(ui->addressBox, "0x00100000");
     e9ui_textbox_setPlaceholder(ui->widthBox, "32");
@@ -3352,70 +3306,80 @@ neogeo_memview_buildRoot(neogeo_memview_state_t *ui)
 
     e9ui_button_setMini(ui->modeButtonRam, 1);
     e9ui_button_setMini(ui->modeButtonCrom, 1);
+    e9ui_button_setMini(ui->modeButtonZram, 1);
     e9ui_button_setLargestLabel(ui->modeButtonRam, "CROM");
     e9ui_button_setLargestLabel(ui->modeButtonCrom, "CROM");
+    e9ui_button_setLargestLabel(ui->modeButtonZram, "CROM");
 
-    toolbarFont = e9ui->theme.text.source ? e9ui->theme.text.source : ui->ctx.font;
-    gapSmall = e9ui_scale_px(&ui->ctx, 6);
-    modeButtonW = e9ui_scale_px(&ui->ctx, 72);
+    TTF_Font *toolbarFont = e9ui->theme.text.source ? e9ui->theme.text.source : ui->ctx.font;
+    int gapSmall = e9ui_scale_px(&ui->ctx, 6);
+    int textH = 0;
+    int modeButtonW = e9ui_scale_px(&ui->ctx, 72);
     e9ui_button_measure(ui->modeButtonRam, &ui->ctx, &modeButtonW, &textH);
-    e9ui_checkbox_measure(showAddress, &ui->ctx, &checkboxAddrW, &textH);
-    e9ui_checkbox_measure(showOverview, &ui->ctx, &checkboxOverviewW, &textH);
-    e9ui_checkbox_measure(followActive, &ui->ctx, &checkboxFollowW, &textH);
-    labelAddrW = neogeo_memview_measureToolbarTextWidth(&ui->ctx, toolbarFont, "Address", 8, 64);
-    addrBoxW = neogeo_memview_measureToolbarTextboxWidth(toolbarFont, "0x00100000", 110);
-    labelWidthW = neogeo_memview_measureToolbarTextWidth(&ui->ctx, toolbarFont, "Width", 8, 48);
-    widthBoxW = neogeo_memview_measureToolbarTextboxWidth(toolbarFont, "256", 56);
-    widthSeekW = e9ui_scale_px(&ui->ctx, 180);
-    zoomLabelW = neogeo_memview_measureToolbarTextWidth(&ui->ctx, toolbarFont, "Zoom", 8, 40);
-    zoomSeekW = e9ui_scale_px(&ui->ctx, 180);
-    int overviewZoomLabelW = neogeo_memview_measureToolbarTextWidth(&ui->ctx, toolbarFont, "Ov Zoom", 8, 56);
-    overviewZoomSeekW = e9ui_scale_px(&ui->ctx, 150);
 
-    groupGeneral = e9ui_hstack_make();
-    groupAddress = e9ui_hstack_make();
-    groupWidth = e9ui_hstack_make();
-    groupZoom = e9ui_hstack_make();
-    groupOverviewZoom = e9ui_hstack_make();
+    int checkboxAddrW = 0;
+    e9ui_checkbox_measure(showAddress, &ui->ctx, &checkboxAddrW, &textH);
+    int checkboxOverviewW = 0;
+    e9ui_checkbox_measure(showOverview, &ui->ctx, &checkboxOverviewW, &textH);
+    int checkboxFollowW = 0;
+    e9ui_checkbox_measure(followActive, &ui->ctx, &checkboxFollowW, &textH);
+
+    int labelAddrW = neogeo_memview_measureToolbarTextWidth(&ui->ctx, toolbarFont, "Address", 8, 64);
+    int addrBoxW = neogeo_memview_measureToolbarTextboxWidth(toolbarFont, "0x00100000", 110);
+    int labelWidthW = neogeo_memview_measureToolbarTextWidth(&ui->ctx, toolbarFont, "Width", 8, 48);
+    int widthBoxW = neogeo_memview_measureToolbarTextboxWidth(toolbarFont, "256", 56);
+    int widthSeekW = e9ui_scale_px(&ui->ctx, 180);
+    int zoomLabelW = neogeo_memview_measureToolbarTextWidth(&ui->ctx, toolbarFont, "Zoom", 8, 40);
+    int zoomSeekW = e9ui_scale_px(&ui->ctx, 180);
+    int overviewZoomLabelW = neogeo_memview_measureToolbarTextWidth(&ui->ctx, toolbarFont, "Ov Zoom", 8, 56);
+    int overviewZoomSeekW = e9ui_scale_px(&ui->ctx, 150);
+
+    e9ui_component_t *groupGeneral = e9ui_hstack_make();
+    e9ui_component_t *groupAddress = e9ui_hstack_make();
+    e9ui_component_t *groupWidth = e9ui_hstack_make();
+    e9ui_component_t *groupZoom = e9ui_hstack_make();
+    e9ui_component_t *groupOverviewZoom = e9ui_hstack_make();
 
     e9ui_hstack_addFixed(groupGeneral, ui->modeButtonRam, modeButtonW);
     e9ui_hstack_addFixed(groupGeneral, e9ui_spacer_make(gapSmall), gapSmall);
     e9ui_hstack_addFixed(groupGeneral, ui->modeButtonCrom, modeButtonW);
+    e9ui_hstack_addFixed(groupGeneral, e9ui_spacer_make(gapSmall), gapSmall);
+    e9ui_hstack_addFixed(groupGeneral, ui->modeButtonZram, modeButtonW);
     e9ui_hstack_addFixed(groupGeneral, e9ui_spacer_make(gapSmall), gapSmall);
     e9ui_hstack_addFixed(groupGeneral, showAddress, checkboxAddrW);
     e9ui_hstack_addFixed(groupGeneral, e9ui_spacer_make(gapSmall), gapSmall);
     e9ui_hstack_addFixed(groupGeneral, showOverview, checkboxOverviewW);
     e9ui_hstack_addFixed(groupGeneral, e9ui_spacer_make(gapSmall), gapSmall);
     e9ui_hstack_addFixed(groupGeneral, followActive, checkboxFollowW);
-    groupGeneralW = modeButtonW + gapSmall + modeButtonW + gapSmall + checkboxAddrW + gapSmall + checkboxOverviewW + gapSmall + checkboxFollowW;
+    int groupGeneralW = modeButtonW + gapSmall + modeButtonW + gapSmall + modeButtonW + gapSmall + checkboxAddrW + gapSmall + checkboxOverviewW + gapSmall + checkboxFollowW;
 
     e9ui_hstack_addFixed(groupAddress, addressLabel, labelAddrW);
     e9ui_hstack_addFixed(groupAddress, e9ui_spacer_make(gapSmall), gapSmall);
     e9ui_hstack_addFixed(groupAddress, ui->addressBox, addrBoxW);
-    groupAddressW = labelAddrW + gapSmall + addrBoxW;
+    int groupAddressW = labelAddrW + gapSmall + addrBoxW;
 
     e9ui_hstack_addFixed(groupWidth, widthLabel, labelWidthW);
     e9ui_hstack_addFixed(groupWidth, e9ui_spacer_make(gapSmall), gapSmall);
     e9ui_hstack_addFixed(groupWidth, ui->widthBox, widthBoxW);
     e9ui_hstack_addFixed(groupWidth, e9ui_spacer_make(gapSmall), gapSmall);
     e9ui_hstack_addFixed(groupWidth, ui->widthSeek, widthSeekW);
-    groupWidthW = labelWidthW + gapSmall + widthBoxW + gapSmall + widthSeekW;
+    int groupWidthW = labelWidthW + gapSmall + widthBoxW + gapSmall + widthSeekW;
 
     e9ui_hstack_addFixed(groupZoom, zoomLabel, zoomLabelW);
     e9ui_hstack_addFixed(groupZoom, e9ui_spacer_make(gapSmall), gapSmall);
     e9ui_hstack_addFixed(groupZoom, ui->zoomSeek, zoomSeekW);
-    groupZoomW = zoomLabelW + gapSmall + zoomSeekW;
+    int groupZoomW = zoomLabelW + gapSmall + zoomSeekW;
 
     e9ui_hstack_addFixed(groupOverviewZoom, overviewZoomLabel, overviewZoomLabelW);
     e9ui_hstack_addFixed(groupOverviewZoom, e9ui_spacer_make(gapSmall), gapSmall);
     e9ui_hstack_addFixed(groupOverviewZoom, ui->overviewZoomSeek, overviewZoomSeekW);
-    groupOverviewZoomW = overviewZoomLabelW + gapSmall + overviewZoomSeekW;
+    int groupOverviewZoomW = overviewZoomLabelW + gapSmall + overviewZoomSeekW;
 
-    groupGeneralItem = neogeo_memview_makeToolbarItem(groupGeneral, groupGeneralW);
-    groupAddressItem = neogeo_memview_makeToolbarItem(groupAddress, groupAddressW);
-    groupWidthItem = neogeo_memview_makeToolbarItem(groupWidth, groupWidthW);
-    groupZoomItem = neogeo_memview_makeToolbarItem(groupZoom, groupZoomW);
-    groupOverviewZoomItem = neogeo_memview_makeToolbarItem(groupOverviewZoom, groupOverviewZoomW);
+    e9ui_component_t *groupGeneralItem = neogeo_memview_makeToolbarItem(groupGeneral, groupGeneralW);
+    e9ui_component_t *groupAddressItem = neogeo_memview_makeToolbarItem(groupAddress, groupAddressW);
+    e9ui_component_t *groupWidthItem = neogeo_memview_makeToolbarItem(groupWidth, groupWidthW);
+    e9ui_component_t *groupZoomItem = neogeo_memview_makeToolbarItem(groupZoom, groupZoomW);
+    e9ui_component_t *groupOverviewZoomItem = neogeo_memview_makeToolbarItem(groupOverviewZoom, groupOverviewZoomW);
 
     e9ui_child_add(toolbar, groupGeneralItem, NULL);
     e9ui_child_add(toolbar, groupAddressItem, NULL);
@@ -3423,7 +3387,7 @@ neogeo_memview_buildRoot(neogeo_memview_state_t *ui)
     e9ui_child_add(toolbar, groupZoomItem, NULL);
     e9ui_child_add(toolbar, groupOverviewZoomItem, NULL);
 
-    toolbarBox = e9ui_box_make(toolbar);
+    e9ui_component_t *toolbarBox = e9ui_box_make(toolbar);
     e9ui_box_setPadding(toolbarBox, 8);
     e9ui_box_setBorder(toolbarBox, E9UI_BORDER_BOTTOM, (SDL_Color){ 70, 70, 70, 255 }, 1);
 
@@ -3499,6 +3463,19 @@ neogeo_memview_overlayBodyPreferredHeight(e9ui_component_t *self, e9ui_context_t
 }
 
 static void
+neogeo_memview_syncOverlayContext(neogeo_memview_state_t *ui, e9ui_context_t *ctx, e9ui_rect_t bounds)
+{
+    ui->ctx = *ctx;
+    ui->ctx.window = ctx->window;
+    ui->ctx.renderer = ctx->renderer;
+    ui->ctx.font = e9ui->ctx.font;
+    ui->ctx.winW = bounds.w;
+    ui->ctx.winH = bounds.h;
+    ui->ctx.focusRoot = ui->root;
+    ui->ctx.focusFullscreen = NULL;
+}
+
+static void
 neogeo_memview_overlayBodyLayout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_rect_t bounds)
 {
     neogeo_memview_overlay_body_state_t *state = NULL;
@@ -3509,19 +3486,8 @@ neogeo_memview_overlayBodyLayout(e9ui_component_t *self, e9ui_context_t *ctx, e9
     }
     self->bounds = bounds;
     state = (neogeo_memview_overlay_body_state_t *)self->state;
-    ui = state ? state->ui : NULL;
-    if (!ui) {
-        return;
-    }
-
-    ui->ctx = *ctx;
-    ui->ctx.window = ctx->window;
-    ui->ctx.renderer = ctx->renderer;
-    ui->ctx.font = e9ui->ctx.font;
-    ui->ctx.winW = bounds.w;
-    ui->ctx.winH = bounds.h;
-    ui->ctx.focusRoot = ui->root;
-    ui->ctx.focusFullscreen = NULL;
+    ui = state->ui;
+    neogeo_memview_syncOverlayContext(ui, ctx, bounds);
 
     if (ui->root && ui->root->layout) {
         ui->root->layout(ui->root, &ui->ctx, bounds);
@@ -3538,23 +3504,16 @@ neogeo_memview_overlayBodyRender(e9ui_component_t *self, e9ui_context_t *ctx)
         return;
     }
     state = (neogeo_memview_overlay_body_state_t *)self->state;
-    ui = state ? state->ui : NULL;
-    if (!ui || !ui->windowState.open) {
+    ui = state->ui;
+    if (!ui->windowState.open) {
         return;
     }
 
-    ui->ctx = *ctx;
-    ui->ctx.window = ctx->window;
-    ui->ctx.renderer = ctx->renderer;
-    ui->ctx.font = e9ui->ctx.font;
-    ui->ctx.winW = self->bounds.w;
-    ui->ctx.winH = self->bounds.h;
+    neogeo_memview_syncOverlayContext(ui, ctx, self->bounds);
     ui->ctx.mouseX = ctx->mouseX;
     ui->ctx.mouseY = ctx->mouseY;
     ui->ctx.mousePrevX = ctx->mousePrevX;
     ui->ctx.mousePrevY = ctx->mousePrevY;
-    ui->ctx.focusRoot = ui->root;
-    ui->ctx.focusFullscreen = NULL;
 
     if (ui->root && ui->root->render) {
         ui->root->render(ui->root, &ui->ctx);
@@ -3578,7 +3537,7 @@ neogeo_memview_makeOverlayBodyHost(neogeo_memview_state_t *ui)
     e9ui_component_t *host = NULL;
     neogeo_memview_overlay_body_state_t *state = NULL;
 
-    if (!ui || !ui->root) {
+    if (!ui->root) {
         return NULL;
     }
     host = (e9ui_component_t *)alloc_calloc(1, sizeof(*host));
@@ -3600,23 +3559,21 @@ neogeo_memview_makeOverlayBodyHost(neogeo_memview_state_t *ui)
 }
 
 static void
-neogeo_memview_releaseRuntimeState(neogeo_memview_state_t *ui)
+neogeo_memview_destroyTexture(SDL_Texture **texture)
 {
-    if (!ui) {
+    if (!*texture) {
         return;
     }
-    if (ui->mainTexture) {
-        SDL_DestroyTexture(ui->mainTexture);
-        ui->mainTexture = NULL;
-    }
-    if (ui->overviewTexture) {
-        SDL_DestroyTexture(ui->overviewTexture);
-        ui->overviewTexture = NULL;
-    }
-    if (ui->overviewBackgroundTexture) {
-        SDL_DestroyTexture(ui->overviewBackgroundTexture);
-        ui->overviewBackgroundTexture = NULL;
-    }
+    SDL_DestroyTexture(*texture);
+    *texture = NULL;
+}
+
+static void
+neogeo_memview_releaseRuntimeState(neogeo_memview_state_t *ui)
+{
+    neogeo_memview_destroyTexture(&ui->mainTexture);
+    neogeo_memview_destroyTexture(&ui->overviewTexture);
+    neogeo_memview_destroyTexture(&ui->overviewBackgroundTexture);
     alloc_free(ui->mainPixels);
     alloc_free(ui->overviewPixels);
     alloc_free(ui->overviewBackgroundPixels);
@@ -3675,6 +3632,7 @@ neogeo_memview_init(void)
     }
     ui->ramBaseAddr = ui->ramBaseAddrHasSaved ? neogeo_memview_clampRamBaseAddr(ui->ramBaseAddr) : NEOGEO_MEMVIEW_RAM_BASE_MIN;
     ui->cromBaseAddr = ui->cromBaseAddrHasSaved ? neogeo_memview_alignCromBaseAddrToRow(ui, ui->cromBaseAddr) : neogeo_memview_findInitialCromBaseAddr(ui);
+    ui->zramBaseAddr = ui->zramBaseAddrHasSaved ? neogeo_memview_clampZramBaseAddr(ui->zramBaseAddr) : NEOGEO_MEMVIEW_ZRAM_BASE_MIN;
     ui->ramRowBytes = ui->ramRowBytesHasSaved ? neogeo_memview_clampRamRowBytes(ui->ramRowBytes) : NEOGEO_MEMVIEW_DEFAULT_RAM_ROW_BYTES;
     ui->cromTilesPerRow = ui->cromTilesPerRowHasSaved ? neogeo_memview_clampCromTilesPerRow(ui->cromTilesPerRow) : NEOGEO_MEMVIEW_DEFAULT_CROM_TILES_PER_ROW;
     ui->zoomLevel = ui->zoomHasSaved ? neogeo_memview_clampZoomLevel(ui->zoomLevel) : NEOGEO_MEMVIEW_ZOOM_DEFAULT;
@@ -3773,13 +3731,16 @@ neogeo_memview_persistConfig(FILE *file)
     }
     e9ui_windowPersistStateRect(file, "comp.neogeo_memview", &ui->windowState, &e9ui->ctx);
     if (ui->modeHasSaved) {
-        fprintf(file, "comp.neogeo_memview.mode=%d\n", ui->mode == neogeo_memview_mode_crom ? 1 : 0);
+        fprintf(file, "comp.neogeo_memview.mode=%d\n", (int)ui->mode);
     }
     if (ui->ramBaseAddrHasSaved) {
         fprintf(file, "comp.neogeo_memview.ram_base_addr=%u\n", (unsigned)ui->ramBaseAddr);
     }
     if (ui->cromBaseAddrHasSaved) {
         fprintf(file, "comp.neogeo_memview.crom_base_addr=%u\n", (unsigned)ui->cromBaseAddr);
+    }
+    if (ui->zramBaseAddrHasSaved) {
+        fprintf(file, "comp.neogeo_memview.zram_base_addr=%u\n", (unsigned)ui->zramBaseAddr);
     }
     if (ui->ramRowBytesHasSaved) {
         fprintf(file, "comp.neogeo_memview.ram_row_bytes=%u\n", (unsigned)ui->ramRowBytes);
@@ -3851,7 +3812,13 @@ neogeo_memview_loadConfigProperty(const char *prop, const char *value)
         if (!neogeo_memview_parseInt(value, &intValue)) {
             return 0;
         }
-        ui->mode = intValue ? neogeo_memview_mode_crom : neogeo_memview_mode_ram;
+        if (intValue == (int)neogeo_memview_mode_zram) {
+            ui->mode = neogeo_memview_mode_zram;
+        } else if (intValue == (int)neogeo_memview_mode_crom) {
+            ui->mode = neogeo_memview_mode_crom;
+        } else {
+            ui->mode = neogeo_memview_mode_ram;
+        }
         ui->modeHasSaved = 1;
         return 1;
     }
@@ -3869,6 +3836,14 @@ neogeo_memview_loadConfigProperty(const char *prop, const char *value)
         }
         ui->cromBaseAddr = neogeo_memview_alignCromBaseAddrToRow(ui, (uint32_t)parsed);
         ui->cromBaseAddrHasSaved = 1;
+        return 1;
+    }
+    if (strcmp(prop, "zram_base_addr") == 0) {
+        if (!neogeo_memview_parseU64SmartHex(value, &parsed, &end) || !end || *end != '\0') {
+            return 0;
+        }
+        ui->zramBaseAddr = neogeo_memview_clampZramBaseAddr((uint32_t)parsed);
+        ui->zramBaseAddrHasSaved = 1;
         return 1;
     }
     if (strcmp(prop, "ram_row_bytes") == 0 || strcmp(prop, "row_bytes") == 0) {

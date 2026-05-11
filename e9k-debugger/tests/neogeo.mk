@@ -1,5 +1,5 @@
-NEOGEO_TESTS=test-neogeosound test-neogeosavestate test-neogeostepping test-neogeoz80 test-neogeosprite test-neogeotracker test-neogeolog
-NEOGEO_REMAKE=remake-test-neogeosound remake-test-neogeosavestate remake-test-neogeostepping remake-test-neogeoz80 remake-test-neogeosprite remake-test-neogeotracker remake-test-neogeolog
+NEOGEO_TESTS=test-neogeosound test-neogeosavestate test-neogeostepping test-neogeoz80 test-neogeosprite test-neogeotracker test-neogeolog test-neogeomemview
+NEOGEO_REMAKE=remake-test-neogeosound remake-test-neogeosavestate remake-test-neogeostepping remake-test-neogeoz80 remake-test-neogeosprite remake-test-neogeotracker remake-test-neogeolog remake-test-neogeomemview
 
 # makers
 
@@ -17,6 +17,9 @@ make-test-neogeolog: all
 
 make-test-neogeotracker: all 
 	./e9k-debugger --neogeo --rom=./tests/neogeo/basic/basic.neo --make-test tests/results/neogeo/tracker
+
+make-test-neogeomemview: all 
+	./e9k-debugger --neogeo --rom=./tests/neogeo/sound/st.neo --make-test tests/results/neogeo/memview
 
 make-test-neogeostepping: tests/neogeo/stepping/build/rom.elf
 	./e9k-debugger --neogeo --source-dir=./tests/neogeo/stepping --elf=./tests/neogeo/stepping/build/rom.elf --rom=./tests/neogeo/stepping/build/stepping.neo --make-test tests/results/neogeo/stepping
@@ -46,6 +49,10 @@ remake-test-neogeolog: all
 remake-test-neogeotracker: all 
 	@printf "NEO GEO MEMORY TRACKER ($@) ..."
 	./e9k-debugger --neogeo --volume=0 --rom=./tests/neogeo/basic/basic.neo --remake-test tests/results/neogeo/tracker
+
+remake-test-neogeomemview: all 
+	@printf "NEO GEO MEMORY VIEW ($@) ..."
+	./e9k-debugger --neogeo --volume=0 --rom=./tests/neogeo/sound/st.neo --remake-test tests/results/neogeo/memview
 
 remake-test-neogeostepping: tests/neogeo/stepping/build/rom.elf
 	@printf "NEO GEO STEPPING ($@) ..."
@@ -82,6 +89,11 @@ test-neogeolog: all
 test-neogeotracker: all
 	@printf "NEO GEO MEMORY TRACKER ($@) ..." 
 	@./e9k-debugger $(HEADLESS) --neogeo --rom=./tests/neogeo/basic/basic.neo --test tests/results/neogeo/tracker >> test.log 2>&1
+	@echo "PASSED ✅"
+
+test-neogeomemview: all
+	@printf "NEO GEO MEMORY VIEW ($@) ..." 
+	@./e9k-debugger $(HEADLESS) --neogeo --rom=./tests/neogeo/sound/st.neo --test tests/results/neogeo/memview >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-neogeostepping: tests/neogeo/stepping/build/rom.elf
