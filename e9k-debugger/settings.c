@@ -42,6 +42,7 @@ typedef struct settings_romrecent_list
 } settings_romrecent_list_t;
 
 static settings_romrecent_list_t settings_romRecents[TARGET_MEGADRIVE + 1];
+static settings_romrecent_list_t settings_romFolderRecents[TARGET_MEGADRIVE + 1];
 
 static void
 settings_rebuildModalBody(e9ui_context_t *ctx);
@@ -199,10 +200,18 @@ settings_romRecentsListForTargetIndex(int targetIndex)
     return &settings_romRecents[targetIndex];
 }
 
-static void
-settings_romRecentsClearTarget(int targetIndex)
+static settings_romrecent_list_t *
+settings_romFolderRecentsListForTargetIndex(int targetIndex)
 {
-    settings_romrecent_list_t *list = settings_romRecentsListForTargetIndex(targetIndex);
+    if (targetIndex < TARGET_AMIGA || targetIndex > TARGET_MEGADRIVE) {
+        return NULL;
+    }
+    return &settings_romFolderRecents[targetIndex];
+}
+
+static void
+settings_romRecentsClearList(settings_romrecent_list_t *list)
+{
     if (!list) {
         return;
     }
@@ -210,9 +219,8 @@ settings_romRecentsClearTarget(int targetIndex)
 }
 
 static void
-settings_romRecentsAddTargetPath(int targetIndex, const char *path)
+settings_romRecentsAddPath(settings_romrecent_list_t *list, const char *path)
 {
-    settings_romrecent_list_t *list = settings_romRecentsListForTargetIndex(targetIndex);
     if (!list || !path || !*path) {
         return;
     }
@@ -253,9 +261,22 @@ settings_romRecentsAddTargetPath(int targetIndex, const char *path)
 }
 
 static void
-settings_romRecentsSetLoadedEntry(int targetIndex, int index, const char *value)
+settings_romRecentsAddTargetPath(int targetIndex, const char *path)
 {
     settings_romrecent_list_t *list = settings_romRecentsListForTargetIndex(targetIndex);
+    settings_romRecentsAddPath(list, path);
+}
+
+static void
+settings_romFolderRecentsAddTargetPath(int targetIndex, const char *path)
+{
+    settings_romrecent_list_t *list = settings_romFolderRecentsListForTargetIndex(targetIndex);
+    settings_romRecentsAddPath(list, path);
+}
+
+static void
+settings_romRecentsSetLoadedListEntry(settings_romrecent_list_t *list, int index, const char *value)
+{
     if (!list || !value || !*value) {
         return;
     }
@@ -269,6 +290,20 @@ settings_romRecentsSetLoadedEntry(int targetIndex, int index, const char *value)
 }
 
 static void
+settings_romRecentsSetLoadedEntry(int targetIndex, int index, const char *value)
+{
+    settings_romrecent_list_t *list = settings_romRecentsListForTargetIndex(targetIndex);
+    settings_romRecentsSetLoadedListEntry(list, index, value);
+}
+
+static void
+settings_romFolderRecentsSetLoadedEntry(int targetIndex, int index, const char *value)
+{
+    settings_romrecent_list_t *list = settings_romFolderRecentsListForTargetIndex(targetIndex);
+    settings_romRecentsSetLoadedListEntry(list, index, value);
+}
+
+static void
 settings_romRecentsAddFromSettingsSave(target_iface_t *selectedTarget)
 {
     int targetIndex = settings_romRecentsTargetIndexForIface(selectedTarget);
@@ -277,6 +312,7 @@ settings_romRecentsAddFromSettingsSave(target_iface_t *selectedTarget)
     }
 
     const char *romPath = NULL;
+    const char *romFolder = NULL;
 #if E9K_ENABLE_AMIGA
     if (targetIndex == TARGET_AMIGA) {
         romPath = debugger.settingsEdit.amiga.libretro.romPath;
@@ -285,6 +321,7 @@ settings_romRecentsAddFromSettingsSave(target_iface_t *selectedTarget)
 #if E9K_ENABLE_NEOGEO
     if (targetIndex == TARGET_NEOGEO) {
         romPath = debugger.settingsEdit.neogeo.libretro.romPath;
+        romFolder = debugger.settingsEdit.neogeo.romFolder;
     } else
 #endif
 #if E9K_ENABLE_MEGADRIVE
@@ -294,6 +331,32 @@ settings_romRecentsAddFromSettingsSave(target_iface_t *selectedTarget)
 #endif
 
     settings_romRecentsAddTargetPath(targetIndex, romPath);
+    settings_romFolderRecentsAddTargetPath(targetIndex, romFolder);
+}
+
+static int
+settings_romSelectHandleClearRecentsFor(e9ui_component_t *fileSelect,
+                                        settings_romrecent_list_t *list,
+                                        const char *restorePath,
+                                        const char *text)
+{
+    if (!fileSelect) {
+        return 0;
+    }
+
+    const char *selectedValue = e9ui_fileSelect_getSelectedValue(fileSelect);
+    if (!selectedValue ||
+        strcmp(selectedValue, settings_romRecentClearValue) != 0 ||
+        !text ||
+        (strcmp(text, settings_romRecentClearLabel) != 0 &&
+         strcmp(text, settings_romRecentClearValue) != 0)) {
+        return 0;
+    }
+
+    settings_romRecentsClearList(list);
+    e9ui_fileSelect_setOptions(fileSelect, NULL, 0);
+    e9ui_fileSelect_setText(fileSelect, restorePath ? restorePath : "");
+    return 1;
 }
 
 static int
@@ -303,28 +366,46 @@ settings_romSelectHandleClearRecents(settings_romselect_state_t *st, const char 
         return 0;
     }
 
-    const char *selectedValue = e9ui_fileSelect_getSelectedValue(st->romSelect);
-    if (!selectedValue ||
-        strcmp(selectedValue, settings_romRecentClearValue) != 0 ||
-        !text ||
-        (strcmp(text, settings_romRecentClearLabel) != 0 &&
-         strcmp(text, settings_romRecentClearValue) != 0)) {
-        return 0;
-    }
-
     char restorePath[PATH_MAX];
     settings_config_setPath(restorePath, sizeof(restorePath), st->romPath ? st->romPath : "");
 
     int targetIndex = settings_romRecentsCurrentTargetIndex();
-    if (targetIndex >= 0) {
-        settings_romRecentsClearTarget(targetIndex);
+    settings_romrecent_list_t *list = settings_romRecentsListForTargetIndex(targetIndex);
+    st->suppress = 1;
+    int handled = settings_romSelectHandleClearRecentsFor(st->romSelect, list, restorePath, text);
+    st->suppress = 0;
+    if (!handled) {
+        return 0;
     }
 
-    e9ui_fileSelect_setOptions(st->romSelect, NULL, 0);
     st->suppress = 1;
-    e9ui_fileSelect_setText(st->romSelect, restorePath);
-    st->suppress = 0;
     settings_romSelectRefreshRecents(st);
+    st->suppress = 0;
+    return 1;
+}
+
+static int
+settings_romFolderSelectHandleClearRecents(settings_romselect_state_t *st, const char *text)
+{
+    if (!st || !st->folderSelect) {
+        return 0;
+    }
+
+    char restorePath[PATH_MAX];
+    settings_config_setPath(restorePath, sizeof(restorePath), st->romFolder ? st->romFolder : "");
+
+    int targetIndex = settings_romRecentsCurrentTargetIndex();
+    settings_romrecent_list_t *list = settings_romFolderRecentsListForTargetIndex(targetIndex);
+    st->suppress = 1;
+    int handled = settings_romSelectHandleClearRecentsFor(st->folderSelect, list, restorePath, text);
+    st->suppress = 0;
+    if (!handled) {
+        return 0;
+    }
+
+    st->suppress = 1;
+    settings_romSelectRefreshRecents(st);
+    st->suppress = 0;
     return 1;
 }
 
@@ -754,17 +835,15 @@ settings_romSelectUpdateAllowEmpty(settings_romselect_state_t *st)
     }
 }
 
-void
-settings_romSelectRefreshRecents(settings_romselect_state_t *st)
+static void
+settings_romSelectRefreshRecentsFor(e9ui_component_t *fileSelect, settings_romrecent_list_t *list)
 {
-    if (!st || !st->romSelect) {
+    if (!fileSelect) {
         return;
     }
 
-    int targetIndex = settings_romRecentsCurrentTargetIndex();
-    settings_romrecent_list_t *list = settings_romRecentsListForTargetIndex(targetIndex);
     if (!list) {
-        e9ui_fileSelect_setOptions(st->romSelect, NULL, 0);
+        e9ui_fileSelect_setOptions(fileSelect, NULL, 0);
         return;
     }
 
@@ -782,7 +861,19 @@ settings_romSelectRefreshRecents(settings_romselect_state_t *st)
     options[optionCount].label = settings_romRecentClearLabel;
     optionCount++;
 
-    e9ui_fileSelect_setOptions(st->romSelect, options, optionCount);
+    e9ui_fileSelect_setOptions(fileSelect, options, optionCount);
+}
+
+void
+settings_romSelectRefreshRecents(settings_romselect_state_t *st)
+{
+    if (!st) {
+        return;
+    }
+
+    int targetIndex = settings_romRecentsCurrentTargetIndex();
+    settings_romSelectRefreshRecentsFor(st->romSelect, settings_romRecentsListForTargetIndex(targetIndex));
+    settings_romSelectRefreshRecentsFor(st->folderSelect, settings_romFolderRecentsListForTargetIndex(targetIndex));
 }
 
 static void
@@ -949,6 +1040,9 @@ settings_romFolderChanged(e9ui_context_t *ctx, e9ui_component_t *comp, const cha
     if (!st->romFolder) {
         return;
     }
+    if (settings_romFolderSelectHandleClearRecents(st, text)) {
+        return;
+    }
     settings_config_setPath(st->romFolder, PATH_MAX, text);
     if (text && *text) {
         st->suppress = 1;
@@ -1021,6 +1115,17 @@ settings_persistConfig(FILE *file)
             }
             fprintf(file, "comp.settings.recent.%s.rom.%d=%s\n", targetName, i, list->entries[i]);
         }
+
+        list = settings_romFolderRecentsListForTargetIndex(targetIndex);
+        if (!list) {
+            continue;
+        }
+        for (int i = 0; i < list->count; ++i) {
+            if (!list->entries[i][0]) {
+                continue;
+            }
+            fprintf(file, "comp.settings.recent.%s.romFolder.%d=%s\n", targetName, i, list->entries[i]);
+        }
     }
 }
 
@@ -1055,11 +1160,13 @@ settings_loadConfigProperty(const char *prop, const char *value)
     }
 
     const char *rest = dot + 1;
-    if (strncmp(rest, "rom.", 4) != 0) {
+    int isRom = strncmp(rest, "rom.", 4) == 0;
+    int isRomFolder = strncmp(rest, "romFolder.", 10) == 0;
+    if (!isRom && !isRomFolder) {
         return 0;
     }
 
-    const char *indexText = rest + 4;
+    const char *indexText = rest + (isRom ? 4 : 10);
     if (!*indexText) {
         return 0;
     }
@@ -1070,7 +1177,11 @@ settings_loadConfigProperty(const char *prop, const char *value)
     }
 
     int index = atoi(indexText);
-    settings_romRecentsSetLoadedEntry(targetIndex, index, value);
+    if (isRom) {
+        settings_romRecentsSetLoadedEntry(targetIndex, index, value);
+    } else {
+        settings_romFolderRecentsSetLoadedEntry(targetIndex, index, value);
+    }
     return 1;
 }
 

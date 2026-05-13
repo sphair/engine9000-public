@@ -82,6 +82,10 @@ cli_getTargetCoreSystem(int argc, char **argv)
         } else if (strcmp(argv[i], "--neogeo") == 0) {
             return target_neogeo();
 #endif
+#if E9K_ENABLE_MEGADRIVE
+        } else if (strcmp(argv[i], "--megadrive") == 0) {
+            return target_megadrive();
+#endif
         }
     }
     return target_firstEnabled();
@@ -124,6 +128,14 @@ cli_parseArgs(int argc, char **argv)
         }
     }
 #endif
+#if !E9K_ENABLE_MEGADRIVE
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--megadrive") == 0) {
+            cli_setError("megadrive: disabled in this build");
+            return;
+        }
+    }
+#endif
     const target_iface_t* targetSystem = cli_getTargetCoreSystem(argc, argv);
     e9k_libretro_config_t *targetLibretro = targetSystem ? targetSystem->getLibretroCliConfig() : NULL;
     if (!targetLibretro) {
@@ -144,7 +156,7 @@ cli_parseArgs(int argc, char **argv)
             continue;
         }
         if (strcmp(argv[i], "--rom-folder") == 0) {
-	    if (targetSystem == target_amiga()) {
+            if (targetSystem != target_neogeo()) {
                 cli_setError("rom-folder: only supported for Neo Geo (use --neogeo)");
                 return;
             }
@@ -156,7 +168,7 @@ cli_parseArgs(int argc, char **argv)
             continue;
         }
         if (strncmp(argv[i], "--rom-folder=", sizeof("--rom-folder=") - 1) == 0) {
-            if (targetSystem == target_amiga()) {
+            if (targetSystem != target_neogeo()) {
                 cli_setError("rom-folder: only supported for Neo Geo (use --neogeo)");
                 return;
             }
@@ -165,26 +177,26 @@ cli_parseArgs(int argc, char **argv)
         }
         if (strcmp(argv[i], "--elf") == 0) {
             if (targetSystem == target_amiga()) {
-                cli_setError("elf: only supported for Neo Geo (use --neogeo)");
+                cli_setError("elf: only supported for Neo Geo or Mega Drive (use --neogeo or --megadrive)");
                 return;
             }
             if (i + 1 >= argc) {
                 cli_setError("elf: missing file path");
                 return;
             }
-            cli_copyPath(debugger.cliConfig.neogeo.libretro.exePath, sizeof(debugger.cliConfig.neogeo.libretro.exePath), argv[++i]);
+            cli_copyPath(targetLibretro->exePath, sizeof(targetLibretro->exePath), argv[++i]);
             continue;
         }
         if (strncmp(argv[i], "--elf=", sizeof("--elf=") - 1) == 0) {
             if (targetSystem == target_amiga()) {
-                cli_setError("elf: only supported for Neo Geo (use --neogeo)");
+                cli_setError("elf: only supported for Neo Geo or Mega Drive (use --neogeo or --megadrive)");
                 return;
             }
             if (argv[i][sizeof("--elf=") - 1] == '\0') {
                 cli_setError("elf: missing file path");
                 return;
             }
-            cli_copyPath(debugger.cliConfig.neogeo.libretro.exePath, sizeof(debugger.cliConfig.neogeo.libretro.exePath), argv[i] + sizeof("--elf=") - 1);
+            cli_copyPath(targetLibretro->exePath, sizeof(targetLibretro->exePath), argv[i] + sizeof("--elf=") - 1);
             continue;
         }
         if (strcmp(argv[i], "--symbols") == 0) {
@@ -229,22 +241,22 @@ cli_parseArgs(int argc, char **argv)
         }
         if (strcmp(argv[i], "--rom") == 0) {
             if (targetSystem == target_amiga()) {
-                cli_setError("rom: only supported for Neo Geo (use --neogeo)");
+                cli_setError("rom: only supported for Neo Geo and Mega Drive (use --neogeo or --megadrive)");
                 return;
             }
             if (i + 1 >= argc) {
                 cli_setError("rom: missing rom path");
                 return;
             }
-            cli_copyPath(debugger.cliConfig.neogeo.libretro.romPath, sizeof(debugger.cliConfig.neogeo.libretro.romPath), argv[++i]);
+            cli_copyPath(targetLibretro->romPath, sizeof(targetLibretro->romPath), argv[++i]);
             continue;
         }
         if (strncmp(argv[i], "--rom=", sizeof("--rom=") - 1) == 0) {
             if (targetSystem == target_amiga()) {
-                cli_setError("rom: only supported for Neo Geo (use --neogeo)");
+                cli_setError("rom: only supported for Neo Geo and Mega Drive (use --neogeo or --megadrive)");
                 return;
             }
-            cli_copyPath(debugger.cliConfig.neogeo.libretro.romPath, sizeof(debugger.cliConfig.neogeo.libretro.romPath), argv[i] + sizeof("--rom=") - 1);
+            cli_copyPath(targetLibretro->romPath, sizeof(targetLibretro->romPath), argv[i] + sizeof("--rom=") - 1);
             continue;
         }
         if (strcmp(argv[i], "--uae") == 0) {
@@ -317,7 +329,7 @@ cli_parseArgs(int argc, char **argv)
             char *end = NULL;
             long ms = strtol(argv[++i], &end, 10);
             if (end && end != argv[i] && ms > 0 && ms <= INT_MAX) {
-                debugger.cliConfig.neogeo.libretro.audioBufferMs = (int)ms;
+                targetLibretro->audioBufferMs = (int)ms;
             }
             continue;
         }
@@ -326,7 +338,7 @@ cli_parseArgs(int argc, char **argv)
             char *end = NULL;
             long ms = strtol(val, &end, 10);
             if (end && end != val && ms > 0 && ms <= INT_MAX) {
-                debugger.cliConfig.neogeo.libretro.audioBufferMs = (int)ms;
+                targetLibretro->audioBufferMs = (int)ms;
             }
             continue;
         }
@@ -599,10 +611,20 @@ cli_parseArgs(int argc, char **argv)
         if (strcmp(argv[i], "--neogeo") == 0) {
 #if E9K_ENABLE_NEOGEO
             debugger.cliCoreSystemOverride = 1;
-	    debugger.cliTargetIndex = TARGET_NEOGEO;
+            debugger.cliTargetIndex = TARGET_NEOGEO;
             continue;
 #else
             cli_setError("neogeo: disabled in this build");
+            return;
+#endif
+        }
+        if (strcmp(argv[i], "--megadrive") == 0) {
+#if E9K_ENABLE_MEGADRIVE
+            debugger.cliCoreSystemOverride = 1;
+            debugger.cliTargetIndex = TARGET_MEGADRIVE;
+            continue;
+#else
+            cli_setError("megadrive: disabled in this build");
             return;
 #endif
         }
@@ -692,6 +714,14 @@ cli_printUsage(const char *argv0)
     printf("  --rom-folder PATH            ROM folder (generates a .neo)\n");
     printf("\n");
 #endif
+#if E9K_ENABLE_MEGADRIVE
+    printf("Mega Drive options (use with --megadrive):\n");
+    printf("  --megadrive                  Start in Mega Drive system mode\n");
+    printf("  --elf PATH                   ELF file path\n");
+    printf("  --symbols PATH               Text symbol map path\n");
+    printf("  --rom PATH                   Mega Drive ROM path\n");
+    printf("\n");
+#endif
 #if E9K_ENABLE_AMIGA
     printf("Amiga options (use with --amiga):\n");
     printf("  --amiga                      Start in Amiga system mode\n");
@@ -750,5 +780,27 @@ cli_applyOverrides(void)
     }
     if (debugger.cliConfig.neogeo.libretro.audioBufferMs > 0) {
         debugger.config.neogeo.libretro.audioBufferMs = debugger.cliConfig.neogeo.libretro.audioBufferMs;
+    }
+
+    if (debugger.cliConfig.megadrive.libretro.romPath[0]) {
+        cli_copyPath(debugger.config.megadrive.libretro.romPath, sizeof(debugger.config.megadrive.libretro.romPath), debugger.cliConfig.megadrive.libretro.romPath);
+    }
+    if (debugger.cliConfig.megadrive.libretro.exePath[0]) {
+        cli_copyPath(debugger.config.megadrive.libretro.exePath, sizeof(debugger.config.megadrive.libretro.exePath), debugger.cliConfig.megadrive.libretro.exePath);
+    }
+    if (debugger.cliConfig.megadrive.libretro.systemDir[0]) {
+        cli_copyPath(debugger.config.megadrive.libretro.systemDir, sizeof(debugger.config.megadrive.libretro.systemDir), debugger.cliConfig.megadrive.libretro.systemDir);
+    }
+    if (debugger.cliConfig.megadrive.libretro.saveDir[0]) {
+        cli_copyPath(debugger.config.megadrive.libretro.saveDir, sizeof(debugger.config.megadrive.libretro.saveDir), debugger.cliConfig.megadrive.libretro.saveDir);
+    }
+    if (debugger.cliConfig.megadrive.libretro.sourceDir[0]) {
+        cli_copyPath(debugger.config.megadrive.libretro.sourceDir, sizeof(debugger.config.megadrive.libretro.sourceDir), debugger.cliConfig.megadrive.libretro.sourceDir);
+    }
+    if (debugger.cliConfig.megadrive.libretro.toolchainPrefix[0]) {
+        cli_copyPath(debugger.config.megadrive.libretro.toolchainPrefix, sizeof(debugger.config.megadrive.libretro.toolchainPrefix), debugger.cliConfig.megadrive.libretro.toolchainPrefix);
+    }
+    if (debugger.cliConfig.megadrive.libretro.audioBufferMs > 0) {
+        debugger.config.megadrive.libretro.audioBufferMs = debugger.cliConfig.megadrive.libretro.audioBufferMs;
     }
 }

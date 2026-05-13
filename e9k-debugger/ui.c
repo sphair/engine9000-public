@@ -578,6 +578,17 @@ ui_basename(const char *path)
     return best ? best + 1 : path;
 }
 
+static const char *
+ui_windowTitlePath(void)
+{
+    if (debugger.config.target == target_neogeo() &&
+        debugger.config.neogeo.romFolder[0] &&
+        debugger.libretro.romPath[0]) {
+        return debugger.config.neogeo.romFolder;
+    }
+    return debugger.libretro.romPath;
+}
+
 int
 ui_runFullscreenTransition(e9ui_context_t *ctx,
                            int entering,
@@ -648,7 +659,7 @@ ui_updateWindowTitle(void)
         return;
     }
 
-    const char *romPath = debugger.libretro.romPath;
+    const char *romPath = ui_windowTitlePath();
     const char *base = ui_basename(romPath);
     char title[PATH_MAX + 64];
 
