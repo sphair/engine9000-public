@@ -210,6 +210,10 @@ neogeo_sprite_debug_paletteColor(unsigned paletteBank);
 static uint32_t
 neogeo_sprite_debug_chainColor(unsigned chainRootIndex);
 
+static int
+neogeo_sprite_debug_spriteHasAnimBits(const uint16_t *vram, size_t vramWords,
+                                      unsigned spriteIndex, unsigned sprsize);
+
 static uint32_t
 neogeo_sprite_debug_shrinkRgbColorFromFractions(float horizontalShrink, float verticalShrink);
 
@@ -809,6 +813,33 @@ neogeo_sprite_debug_hashWords(const uint16_t *words, size_t count)
 }
 
 static int
+neogeo_sprite_debug_spriteHasAnimBits(const uint16_t *vram, size_t vramWords,
+                                      unsigned spriteIndex, unsigned sprsize)
+{
+    unsigned baseWordOffset = spriteIndex * NEOGEO_SPRITE_DEBUG_SPRITE_VRAM_WORDS_PER_SPRITE;
+    unsigned tileRows = sprsize;
+    unsigned maxTileRows = NEOGEO_SPRITE_DEBUG_SPRITE_VRAM_WORDS_PER_SPRITE / 2u;
+
+    if (!vram || baseWordOffset >= vramWords) {
+        return 0;
+    }
+    if (tileRows == 0u || tileRows > maxTileRows) {
+        tileRows = maxTileRows;
+    }
+    for (unsigned tileRow = 0; tileRow < tileRows; ++tileRow) {
+        unsigned oddWordOffset = baseWordOffset + tileRow * 2u +
+            NEOGEO_SPRITE_DEBUG_SPRITE_TILE_ODD_WORD_OFFSET;
+        if (oddWordOffset >= vramWords) {
+            break;
+        }
+        if (vram[oddWordOffset] & NEOGEO_SPRITE_DEBUG_SPRITE_ANIM_MASK) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int
 neogeo_sprite_debug_fixTileHasPixels(const uint8_t *fixrom, size_t fixromSize, unsigned tileNum)
 {
     size_t tileBase = (size_t)tileNum << 5;
@@ -1014,7 +1045,7 @@ neogeo_sprite_debug_toggle(void)
                                                            neogeo_sprite_debug_windowDefaultRect(&e9ui->ctx),
                                                            &neogeo_sprite_debugState.windowState);
         e9ui_windowOpen(neogeo_sprite_debugState.windowState.windowHost,
-                                     "ENGINE9000 DEBUGGER - Sprites",
+                                     "SPRITES",
                                      rect,
                                      neogeo_sprite_debugState.root ? neogeo_sprite_debugState.root : neogeo_sprite_debugState.overlayBodyHost,
                                      neogeo_sprite_debug_overlayWindowCloseRequested,
@@ -1184,6 +1215,7 @@ neogeo_sprite_debug_renderFrameInternal(const e9k_debug_sprite_state_t *st, int 
     }
 
     neogeo_sprite_debug_decoded_sprite_t decodedSprites[NG_MAX_SPRITES];
+    uint8_t chainHasAnimBits[NG_MAX_SPRITES];
     neogeo_sprite_debug_line_sprites_t lineSprites[NEOGEO_SPRITE_DEBUG_LINE_COUNT];
     memset(lineSprites, 0, sizeof(lineSprites));
     {
@@ -1195,6 +1227,7 @@ neogeo_sprite_debug_renderFrameInternal(const e9k_debug_sprite_state_t *st, int 
         unsigned chainRootIndex = 1;
 
         memset(decodedSprites, 0, sizeof(decodedSprites));
+        memset(chainHasAnimBits, 0, sizeof(chainHasAnimBits));
         for (unsigned i = 1; i < (unsigned)NG_MAX_SPRITES; ++i) {
             uint16_t scb3w = scb3[i];
             uint16_t scb2w = scb2[i];
@@ -1224,10 +1257,13 @@ neogeo_sprite_debug_renderFrameInternal(const e9k_debug_sprite_state_t *st, int 
                 NEOGEO_SPRITE_DEBUG_SPRITE_TILE_ODD_WORD_OFFSET;
             if (oddWordOffset < st->vram_words) {
                 decodedSprites[i].hasAnimBits =
-                    (vram[oddWordOffset] & NEOGEO_SPRITE_DEBUG_SPRITE_ANIM_MASK) ? 1 : 0;
+                    neogeo_sprite_debug_spriteHasAnimBits(vram, st->vram_words, i, sprsize);
                 decodedSprites[i].paletteBank =
                     (unsigned)((vram[oddWordOffset] >> NEOGEO_SPRITE_DEBUG_SPRITE_PALETTE_SHIFT) &
                                NEOGEO_SPRITE_DEBUG_SPRITE_PALETTE_MASK);
+            }
+            if (decodedSprites[i].hasAnimBits && chainRootIndex < (unsigned)NG_MAX_SPRITES) {
+                chainHasAnimBits[chainRootIndex] = 1u;
             }
 
             unsigned totalH = sprsize << 4;
@@ -1262,7 +1298,8 @@ neogeo_sprite_debug_renderFrameInternal(const e9k_debug_sprite_state_t *st, int 
             if (w <= 0) {
                 continue;
             }
-            uint32_t spriteCol = sprite->hasAnimBits ? colAnim : colGreen;
+            uint32_t spriteCol =
+                chainHasAnimBits[sprite->chainRootIndex] ? colAnim : colGreen;
             if (neogeo_sprite_debugState.viewMode == neogeo_sprite_debug_view_mode_shrink) {
                 spriteCol = neogeo_sprite_debug_shrinkRgbColor(sprite->hshrink, sprite->vshrink);
             } else if (neogeo_sprite_debugState.viewMode == neogeo_sprite_debug_view_mode_palette) {

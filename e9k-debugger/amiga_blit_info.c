@@ -28,7 +28,6 @@
 #include "e9ui_text.h"
 #include "ui.h"
 
-#define AMIGA_BLIT_INFO_TITLE "ENGINE9000 DEBUGGER - BLIT INFO"
 #define AMIGA_BLIT_INFO_LABEL_W 168
 #define AMIGA_BLIT_INFO_MAX_OVERLAPS 8
 
@@ -782,7 +781,7 @@ amiga_blit_info_init(void)
         return 0;
     }
     e9ui_windowOpen(ui->windowState.windowHost,
-                    AMIGA_BLIT_INFO_TITLE,
+                    "BLIT INFO",
                     rect,
                     overlayBodyHost,
                     amiga_blit_info_overlayWindowCloseRequested,

@@ -25,7 +25,6 @@
 #include "neogeo_register_log_regs.h"
 #include "ui.h"
 
-#define NEOGEO_REGISTER_LOG_TITLE "ENGINE9000 DEBUGGER - REGISTER LOG"
 #define NEOGEO_REGISTER_LOG_PAD 10
 #define NEOGEO_REGISTER_LOG_ROW_PAD_Y 2
 #define NEOGEO_REGISTER_LOG_COL_GAP 12
@@ -1174,7 +1173,7 @@ neogeo_register_log_init(void)
             return 0;
         }
         e9ui_windowOpen(ui->windowState.windowHost,
-                                     NEOGEO_REGISTER_LOG_TITLE,
+                                     "REGISTER LOG",
                                      rect,
                                      overlayBodyHost,
                                      neogeo_register_log_overlayWindowCloseRequested,

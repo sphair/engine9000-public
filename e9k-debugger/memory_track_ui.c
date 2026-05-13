@@ -37,7 +37,6 @@
 #include "state_wrap.h"
 #include "trainer.h"
 
-#define MEMORY_TRACK_UI_TITLE "ENGINE9000 DEBUGGER - MEMORY TRACKER"
 #define MEMORY_TRACK_UI_REGION_BASE_NEOGEO 0x00100000u
 #define MEMORY_TRACK_UI_REGION_SIZE_DEFAULT 0x10000u
 #define MEMORY_TRACK_UI_MAX_RANGES 8
@@ -3009,7 +3008,7 @@ memory_track_ui_init(void)
         e9ui_rect_t rect = overlayRect;
         ui->overlayBodyHost = memory_track_ui_makeOverlayBodyHost(ui);
         e9ui_windowOpen(ui->windowState.windowHost,
-                                     MEMORY_TRACK_UI_TITLE,
+                                     "MEMORY TRACKER",
                                      rect,
                                      ui->overlayBodyHost,
                                      memory_track_ui_overlayWindowCloseRequested,

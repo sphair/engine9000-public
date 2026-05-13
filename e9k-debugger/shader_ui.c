@@ -1118,7 +1118,7 @@ shader_ui_init(void)
         e9ui_component_t *overlayBodyHost = shader_ui_makeOverlayBodyHost(ui);
 
         e9ui_windowOpen(ui->windowState.windowHost,
-                                     "ENGINE9000 DEBUGGER - CRT SETTINGS",
+                                     "CRT SETTINGS",
                                      rect,
                                      overlayBodyHost,
                                      shader_ui_overlayWindowCloseRequested,

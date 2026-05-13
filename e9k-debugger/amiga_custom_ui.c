@@ -887,7 +887,7 @@ amiga_custom_ui_init(void)
             return 0;
         }
         e9ui_windowOpen(ui->windowState.windowHost,
-                                     AMIGA_CUSTOM_UI_TITLE,
+                                     "VISUALISERS",
                                      rect,
                                      overlayBodyHost,
                                      amiga_custom_ui_overlayWindowCloseRequested,

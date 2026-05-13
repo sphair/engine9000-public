@@ -62,7 +62,7 @@ typedef struct neogeo_palette_debug_overlay_body_state
 static neogeo_palette_debug_state_t neogeo_palette_debugState = {
     .windowState.winX = E9UI_WINDOW_COORD_UNSET,
     .windowState.winY = E9UI_WINDOW_COORD_UNSET,
-    .windowState.openMinWidthPx = 320,
+    .windowState.openMinWidthPx = 160,
     .windowState.openMinHeightPx = 260,
     .windowState.openCenterWhenNoSaved = 1,
 };
@@ -698,7 +698,7 @@ neogeo_palette_debug_toggle(void)
                                                neogeo_palette_debug_windowDefaultRect(&e9ui->ctx),
                                                &neogeo_palette_debugState.windowState);
         e9ui_windowOpen(neogeo_palette_debugState.windowState.windowHost,
-                        "ENGINE9000 DEBUGGER - Palette",
+                        "PALETTE",
                         rect,
                         neogeo_palette_debugState.root ?
                             neogeo_palette_debugState.root :

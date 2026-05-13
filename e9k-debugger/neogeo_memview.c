@@ -3425,7 +3425,7 @@ neogeo_memview_init(void)
     }
     ui->overlayBodyHost = overlayBodyHost;
     e9ui_windowOpen(ui->windowState.windowHost,
-                    NEOGEO_MEMVIEW_TITLE,
+                    "RAM/ROMS",
                     rect,
                     overlayBodyHost,
                     neogeo_memview_overlayWindowCloseRequested,

@@ -32,7 +32,6 @@
 #include "trainer.h"
 #include "ui.h"
 
-#define AMIGA_CUSTOM_TITLE "ENGINE9000 DEBUGGER - AMIGA CUSTOM CHIPSET"
 #define AMIGA_CUSTOM_REG_COUNT 256
 #define AMIGA_CUSTOM_VALUE_TEXT_MAX 16
 #define AMIGA_CUSTOM_DETAIL_COL_W 560
@@ -1252,7 +1251,7 @@ amiga_custom_init(void)
     }
 
     e9ui_windowOpen(ui->windowState.windowHost,
-                         AMIGA_CUSTOM_TITLE,
+                         "AMIGA CUSTOM CHIPSET",
                          rect,
                          overlayBodyHost,
                          amiga_custom_overlayWindowCloseRequested,

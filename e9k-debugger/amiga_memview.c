@@ -36,7 +36,6 @@
 #include "e9ui_textbox.h"
 #include "libretro_host.h"
 
-#define AMIGA_MEMVIEW_TITLE "ENGINE9000 DEBUGGER - RAM"
 #define AMIGA_MEMVIEW_DEFAULT_ROW_BYTES 40u
 #define AMIGA_MEMVIEW_MAX_ROW_BYTES 512u
 #define AMIGA_MEMVIEW_GUTTER_GAP_PX 8
@@ -3662,7 +3661,7 @@ amiga_memview_init(void)
     }
 
     e9ui_windowOpen(ui->windowState.windowHost,
-                         AMIGA_MEMVIEW_TITLE,
+                         "RAM",
                          rect,
                          overlayBodyHost,
                          amiga_memview_overlayWindowCloseRequested,

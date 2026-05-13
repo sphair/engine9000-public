@@ -649,7 +649,7 @@ mega_sprite_debug_toggle(void)
                                                            mega_sprite_debug_windowDefaultRect(&e9ui->ctx),
                                                            &mega_sprite_debug_state.windowState);
         e9ui_windowOpen(mega_sprite_debug_state.windowState.windowHost,
-                                     "Mega Sprite Debug",
+                                     "MEGA SPRITE DEBUG",
                                      rect,
                                      mega_sprite_debug_state.overlayBodyHost,
                                      mega_sprite_debug_overlayWindowCloseRequested,

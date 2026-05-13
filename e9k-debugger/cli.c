@@ -295,6 +295,24 @@ cli_parseArgs(int argc, char **argv)
             cli_copyPath(targetLibretro->sourceDir, sizeof(targetLibretro->sourceDir), argv[i] + sizeof("--source-dir=") - 1);
             continue;
         }
+        if (strcmp(argv[i], "--toolchain-prefix") == 0) {
+            if (i + 1 >= argc) {
+                cli_setError("toolchain-prefix: missing value");
+                return;
+            }
+            cli_copyPath(targetLibretro->toolchainPrefix, sizeof(targetLibretro->toolchainPrefix), argv[++i]);
+            continue;
+        }
+        if (strncmp(argv[i], "--toolchain-prefix=", sizeof("--toolchain-prefix=") - 1) == 0) {
+            if (argv[i][sizeof("--toolchain-prefix=") - 1] == '\0') {
+                cli_setError("toolchain-prefix: missing value");
+                return;
+            }
+            cli_copyPath(targetLibretro->toolchainPrefix,
+                         sizeof(targetLibretro->toolchainPrefix),
+                         argv[i] + sizeof("--toolchain-prefix=") - 1);
+            continue;
+        }
         if (strcmp(argv[i], "--audio-buffer-ms") == 0 && i + 1 < argc) {
             char *end = NULL;
             long ms = strtol(argv[++i], &end, 10);
@@ -646,6 +664,7 @@ cli_printUsage(const char *argv0)
     printf("  --system-dir PATH            System/BIOS directory (applies to current system)\n");
     printf("  --save-dir PATH              Saves directory (applies to current system)\n");
     printf("  --source-dir PATH            Source directory (applies to current system)\n");
+    printf("  --toolchain-prefix PREFIX    Toolchain command prefix (applies to current system)\n");
     printf("  --audio-buffer-ms MS         Audio buffer in milliseconds\n");
     printf("  --volume VOLUME              Audio volume (0..100)\n");
     printf("  --window-size WxH            Initial window size override\n");
@@ -681,7 +700,7 @@ cli_printUsage(const char *argv0)
     printf("  --uae PATH                   Amiga UAE config (.uae) path\n");
     printf("\n");
 #endif
-    printf("You can also use --option=VALUE forms for the PATH/MS options.\n");
+    printf("You can also use --option=VALUE forms for options that take values.\n");
 }
 
 void
@@ -701,6 +720,9 @@ cli_applyOverrides(void)
     }
     if (debugger.cliConfig.amiga.libretro.sourceDir[0]) {
         cli_copyPath(debugger.config.amiga.libretro.sourceDir, sizeof(debugger.config.amiga.libretro.sourceDir), debugger.cliConfig.amiga.libretro.sourceDir);
+    }
+    if (debugger.cliConfig.amiga.libretro.toolchainPrefix[0]) {
+        cli_copyPath(debugger.config.amiga.libretro.toolchainPrefix, sizeof(debugger.config.amiga.libretro.toolchainPrefix), debugger.cliConfig.amiga.libretro.toolchainPrefix);
     }
 
     if (debugger.cliConfig.neogeo.libretro.romPath[0]) {
@@ -722,6 +744,9 @@ cli_applyOverrides(void)
     }
     if (debugger.cliConfig.neogeo.libretro.sourceDir[0]) {
         cli_copyPath(debugger.config.neogeo.libretro.sourceDir, sizeof(debugger.config.neogeo.libretro.sourceDir), debugger.cliConfig.neogeo.libretro.sourceDir);
+    }
+    if (debugger.cliConfig.neogeo.libretro.toolchainPrefix[0]) {
+        cli_copyPath(debugger.config.neogeo.libretro.toolchainPrefix, sizeof(debugger.config.neogeo.libretro.toolchainPrefix), debugger.cliConfig.neogeo.libretro.toolchainPrefix);
     }
     if (debugger.cliConfig.neogeo.libretro.audioBufferMs > 0) {
         debugger.config.neogeo.libretro.audioBufferMs = debugger.cliConfig.neogeo.libretro.audioBufferMs;

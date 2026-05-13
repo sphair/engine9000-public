@@ -19,7 +19,6 @@
 #include "e9ui_window.h"
 #include "neogeo_memview.h"
 
-#define NEOGEO_MEMVIEW_TITLE "ENGINE9000 DEBUGGER - RAM/ROMS"
 #define NEOGEO_MEMVIEW_RAM_BASE_MIN 0x00100000u
 #define NEOGEO_MEMVIEW_RAM_BASE_MAX 0x0010ffffu
 #define NEOGEO_MEMVIEW_ZRAM_BASE_MIN 0x0000f800u

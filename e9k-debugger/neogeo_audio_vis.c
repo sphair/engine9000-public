@@ -785,7 +785,7 @@ neogeo_audio_vis_toggle(void)
                                                            neogeo_audio_vis_windowDefaultRect(&e9ui->ctx),
                                                            &neogeo_audio_vis_state.windowState);
         e9ui_windowOpen(neogeo_audio_vis_state.windowState.windowHost,
-                        "ENGINE9000 DEBUGGER - Audio",
+                        "AUDIO",
                         rect,
                         neogeo_audio_vis_state.body,
                         neogeo_audio_vis_windowCloseRequested,

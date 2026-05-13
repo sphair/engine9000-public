@@ -33,8 +33,8 @@ DEBUG_FLAGS=-g -fno-omit-frame-pointer
 SANITIZER_LIBS=
 LTO_FLAGS := -flto
 ifeq ($(UNAME_S),Darwin)
-DEBUG_FLAGS += -fsanitize=address,undefined
-SANITIZER_LIBS += -fsanitize=address,undefined
+#DEBUG_FLAGS += -fsanitize=address,undefined
+#SANITIZER_LIBS += -fsanitize=address,undefined
 CFLAGS += 
 endif
 CFLAGS += $(DEBUG_FLAGS) -Wall -Wextra -std=c99 -MMD -MP -Werror -pthread

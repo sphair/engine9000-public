@@ -25,7 +25,6 @@
 #include "amiga_custom_regs.h"
 #include "ui.h"
 
-#define AMIGA_CUSTOM_LOG_TITLE "ENGINE9000 DEBUGGER - CHIPSET LOG"
 #define AMIGA_CUSTOM_LOG_PAD 10
 #define AMIGA_CUSTOM_LOG_ROW_PAD_Y 2
 #define AMIGA_CUSTOM_LOG_COL_GAP 12
@@ -1015,7 +1014,7 @@ amiga_custom_log_init(void)
                                                            &ui->windowState);
         e9ui_component_t *overlayBodyHost = amiga_custom_log_makeOverlayBodyHost(ui);
         e9ui_windowOpen(ui->windowState.windowHost,
-                                     AMIGA_CUSTOM_LOG_TITLE,
+                                     "CHIPSET LOG",
                                      rect,
                                      overlayBodyHost,
                                      amiga_custom_log_overlayWindowCloseRequested,
