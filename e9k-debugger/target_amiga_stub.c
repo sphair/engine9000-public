@@ -12,8 +12,8 @@
 #include "target.h"
 #include "amiga_blit_info.h"
 #include "amiga_memview.h"
-#include "custom_amiga.h"
-#include "custom_log.h"
+#include "amiga_custom.h"
+#include "amiga_custom_log.h"
 #include "amiga_custom_ui.h"
 #include "debugger.h"
 #include "debug.h"
@@ -342,46 +342,46 @@ target_amiga_stubControllerMapButton(SDL_GameControllerButton button, unsigned *
 }
 
 int
-custom_amiga_init(void)
+amiga_custom_init(void)
 {
     return 0;
 }
 
 void
-custom_amiga_shutdown(void)
+amiga_custom_shutdown(void)
 {
 }
 
 void
-custom_amiga_toggle(void)
+amiga_custom_toggle(void)
 {
 }
 
 int
-custom_amiga_isOpen(void)
+amiga_custom_isOpen(void)
 {
     return 0;
 }
 
 void
-custom_amiga_setMainWindowFocused(int focused)
+amiga_custom_setMainWindowFocused(int focused)
 {
     (void)focused;
 }
 
 void
-custom_amiga_render(void)
+amiga_custom_render(void)
 {
 }
 
 void
-custom_amiga_persistConfig(FILE *file)
+amiga_custom_persistConfig(FILE *file)
 {
     (void)file;
 }
 
 int
-custom_amiga_loadConfigProperty(const char *prop, const char *value)
+amiga_custom_loadConfigProperty(const char *prop, const char *value)
 {
     (void)prop;
     (void)value;
@@ -497,46 +497,46 @@ amiga_blit_info_loadConfigProperty(const char *prop, const char *value)
 }
 
 int
-custom_log_init(void)
+amiga_custom_log_init(void)
 {
     return 0;
 }
 
 void
-custom_log_shutdown(void)
+amiga_custom_log_shutdown(void)
 {
 }
 
 void
-custom_log_toggle(void)
+amiga_custom_log_toggle(void)
 {
 }
 
 int
-custom_log_isOpen(void)
+amiga_custom_log_isOpen(void)
 {
     return 0;
 }
 
 void
-custom_log_setMainWindowFocused(int focused)
+amiga_custom_log_setMainWindowFocused(int focused)
 {
     (void)focused;
 }
 
 void
-custom_log_render(void)
+amiga_custom_log_render(void)
 {
 }
 
 void
-custom_log_persistConfig(FILE *file)
+amiga_custom_log_persistConfig(FILE *file)
 {
     (void)file;
 }
 
 int
-custom_log_loadConfigProperty(const char *prop, const char *value)
+amiga_custom_log_loadConfigProperty(const char *prop, const char *value)
 {
     (void)prop;
     (void)value;
@@ -544,7 +544,7 @@ custom_log_loadConfigProperty(const char *prop, const char *value)
 }
 
 void
-custom_log_captureFrame(const e9k_debug_ami_custom_log_entry_t *entries,
+amiga_custom_log_captureFrame(const e9k_debug_ami_custom_log_entry_t *entries,
                         size_t count,
                         uint32_t dropped,
                         uint64_t frameNo)
@@ -556,47 +556,47 @@ custom_log_captureFrame(const e9k_debug_ami_custom_log_entry_t *entries,
 }
 
 int
-custom_ui_init(void)
+amiga_custom_ui_init(void)
 {
     return 0;
 }
 
 void
-custom_ui_shutdown(void)
+amiga_custom_ui_shutdown(void)
 {
 }
 
 void
-custom_ui_toggle(void)
+amiga_custom_ui_toggle(void)
 {
 }
 
 int
-custom_ui_isOpen(void)
-{
-    return 0;
-}
-
-int
-custom_ui_getBlitterVisDecay(void)
+amiga_custom_ui_isOpen(void)
 {
     return 0;
 }
 
 int
-custom_ui_getEstimateFpsEnabled(void)
+amiga_custom_ui_getBlitterVisDecay(void)
 {
     return 0;
 }
 
 int
-custom_ui_getCopperLimitEnabled(void)
+amiga_custom_ui_getEstimateFpsEnabled(void)
 {
     return 0;
 }
 
 int
-custom_ui_getCopperLimitRange(int *outStart, int *outEnd)
+amiga_custom_ui_getCopperLimitEnabled(void)
+{
+    return 0;
+}
+
+int
+amiga_custom_ui_getCopperLimitRange(int *outStart, int *outEnd)
 {
     (void)outStart;
     (void)outEnd;
@@ -604,20 +604,20 @@ custom_ui_getCopperLimitRange(int *outStart, int *outEnd)
 }
 
 void
-custom_ui_setCopperLimitRange(int start, int end)
+amiga_custom_ui_setCopperLimitRange(int start, int end)
 {
     (void)start;
     (void)end;
 }
 
 int
-custom_ui_getBplptrBlockEnabled(void)
+amiga_custom_ui_getBplptrBlockEnabled(void)
 {
     return 0;
 }
 
 int
-custom_ui_getBplptrLineLimitRange(int *outStart, int *outEnd)
+amiga_custom_ui_getBplptrLineLimitRange(int *outStart, int *outEnd)
 {
     (void)outStart;
     (void)outEnd;
@@ -625,31 +625,31 @@ custom_ui_getBplptrLineLimitRange(int *outStart, int *outEnd)
 }
 
 void
-custom_ui_setBplptrLineLimitRange(int start, int end)
+amiga_custom_ui_setBplptrLineLimitRange(int start, int end)
 {
     (void)start;
     (void)end;
 }
 
 void
-custom_ui_setMainWindowFocused(int focused)
+amiga_custom_ui_setMainWindowFocused(int focused)
 {
     (void)focused;
 }
 
 void
-custom_ui_render(void)
+amiga_custom_ui_render(void)
 {
 }
 
 void
-custom_ui_persistConfig(FILE *file)
+amiga_custom_ui_persistConfig(FILE *file)
 {
     (void)file;
 }
 
 int
-custom_ui_loadConfigProperty(const char *prop, const char *value)
+amiga_custom_ui_loadConfigProperty(const char *prop, const char *value)
 {
     (void)prop;
     (void)value;

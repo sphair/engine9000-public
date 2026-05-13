@@ -692,11 +692,9 @@ Run `e9k-debugger --help` for the full list. The current options include:
 
 ## Copyright/License
 
-e9k-debugger/ Copyright (C) 2026 Enable Software Pty Ltd
+e9k-debugger/ Copyright © 2026 Enable Software Pty Ltd
 
 This project contains files with various licenses, unless otherwise specified assume GNU General Public License, version 2.
-
-Thanks to Frank Wille for the amiga line debug (tools/amiga/v-hunk/addr2line.c)
 
 ---
 
@@ -769,3 +767,22 @@ This should create:
 - `e9k-debugger/system/ami9000.so` - Amiga emulator core
 - `e9k-debugger/system/geo9000.so` - Neo Geo emulator core
 - `e9k-debugger/system/mega9000.so` - Mega Drive emulator core
+
+## Additional copyright information
+
+- `tools/amiga/v-hunk/addr2line.c` Thanks to Frank Wille for the amiga line debug 
+- `e9k-debugger/neogeo_sprite_debug.c` contains adapted MAME code Copyright © (Bryan McPhail, Ernesto Corvi, Andrew Prime, Zsolt Vasvari) - BSD 3 Clause (see below) See https://github.com/mamedev/mame
+- `e9k-debugger/romset_crypto.c` contains adapted MAME code Copyright © (S. Smith, David Haywood, Fabio Priuli) - BSD-3-Clause (see below). See https://github.com/mamedev/mame
+
+
+## Additional licenses (other than GPL2)
+
+### BSD 3 Clause
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
