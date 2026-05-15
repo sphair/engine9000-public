@@ -773,6 +773,7 @@ This should create:
 - `geo9000/` Copyright © 2022-2024 Rupert Carmichael - BSD-3-Clause license (see below). See https://github.com/libretro/geolith-libretro
 - `ami9000/` Copyright © 1995- Bernd Schmidt et al - Various - see https://github.com/libretro/libretro-uae
 - `tools/amiga/v-hunk/addr2line.c` Thanks to Frank Wille for the amiga line debug 
+- `e9k-debugger/deps/miniz/` Copyright © 2010-2014 Rich Geldreich and Tenacious Software LLC and Copyright © 2013-2014 RAD Game Tools and Valve Software - MIT license - see https://github.com/richgel999/miniz
 - `e9k-debugger/deps/tree-sitter*/` Copyright © 2018 Max Brunsfeld - MIT license - see https://github.com/tree-sitter/tree-sitter
 - `e9k-debugger/libretro.h` contains the libretro API header Copyright © 2010-2020 The RetroArch team - MIT. See https://github.com/libretro/libretro-common
 - `e9k-debugger/neogeo_sprite_debug.c` contains adapted MAME code Copyright © (Bryan McPhail, Ernesto Corvi, Andrew Prime, Zsolt Vasvari) - BSD 3 Clause (see below) See https://github.com/mamedev/mame

@@ -35,6 +35,8 @@ releases
 silents.uae
 *.uae
 tests/neogeo/sound/st.neo
+tests/neogeo/zip/test.zip
+tests/neogeo/folder/test
 !tests/neogeo/neogeoz80/
 !tests/neogeo/neogeoz80/build/
 !tests/neogeo/neogeoz80/build/neogeoz80.neo

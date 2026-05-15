@@ -107,6 +107,9 @@ BUNDLE_RESOURCES = $(BUNDLE_DIR)/Resources
 
 LIB9000_SRCS=alloc.c list.c resource.c file.c strutil.c
 E9UI_DIR = ../e9ui
+MINIZ_SRC = deps/miniz/miniz.c
+MINIZ_OBJ = $(BUILD_DIR)/deps/miniz/miniz.o
+W64_MINIZ_OBJ = $(W64_BUILD_DIR)/deps/miniz/miniz.o
 
 E9UI_SRCS=e9ui_textbox.c e9ui_data_edit.c e9ui_text_cache.c e9ui_text_select.c e9ui_text.c e9ui_scroll.c e9ui_scrollbar.c e9ui_step_buttons.c e9ui.c e9ui_split.c e9ui_split_stack.c e9ui_stack.c\
 	  e9ui_image.c e9ui_box.c e9ui_hstack.c e9ui_button.c e9ui_checkbox.c e9ui_flow.c e9ui_header_flow.c e9ui_spacer.c e9ui_vspacer.c e9ui_separator.c\
@@ -166,10 +169,10 @@ W64_SRCS = $(filter-out $(PLATFORM_POSIX_SRCS) $(PLATFORM_LINUX_SRCS) $(PLATFORM
 SRCS_C = $(filter %.c,$(SRCS)) $(addprefix lib9000/, $(LIB9000_SRCS))
 SRCS_M = $(filter %.m,$(SRCS))
 E9UI_OBJS = $(addprefix $(BUILD_DIR)/e9ui/,$(E9UI_SRCS:%.c=%.o))
-OBJS = $(SRCS_C:%.c=$(BUILD_DIR)/%.o) $(SRCS_M:%.m=$(BUILD_DIR)/%.o) $(E9UI_OBJS)
+OBJS = $(SRCS_C:%.c=$(BUILD_DIR)/%.o) $(SRCS_M:%.m=$(BUILD_DIR)/%.o) $(E9UI_OBJS) $(MINIZ_OBJ)
 DEPS = $(OBJS:.o=.d)
 W64_E9UI_OBJS = $(addprefix $(W64_BUILD_DIR)/e9ui/,$(E9UI_SRCS:%.c=%.o))
-W64_OBJS = $(W64_SRCS:%.c=$(W64_BUILD_DIR)/%.o) $(W64_E9UI_OBJS)
+W64_OBJS = $(W64_SRCS:%.c=$(W64_BUILD_DIR)/%.o) $(W64_E9UI_OBJS) $(W64_MINIZ_OBJ)
 W64_DEPS = $(W64_OBJS:.o=.d)
 
 all: $(TARGET)
@@ -251,6 +254,10 @@ $(BUILD_DIR)/%.o: lib9000/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+$(MINIZ_OBJ): $(MINIZ_SRC)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES -c -o $@ $<
+
 $(BUILD_DIR)/%.o: %.m
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -262,6 +269,10 @@ $(W64_BUILD_DIR)/%.o: %.c
 $(W64_BUILD_DIR)/e9ui/%.o: $(E9UI_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(W64_CC) $(W64_CFLAGS) -c -o $@ $<
+
+$(W64_MINIZ_OBJ): $(MINIZ_SRC)
+	@mkdir -p $(dir $@)
+	$(W64_CC) $(W64_CFLAGS) -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES -c -o $@ $<
 
 clean:
 	rm -f $(TARGET) $(W64_TARGET) $(OBJS) $(DEPS) $(W64_OBJS) $(W64_DEPS)

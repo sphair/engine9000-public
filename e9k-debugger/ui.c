@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "ui.h"
 #include "aux_window.h"
@@ -581,10 +582,19 @@ ui_basename(const char *path)
 static const char *
 ui_windowTitlePath(void)
 {
+    const e9k_libretro_config_t *configLibretro =
+        debugger.config.target && debugger.config.target->selectLibretroConfig ?
+        debugger.config.target->selectLibretroConfig(&debugger.config) : NULL;
+    const char *configuredRomPath = configLibretro ? configLibretro->romPath : "";
     if (debugger.config.target == target_neogeo() &&
         debugger.config.neogeo.romFolder[0] &&
         debugger.libretro.romPath[0]) {
         return debugger.config.neogeo.romFolder;
+    }
+    const char *romExt = strrchr(configuredRomPath, '.');
+    if (romExt && strcasecmp(romExt + 1, "zip") == 0 &&
+        debugger.libretro.romPath[0]) {
+        return configuredRomPath;
     }
     return debugger.libretro.romPath;
 }

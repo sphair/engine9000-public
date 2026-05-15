@@ -653,6 +653,7 @@ include Makefile.common
 
 SOURCES_C_REL := $(patsubst $(CORE_DIR)/%,%,$(SOURCES_C))
 OBJECTS := $(SOURCES_C_REL:.c=.o)
+OBJECTS := $(patsubst ../e9k-lib/%,e9k-lib/%,$(OBJECTS))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(OBJECTS))
 
 TARGET := $(BUILD_DIR)/$(TARGET)
@@ -747,6 +748,10 @@ else
 endif
 
 $(BUILD_DIR)/%.o: $(CORE_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) -c $(OBJOUT)$@ $< $(CFLAGS)
+
+$(BUILD_DIR)/e9k-lib/%.o: $(CORE_DIR)/../e9k-lib/%.c
 	@mkdir -p $(dir $@)
 	$(CC) -c $(OBJOUT)$@ $< $(CFLAGS)
 

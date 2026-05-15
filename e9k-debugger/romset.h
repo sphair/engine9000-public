@@ -12,3 +12,14 @@
 
 int
 romset_buildNeoFromFolder(const char *folder, char *outPath, size_t capacity);
+
+int
+romset_buildNeoFromZip(const char *zipPath, char *outPath, size_t capacity);
+
+int
+romset_buildNeoOutputPath(const char *inputPath,
+                          int isZip,
+                          const char *saveDir,
+                          const char *systemDir,
+                          char *outPath,
+                          size_t capacity);

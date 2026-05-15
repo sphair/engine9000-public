@@ -23,6 +23,7 @@
 #include "alloc.h"
 #include "file.h"
 #include "strutil.h"
+#include <strings.h>
 
 #define TARGET_NEOGEO_Z80_PROCESSOR_ID 1u
 
@@ -45,6 +46,13 @@ static target_neogeo_romfolder_cache_t target_neogeo_romFolderCache;
 
 static const char *
 target_neogeo_defaultCorePath(void);
+
+static int
+target_neogeo_romPathIsZip(const char *path)
+{
+    const char *dot = strrchr(path, '.');
+    return dot && strcasecmp(dot + 1, "zip") == 0;
+}
 
 static int
 target_neogeo_romFolderCacheMatches(const char *folder, const char *saveDir, const char *systemDir)
@@ -174,7 +182,7 @@ target_neogeo_settingsBuildModal(e9ui_context_t *ctx, target_settings_modal_t *o
     out->body = NULL;
     out->footerWarning = NULL;
 
-    const char *romExts[] = { "*.neo" };
+    const char *romExts[] = { "*.neo", "*.zip" };
     const char *elfExts[] = { "*.elf", "*.txt" };
 
     settings_romselect_state_t *romState = (settings_romselect_state_t *)alloc_calloc(1, sizeof(*romState));
@@ -183,7 +191,7 @@ target_neogeo_settingsBuildModal(e9ui_context_t *ctx, target_settings_modal_t *o
         romState->romFolder = debugger.settingsEdit.neogeo.romFolder;
     }
 
-    e9ui_component_t *fsRom = e9ui_fileSelect_make("ROM", 120, 600, "...", romExts, 1, E9UI_FILESELECT_FILE);
+    e9ui_component_t *fsRom = e9ui_fileSelect_make("ROM", 120, 600, "...", romExts, (int)countof(romExts), E9UI_FILESELECT_FILE);
     e9ui_component_t *fsRomFolder = e9ui_fileSelect_make("ROM FOLDER", 120, 600, "...", NULL, 0, E9UI_FILESELECT_FOLDER);
     e9ui_component_t *fsElf = e9ui_fileSelect_make("ELF", 120, 600, "...", elfExts, (int)countof(elfExts), E9UI_FILESELECT_FILE);
     e9ui_component_t *fsBios = e9ui_fileSelect_make("BIOS FOLDER", 120, 600, "...", NULL, 0, E9UI_FILESELECT_FOLDER);
@@ -476,37 +484,26 @@ target_neogeo_effectiveRomPath(const e9k_neogeo_config_t *cfg, char *out, size_t
         return 0;
     }
     if (cfg->libretro.romPath[0]) {
-        snprintf(out, cap, "%s", cfg->libretro.romPath);
-        out[cap - 1] = '\0';
+        if (target_neogeo_romPathIsZip(cfg->libretro.romPath)) {
+            return romset_buildNeoOutputPath(cfg->libretro.romPath,
+                                             1,
+                                             cfg->libretro.saveDir,
+                                             cfg->libretro.systemDir,
+                                             out,
+                                             cap);
+        }
+        strutil_strlcpy(out, cap, cfg->libretro.romPath);
         return 1;
     }
     if (!cfg->romFolder[0]) {
         return 0;
     }
-    const char *base = cfg->libretro.saveDir[0] ? cfg->libretro.saveDir : cfg->libretro.systemDir;
-    if (!base || !*base) {
-        return 0;
-    }
-    char sep = '/';
-    if (strchr(base, '\\')) {
-        sep = '\\';
-    }
-    int needsSep = 1;
-    size_t len = strlen(base);
-    if (len > 0 && (base[len - 1] == '/' || base[len - 1] == '\\')) {
-        needsSep = 0;
-    }
-    int written = 0;
-    if (needsSep) {
-        written = snprintf(out, cap, "%s%c%s", base, sep, "e9k-romfolder.neo");
-    } else {
-        written = snprintf(out, cap, "%s%s", base, "e9k-romfolder.neo");
-    }
-    if (written < 0 || (size_t)written >= cap) {
-        out[cap - 1] = '\0';
-        return 0;
-    }
-    return 1;
+    return romset_buildNeoOutputPath(cfg->romFolder,
+                                     0,
+                                     cfg->libretro.saveDir,
+                                     cfg->libretro.systemDir,
+                                     out,
+                                     cap);
 }
 
 
@@ -799,8 +796,14 @@ target_neogeo_libretroSelectConfig(void)
     debugger_copyPath(debugger.libretro.romPath, sizeof(debugger.libretro.romPath), debugger.config.neogeo.libretro.romPath);
     debugger_copyPath(debugger.libretro.systemDir, sizeof(debugger.libretro.systemDir), debugger.config.neogeo.libretro.systemDir);
     debugger_copyPath(debugger.libretro.saveDir, sizeof(debugger.libretro.saveDir), debugger.config.neogeo.libretro.saveDir);
-    if (debugger.config.neogeo.romFolder[0]) {
-        if (target_neogeo_romFolderCacheMatches(debugger.config.neogeo.romFolder,
+    const char *romInputPath = debugger.config.neogeo.romFolder[0] ? debugger.config.neogeo.romFolder : NULL;
+    int romInputIsZip = 0;
+    if (!romInputPath && target_neogeo_romPathIsZip(debugger.config.neogeo.libretro.romPath)) {
+        romInputPath = debugger.config.neogeo.libretro.romPath;
+        romInputIsZip = 1;
+    }
+    if (romInputPath) {
+        if (target_neogeo_romFolderCacheMatches(romInputPath,
                                                 debugger.config.neogeo.libretro.saveDir,
                                                 debugger.config.neogeo.libretro.systemDir)) {
             debugger_copyPath(debugger.libretro.romPath,
@@ -808,8 +811,11 @@ target_neogeo_libretroSelectConfig(void)
                               target_neogeo_romFolderCache.neoPath);
         } else {
             char neoPath[PATH_MAX];
-            if (romset_buildNeoFromFolder(debugger.config.neogeo.romFolder, neoPath, sizeof(neoPath))) {
-                target_neogeo_romFolderCacheStore(debugger.config.neogeo.romFolder,
+            int built = romInputIsZip ?
+                romset_buildNeoFromZip(romInputPath, neoPath, sizeof(neoPath)) :
+                romset_buildNeoFromFolder(romInputPath, neoPath, sizeof(neoPath));
+            if (built) {
+                target_neogeo_romFolderCacheStore(romInputPath,
                                                   debugger.config.neogeo.libretro.saveDir,
                                                   debugger.config.neogeo.libretro.systemDir,
                                                   neoPath);
@@ -820,9 +826,7 @@ target_neogeo_libretroSelectConfig(void)
             }
         }
     } else {
-        if (target_neogeo_romFolderCache.valid) {
-            target_neogeo_romFolderCache.valid = 0;
-        }
+        target_neogeo_romFolderCache.valid = 0;
     }
 }
 

@@ -17,11 +17,17 @@
 #include "romset.h"
 #include "debugger.h"
 #include "romset_crypto.h"
+#include "strutil.h"
+
+#define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
+#include "deps/miniz/miniz.h"
 
 typedef struct romset_romchunk {
     char   *path;
+    char   *archivePath;
     size_t  size;
     int     index;
+    mz_uint zipIndex;
 } romset_romchunk_t;
 
 typedef struct romset_romset {
@@ -42,11 +48,106 @@ typedef struct romset_romset {
     size_t cCap;
 } romset_romset_t;
 
-static const char *
-romset_basename(const char *path);
+typedef struct romset_chunk_reader {
+    FILE *file;
+    mz_zip_archive zip;
+    mz_zip_reader_extract_iter_state *zipIter;
+    int isZip;
+} romset_chunk_reader_t;
 
-static uint32_t
-romset_detectNgh(const romset_romset_t *set);
+static const char *
+romset_basename(const char *path)
+{
+    if (!path || !*path) {
+        return NULL;
+    }
+    const char *slash = strrchr(path, '/');
+    const char *back = strrchr(path, '\\');
+    const char *best = slash > back ? slash : back;
+    return best ? best + 1 : path;
+}
+
+static uint64_t
+romset_hashPath(const char *path)
+{
+    uint64_t hash = 1469598103934665603ull;
+    if (!path) {
+        return hash;
+    }
+    while (*path) {
+        hash ^= (uint64_t)(unsigned char)*path++;
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+static void
+romset_copySanitizedStem(char *out, size_t cap, const char *path)
+{
+    if (!out || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    const char *base = romset_basename(path);
+    if (!base || !*base) {
+        strutil_strlcpy(out, cap, "rom");
+        return;
+    }
+    const char *dot = strrchr(base, '.');
+    size_t len = dot && dot > base ? (size_t)(dot - base) : strlen(base);
+    size_t pos = 0;
+    for (size_t i = 0; i < len && pos < cap - 1; ++i) {
+        unsigned char c = (unsigned char)base[i];
+        if (isalnum(c) || c == '-' || c == '_' || c == '.') {
+            out[pos++] = (char)c;
+        } else {
+            out[pos++] = '_';
+        }
+    }
+    if (pos == 0) {
+        strutil_strlcpy(out, cap, "rom");
+        return;
+    }
+    out[pos] = '\0';
+}
+
+static int
+romset_appendText(char *out, size_t cap, size_t *pos, const char *text)
+{
+    if (!out || cap == 0 || !pos || !text) {
+        return 0;
+    }
+    while (*text) {
+        if (*pos >= cap - 1) {
+            out[cap - 1] = '\0';
+            return 0;
+        }
+        out[*pos] = *text++;
+        *pos += 1;
+    }
+    out[*pos] = '\0';
+    return 1;
+}
+
+static int
+romset_buildGeneratedNeoFileName(char *out, size_t cap, const char *inputPath, const char *prefix)
+{
+    if (!out || cap == 0) {
+        return 0;
+    }
+    out[0] = '\0';
+    char stem[128];
+    char hashText[17];
+    romset_copySanitizedStem(stem, sizeof(stem), inputPath);
+    snprintf(hashText, sizeof(hashText), "%016llx", (unsigned long long)romset_hashPath(inputPath));
+
+    size_t pos = 0;
+    return romset_appendText(out, cap, &pos, prefix) &&
+           romset_appendText(out, cap, &pos, stem) &&
+           romset_appendText(out, cap, &pos, "-") &&
+           romset_appendText(out, cap, &pos, hashText) &&
+           romset_appendText(out, cap, &pos, ".neo");
+}
 
 static int
 romset_strEqNoCase(const char *a, const char *b)
@@ -140,6 +241,7 @@ romset_dedupeChunksByIndex(romset_romchunk_t *chunks, size_t *count, char tagCha
 
         romset_romchunk_t best = chunks[bestIndex];
         chunks[bestIndex].path = NULL;
+        chunks[bestIndex].archivePath = NULL;
         chunks[bestIndex].size = 0;
         chunks[bestIndex].index = 0;
 
@@ -147,6 +249,10 @@ romset_dedupeChunksByIndex(romset_romchunk_t *chunks, size_t *count, char tagCha
             if (chunks[freeIndex].path) {
                 free(chunks[freeIndex].path);
                 chunks[freeIndex].path = NULL;
+            }
+            if (chunks[freeIndex].archivePath) {
+                free(chunks[freeIndex].archivePath);
+                chunks[freeIndex].archivePath = NULL;
             }
             chunks[freeIndex].size = 0;
             chunks[freeIndex].index = 0;
@@ -156,18 +262,6 @@ romset_dedupeChunksByIndex(romset_romchunk_t *chunks, size_t *count, char tagCha
         readIndex = runEnd;
     }
     *count = writeIndex;
-}
-
-static const char *
-romset_basename(const char *path)
-{
-    if (!path || !*path) {
-        return NULL;
-    }
-    const char *slash = strrchr(path, '/');
-    const char *back = strrchr(path, '\\');
-    const char *best = slash > back ? slash : back;
-    return best ? best + 1 : path;
 }
 
 static void
@@ -183,6 +277,7 @@ romset_romsetFree(romset_romset_t *set)
         size_t count = counts[arrayIndex];
         for (size_t chunkIndex = 0; chunkIndex < count; ++chunkIndex) {
             free(chunkArray[chunkIndex].path);
+            free(chunkArray[chunkIndex].archivePath);
         }
         free(chunkArray);
     }
@@ -191,7 +286,7 @@ romset_romsetFree(romset_romset_t *set)
 
 static int
 romset_romchunkAppend(romset_romchunk_t **arr, size_t *count, size_t *capacity,
-                      const char *path, size_t size, int index)
+                      const char *path, const char *archivePath, mz_uint zipIndex, size_t size, int index)
 {
     if (!arr || !count || !capacity || !path) {
         return 0;
@@ -205,11 +300,23 @@ romset_romchunkAppend(romset_romchunk_t **arr, size_t *count, size_t *capacity,
         *arr = nextArr;
         *capacity = nextCap;
     }
-    romset_romchunk_t *destChunk = &(*arr)[(*count)++];
-    destChunk->path = strdup(path);
+    char *pathDup = strdup(path);
+    char *archivePathDup = archivePath ? strdup(archivePath) : NULL;
+    if (!pathDup || (archivePath && !archivePathDup)) {
+        free(pathDup);
+        free(archivePathDup);
+        return 0;
+    }
+
+    romset_romchunk_t *destChunk = &(*arr)[*count];
+    memset(destChunk, 0, sizeof(*destChunk));
+    destChunk->path = pathDup;
+    destChunk->archivePath = archivePathDup;
     destChunk->size = size;
     destChunk->index = index;
-    return destChunk->path != NULL;
+    destChunk->zipIndex = zipIndex;
+    (*count)++;
+    return 1;
 }
 
 static int
@@ -319,29 +426,35 @@ romset_isBiosFile(const char *path)
 }
 
 static int
-romset_romsetAddFile(romset_romset_t *set, const char *path, size_t size)
+romset_romsetAddFile(romset_romset_t *set, const char *path, const char *archivePath, mz_uint zipIndex, size_t size)
 {
     char tagChar = 0;
     int fileIndex = 0;
     const char *base = romset_basename(path);
-    if (romset_isBiosFile(base ? base : path)) {
-        return 0;
+    if (!base) {
+        return 1;
     }
-    if (!romset_parseRomTag(base ? base : path, &tagChar, &fileIndex)) {
-        return 0;
+    if (romset_isBiosFile(base)) {
+        return 1;
     }
-    if (tagChar == 'p') {
-        return romset_romchunkAppend(&set->pChunks, &set->pCount, &set->pCap, path, size, fileIndex);
-    } else if (tagChar == 's') {
-        return romset_romchunkAppend(&set->sChunks, &set->sCount, &set->sCap, path, size, fileIndex);
-    } else if (tagChar == 'm') {
-        return romset_romchunkAppend(&set->mChunks, &set->mCount, &set->mCap, path, size, fileIndex);
-    } else if (tagChar == 'v') {
-        return romset_romchunkAppend(&set->vChunks, &set->vCount, &set->vCap, path, size, fileIndex);
-    } else if (tagChar == 'c') {
-        return romset_romchunkAppend(&set->cChunks, &set->cCount, &set->cCap, path, size, fileIndex);
+    if (!romset_parseRomTag(base, &tagChar, &fileIndex)) {
+        return 1;
     }
-    return 0;
+    switch (tagChar)
+    {
+    case 'p':
+        return romset_romchunkAppend(&set->pChunks, &set->pCount, &set->pCap, path, archivePath, zipIndex, size, fileIndex);
+    case 's':
+        return romset_romchunkAppend(&set->sChunks, &set->sCount, &set->sCap, path, archivePath, zipIndex, size, fileIndex);
+    case 'm':
+        return romset_romchunkAppend(&set->mChunks, &set->mCount, &set->mCap, path, archivePath, zipIndex, size, fileIndex);
+    case 'v':
+        return romset_romchunkAppend(&set->vChunks, &set->vCount, &set->vCap, path, archivePath, zipIndex, size, fileIndex);
+    case 'c':
+        return romset_romchunkAppend(&set->cChunks, &set->cCount, &set->cCap, path, archivePath, zipIndex, size, fileIndex);
+    default:
+        return 1;
+    }
 }
 
 static int
@@ -358,7 +471,7 @@ romset_scanRomFolderEntry(const char *path, void *user)
     if (!S_ISREG(statBuffer.st_mode)) {
         return 1;
     }
-    romset_romsetAddFile(set, path, (size_t)statBuffer.st_size);
+    romset_romsetAddFile(set, path, NULL, 0, (size_t)statBuffer.st_size);
     return 1;
 }
 
@@ -369,6 +482,42 @@ romset_scanRomFolder(const char *folder, romset_romset_t *set)
         return 0;
     }
     return debugger_platform_scanFolder(folder, romset_scanRomFolderEntry, set);
+}
+
+static int
+romset_scanRomZip(const char *zipPath, romset_romset_t *set)
+{
+    mz_zip_archive zip;
+    memset(&zip, 0, sizeof(zip));
+    if (!mz_zip_reader_init_file(&zip, zipPath, 0)) {
+        return 0;
+    }
+
+    int ok = 1;
+    mz_uint fileCount = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint fileIndex = 0; fileIndex < fileCount; ++fileIndex) {
+        mz_zip_archive_file_stat statBuffer;
+        if (!mz_zip_reader_file_stat(&zip, fileIndex, &statBuffer)) {
+            ok = 0;
+            break;
+        }
+        if (mz_zip_reader_is_file_a_directory(&zip, fileIndex) ||
+            mz_zip_reader_is_file_encrypted(&zip, fileIndex) ||
+            !mz_zip_reader_is_file_supported(&zip, fileIndex)) {
+            continue;
+        }
+        if (!romset_romsetAddFile(set,
+                                  statBuffer.m_filename,
+                                  zipPath,
+                                  fileIndex,
+                                  (size_t)statBuffer.m_uncomp_size)) {
+            ok = 0;
+            break;
+        }
+    }
+
+    mz_zip_reader_end(&zip);
+    return ok;
 }
 
 static int
@@ -453,88 +602,221 @@ romset_detectNgh(const romset_romset_t *set)
 }
 
 static int
-romset_writeFileData(FILE *output, romset_romchunk_t *fileChunks, size_t chunkCount)
+romset_chunkReaderOpen(romset_chunk_reader_t *reader, const romset_romchunk_t *chunk)
 {
-    for (size_t fileIndex = 0; fileIndex < chunkCount; ++fileIndex) {
-        FILE *input = fopen(fileChunks[fileIndex].path, "rb");
-        if (!input) {
+    if (!reader || !chunk || !chunk->path) {
+        return 0;
+    }
+    memset(reader, 0, sizeof(*reader));
+
+    if (chunk->archivePath && chunk->archivePath[0]) {
+        reader->isZip = 1;
+        memset(&reader->zip, 0, sizeof(reader->zip));
+        if (!mz_zip_reader_init_file(&reader->zip, chunk->archivePath, 0)) {
             return 0;
         }
-        char buffer[8192];
-        size_t readCount;
-        while ((readCount = fread(buffer, 1, sizeof(buffer), input)) > 0) {
-            if (fwrite(buffer, 1, readCount, output) != readCount) {
-                fclose(input);
-                return 0;
-            }
+        reader->zipIter = mz_zip_reader_extract_iter_new(&reader->zip, chunk->zipIndex, 0);
+        if (!reader->zipIter) {
+            mz_zip_reader_end(&reader->zip);
+            memset(reader, 0, sizeof(*reader));
+            return 0;
         }
-        fclose(input);
+        return 1;
+    }
+
+    reader->file = fopen(chunk->path, "rb");
+    return reader->file != NULL;
+}
+
+static void
+romset_chunkReaderClose(romset_chunk_reader_t *reader)
+{
+    if (!reader) {
+        return;
+    }
+    if (reader->zipIter) {
+        mz_zip_reader_extract_iter_free(reader->zipIter);
+    }
+    if (reader->isZip) {
+        mz_zip_reader_end(&reader->zip);
+    }
+    if (reader->file) {
+        fclose(reader->file);
+    }
+    memset(reader, 0, sizeof(*reader));
+}
+
+static int
+romset_chunkReaderRead(romset_chunk_reader_t *reader, uint8_t *dest, size_t size)
+{
+    if (!reader || !dest) {
+        return 0;
+    }
+    size_t totalRead = 0;
+    while (totalRead < size) {
+        size_t readCount = 0;
+        if (reader->isZip) {
+            readCount = mz_zip_reader_extract_iter_read(reader->zipIter,
+                                                        dest + totalRead,
+                                                        size - totalRead);
+        } else {
+            readCount = fread(dest + totalRead, 1, size - totalRead, reader->file);
+        }
+        if (readCount == 0) {
+            return 0;
+        }
+        totalRead += readCount;
     }
     return 1;
 }
 
 static int
-romset_writeFileInterleaved(FILE *output, const char *pathA, const char *pathB)
+romset_chunkReaderSkip(romset_chunk_reader_t *reader, size_t size)
 {
-    if (!output || !pathA || !*pathA || !pathB || !*pathB) {
+    uint8_t buffer[8192];
+    size_t remaining = size;
+    while (remaining > 0) {
+        size_t readSize = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+        if (!romset_chunkReaderRead(reader, buffer, readSize)) {
+            return 0;
+        }
+        remaining -= readSize;
+    }
+    return 1;
+}
+
+static int
+romset_writeFileData(FILE *output, romset_romchunk_t *fileChunks, size_t chunkCount)
+{
+    for (size_t fileIndex = 0; fileIndex < chunkCount; ++fileIndex) {
+        romset_chunk_reader_t reader;
+        if (!romset_chunkReaderOpen(&reader, &fileChunks[fileIndex])) {
+            return 0;
+        }
+
+        uint8_t buffer[8192];
+        size_t remaining = fileChunks[fileIndex].size;
+        int ok = 1;
+        while (remaining > 0) {
+            size_t readSize = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+            if (!romset_chunkReaderRead(&reader, buffer, readSize) ||
+                fwrite(buffer, 1, readSize, output) != readSize) {
+                ok = 0;
+                break;
+            }
+            remaining -= readSize;
+        }
+        romset_chunkReaderClose(&reader);
+        if (!ok) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int
+romset_writeChunksInterleavedRange(FILE *output,
+                                   const romset_romchunk_t *chunkA,
+                                   const romset_romchunk_t *chunkB,
+                                   size_t chunkOffset,
+                                   size_t chunkSize)
+{
+    if (!output || !chunkA || !chunkB || chunkA->size != chunkB->size ||
+        chunkOffset > chunkA->size || chunkSize > chunkA->size - chunkOffset) {
         return 0;
     }
-    FILE *fileA = fopen(pathA, "rb");
-    if (!fileA) {
+    if (chunkSize == 0) {
+        return 1;
+    }
+
+    romset_chunk_reader_t readerA;
+    romset_chunk_reader_t readerB;
+    int readerAOpen = romset_chunkReaderOpen(&readerA, chunkA);
+    int readerBOpen = romset_chunkReaderOpen(&readerB, chunkB);
+    if (!readerAOpen || !readerBOpen) {
+        if (readerAOpen) {
+            romset_chunkReaderClose(&readerA);
+        }
+        if (readerBOpen) {
+            romset_chunkReaderClose(&readerB);
+        }
         return 0;
     }
-    FILE *fileB = fopen(pathB, "rb");
-    if (!fileB) {
-        fclose(fileA);
-        return 0;
-    }
+
     uint8_t bufferA[8192];
     uint8_t bufferB[8192];
     uint8_t outputBuffer[16384];
-    int ok = 1;
-    for (;;) {
-        size_t readA = fread(bufferA, 1, sizeof(bufferA), fileA);
-        size_t readB = fread(bufferB, 1, sizeof(bufferB), fileB);
-        if (readA != readB) {
-            if (readA == 0 && readB == 0) {
-                break;
-            }
+    int ok = romset_chunkReaderSkip(&readerA, chunkOffset) &&
+             romset_chunkReaderSkip(&readerB, chunkOffset);
+    size_t remaining = chunkSize;
+    while (ok && remaining > 0) {
+        size_t readSize = remaining < sizeof(bufferA) ? remaining : sizeof(bufferA);
+        if (!romset_chunkReaderRead(&readerA, bufferA, readSize) ||
+            !romset_chunkReaderRead(&readerB, bufferB, readSize)) {
             ok = 0;
             break;
         }
-        if (readA == 0) {
-            break;
-        }
-        for (size_t byteIndex = 0; byteIndex < readA; ++byteIndex) {
+        for (size_t byteIndex = 0; byteIndex < readSize; ++byteIndex) {
             outputBuffer[byteIndex * 2] = bufferA[byteIndex];
             outputBuffer[byteIndex * 2 + 1] = bufferB[byteIndex];
         }
-        if (fwrite(outputBuffer, 1, readA * 2, output) != readA * 2) {
+        if (fwrite(outputBuffer, 1, readSize * 2, output) != readSize * 2) {
             ok = 0;
             break;
         }
+        remaining -= readSize;
     }
-    fclose(fileA);
-    fclose(fileB);
+    romset_chunkReaderClose(&readerA);
+    romset_chunkReaderClose(&readerB);
+    return ok;
+}
+
+static int
+romset_writeNgh47CChunks(FILE *output, romset_romchunk_t *chunks, size_t chunkCount)
+{
+    if (!output || !chunks || chunkCount != 4 ||
+        chunks[0].index != 1 || chunks[1].index != 2 ||
+        chunks[2].index != 3 || chunks[3].index != 4 ||
+        chunks[0].size != chunks[1].size ||
+        chunks[0].size != chunks[2].size ||
+        chunks[0].size != chunks[3].size ||
+        (chunks[0].size & 1u)) {
+        return 0;
+    }
+
+    size_t halfSize = chunks[0].size / 2u;
+    return romset_writeChunksInterleavedRange(output, &chunks[0], &chunks[1], 0, halfSize) &&
+           romset_writeChunksInterleavedRange(output, &chunks[2], &chunks[3], 0, halfSize) &&
+           romset_writeChunksInterleavedRange(output, &chunks[0], &chunks[1], halfSize, halfSize) &&
+           romset_writeChunksInterleavedRange(output, &chunks[2], &chunks[3], halfSize, halfSize);
+}
+
+static int
+romset_readChunkRangeInto(uint8_t *dest, size_t size, const romset_romchunk_t *chunk, size_t chunkOffset)
+{
+    if (!chunk || !chunk->path || chunkOffset > chunk->size || size > chunk->size - chunkOffset ||
+        !dest) {
+        return 0;
+    }
+
+    romset_chunk_reader_t reader;
+    if (!romset_chunkReaderOpen(&reader, chunk)) {
+        return 0;
+    }
+    int ok = romset_chunkReaderSkip(&reader, chunkOffset) &&
+             romset_chunkReaderRead(&reader, dest, size);
+    romset_chunkReaderClose(&reader);
     return ok;
 }
 
 static int
 romset_readChunkInto(uint8_t *dest, size_t destSize, size_t offset, const romset_romchunk_t *chunk)
 {
-    if (!dest || !chunk || !chunk->path || offset > destSize || chunk->size > destSize - offset) {
+    if (!chunk || offset > destSize || chunk->size > destSize - offset ||
+        !dest) {
         return 0;
     }
-
-    FILE *input = fopen(chunk->path, "rb");
-    if (!input) {
-        return 0;
-    }
-
-    size_t readCount = fread(dest + offset, 1, chunk->size, input);
-    int ok = readCount == chunk->size && ferror(input) == 0;
-    fclose(input);
-    return ok;
+    return romset_readChunkRangeInto(dest + offset, chunk->size, chunk, 0);
 }
 
 static int
@@ -737,15 +1019,21 @@ done:
     return ok;
 }
 
-int
-romset_buildNeoFromFolder(const char *folder, char *outPath, size_t capacity)
+static int
+romset_buildNeoFromScannedInput(const char *inputPath, int isZip, char *outPath, size_t capacity)
 {
-    if (!folder || !*folder || !outPath || capacity == 0) {
+    if (!inputPath || !*inputPath) {
+        return 0;
+    }
+    if (!outPath || capacity == 0) {
         return 0;
     }
     romset_romset_t set;
     memset(&set, 0, sizeof(set));
-    if (!romset_scanRomFolder(folder, &set)) {
+    int scanned = isZip ?
+        romset_scanRomZip(inputPath, &set) :
+        romset_scanRomFolder(inputPath, &set);
+    if (!scanned) {
         romset_romsetFree(&set);
         return 0;
     }
@@ -767,12 +1055,12 @@ romset_buildNeoFromFolder(const char *folder, char *outPath, size_t capacity)
 
     uint32_t ngh = romset_detectNgh(&set);
 
-    const char *base = debugger.config.neogeo.libretro.saveDir[0] ? debugger.config.neogeo.libretro.saveDir : debugger.config.neogeo.libretro.systemDir;
-    if (!base || !*base) {
-        romset_romsetFree(&set);
-        return 0;
-    }
-    if (!debugger_platform_pathJoin(outPath, capacity, base, "e9k-romfolder.neo")) {
+    if (!romset_buildNeoOutputPath(inputPath,
+                                   isZip,
+                                   debugger.config.neogeo.libretro.saveDir,
+                                   debugger.config.neogeo.libretro.systemDir,
+                                   outPath,
+                                   capacity)) {
         romset_romsetFree(&set);
         return 0;
     }
@@ -864,6 +1152,17 @@ romset_buildNeoFromFolder(const char *folder, char *outPath, size_t capacity)
         romset_romsetFree(&set);
         return 0;
     }
+    if (ngh == 0x047) {
+        if (!romset_writeNgh47CChunks(output, set.cChunks, set.cCount)) {
+            fclose(output);
+            romset_romsetFree(&set);
+            return 0;
+        }
+        fclose(output);
+        romset_romsetFree(&set);
+        return 1;
+    }
+
     for (size_t chunkIndex = 0; chunkIndex < set.cCount; ) {
         romset_romchunk_t *chunk = &set.cChunks[chunkIndex];
         if ((chunk->index & 1) && (chunkIndex + 1) < set.cCount && set.cChunks[chunkIndex + 1].index == (chunk->index + 1)) {
@@ -873,7 +1172,7 @@ romset_buildNeoFromFolder(const char *folder, char *outPath, size_t capacity)
                 romset_romsetFree(&set);
                 return 0;
             }
-            if (!romset_writeFileInterleaved(output, chunk->path, nextChunk->path)) {
+            if (!romset_writeChunksInterleavedRange(output, chunk, nextChunk, 0, chunk->size)) {
                 fclose(output);
                 romset_romsetFree(&set);
                 return 0;
@@ -891,4 +1190,40 @@ romset_buildNeoFromFolder(const char *folder, char *outPath, size_t capacity)
     fclose(output);
     romset_romsetFree(&set);
     return 1;
+}
+
+int
+romset_buildNeoFromFolder(const char *folder, char *outPath, size_t capacity)
+{
+    return romset_buildNeoFromScannedInput(folder, 0, outPath, capacity);
+}
+
+int
+romset_buildNeoFromZip(const char *zipPath, char *outPath, size_t capacity)
+{
+    return romset_buildNeoFromScannedInput(zipPath, 1, outPath, capacity);
+}
+
+int
+romset_buildNeoOutputPath(const char *inputPath,
+                          int isZip,
+                          const char *saveDir,
+                          const char *systemDir,
+                          char *outPath,
+                          size_t capacity)
+{
+    if (!outPath || capacity == 0) {
+        return 0;
+    }
+    outPath[0] = '\0';
+    const char *base = saveDir && saveDir[0] ? saveDir : systemDir;
+    if (!base || !*base) {
+        return 0;
+    }
+    char fileName[PATH_MAX];
+    const char *prefix = isZip ? "e9k-zip-" : "e9k-folder-";
+    if (!romset_buildGeneratedNeoFileName(fileName, sizeof(fileName), inputPath, prefix)) {
+        return 0;
+    }
+    return debugger_platform_pathJoin(outPath, capacity, base, fileName);
 }
