@@ -17,6 +17,7 @@
 #include "e9ui.h"
 #include "libretro.h"
 #include "mega_memview.h"
+#include "mega_palette_debug.h"
 #include "mega_sprite_debug.h"
 #include "target.h"
 
@@ -201,6 +202,14 @@ emu_mega_toggleMemview(e9ui_context_t *ctx, void *user)
     (void)ctx;
     (void)user;
     mega_memview_toggle();
+}
+
+static void
+emu_mega_togglePaletteDebug(e9ui_context_t *ctx, void *user)
+{
+    (void)ctx;
+    (void)user;
+    mega_palette_debug_toggle();
 }
 
 static void
@@ -559,6 +568,14 @@ emu_mega_createOverlays(e9ui_component_t *comp, e9ui_component_t *button_stack)
         e9ui_setFocusTarget(btnMemview, comp);
         void *memviewBtnMeta = alloc_strdup("mega_memview");
         e9ui_child_add(button_stack, btnMemview, memviewBtnMeta);
+    }
+
+    e9ui_component_t *btnPalette = e9ui_button_make("Palette", emu_mega_togglePaletteDebug, comp);
+    if (btnPalette) {
+        e9ui_button_setMini(btnPalette, 1);
+        e9ui_setFocusTarget(btnPalette, comp);
+        void *paletteBtnMeta = alloc_strdup("mega_palette_debug");
+        e9ui_child_add(button_stack, btnPalette, paletteBtnMeta);
     }
 }
 

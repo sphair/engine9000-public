@@ -437,6 +437,12 @@ libretro_host_megadrive_getSpriteState(e9k_debug_mega_sprite_state_t *out);
 size_t
 libretro_host_megadrive_getRoms(e9k_debug_rom_entry_t *out, size_t cap);
 
+bool
+libretro_host_megadrive_setPaletteGreyscaleMask(uint32_t mask);
+
+bool
+libretro_host_megadrive_getPaletteGreyscaleMask(uint32_t *outMask);
+
 void
 libretro_host_megadrive_bindApis(void);
 

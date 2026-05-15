@@ -14,6 +14,7 @@
 #include "debug.h"
 #include "emu_mega.h"
 #include "mega_memview.h"
+#include "mega_palette_debug.h"
 #include "mega_sprite_debug.h"
 #include "megadrive_core_options.h"
 
@@ -471,6 +472,49 @@ mega_memview_persistConfig(FILE *file)
 
 int
 mega_memview_loadConfigProperty(const char *prop, const char *value)
+{
+    (void)prop;
+    (void)value;
+    return 0;
+}
+
+void
+mega_palette_debug_toggle(void)
+{
+}
+
+int
+mega_palette_debug_isOpen(void)
+{
+    return 0;
+}
+
+int
+mega_palette_debug_handleKeydown(const SDL_KeyboardEvent *kev)
+{
+    (void)kev;
+    return 0;
+}
+
+void
+mega_palette_debug_setMainWindowFocused(int focused)
+{
+    (void)focused;
+}
+
+void
+mega_palette_debug_render(void)
+{
+}
+
+void
+mega_palette_debug_persistConfig(FILE *file)
+{
+    (void)file;
+}
+
+int
+mega_palette_debug_loadConfigProperty(const char *prop, const char *value)
 {
     (void)prop;
     (void)value;

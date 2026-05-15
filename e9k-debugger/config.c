@@ -24,6 +24,7 @@
 #include "neogeo_register_log.h"
 #include "neogeo_sprite_debug.h"
 #include "mega_memview.h"
+#include "mega_palette_debug.h"
 #include "mega_sprite_debug.h"
 #include "shader_ui.h"
 #include "settings.h"
@@ -182,6 +183,7 @@ config_persistConfig(FILE *f)
     neogeo_palette_debug_persistConfig(f);
     neogeo_memview_persistConfig(f);
     mega_memview_persistConfig(f);
+    mega_palette_debug_persistConfig(f);
     mega_sprite_debug_persistConfig(f);
     amiga_custom_ui_persistConfig(f);
     amiga_custom_log_persistConfig(f);
@@ -375,6 +377,11 @@ config_loadConfigFile(const char *path)
         if (strncmp(key, "comp.mega_memview.", 18) == 0) {
             const char *prop = key + 18;
             mega_memview_loadConfigProperty(prop, value);
+            continue;
+        }
+        if (strncmp(key, "comp.mega_palette_debug.", 24) == 0) {
+            const char *prop = key + 24;
+            mega_palette_debug_loadConfigProperty(prop, value);
             continue;
         }
         if (strncmp(key, "comp.mega_sprite_debug.", 23) == 0) {
