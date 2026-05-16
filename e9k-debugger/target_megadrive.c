@@ -14,6 +14,7 @@
 #include "megadrive_core_options.h"
 #include "core_options.h"
 #include "libretro_host.h"
+#include "mega_audio_vis.h"
 #include "system_badge.h"
 #include "alloc.h"
 #include "file.h"
@@ -514,6 +515,16 @@ target_megadrive_onVblank(void)
     } else {
         emu_mega_setSpriteState(NULL, 0);
     }
+    if (mega_audio_vis_isOpen()) {
+        e9k_debug_mega_audio_frame_t audioFrame;
+        if (libretro_host_megadrive_getAudioFrame(&audioFrame)) {
+            emu_mega_setAudioFrame(&audioFrame, 1);
+        } else {
+            emu_mega_setAudioFrame(NULL, 0);
+        }
+    } else {
+        emu_mega_setAudioFrame(NULL, 0);
+    }
 }
 
 static void
@@ -550,6 +561,7 @@ static void
 target_megadrive_validateAPI(void)
 {
     emu_mega_setSpriteState(NULL, 0);
+    emu_mega_setAudioFrame(NULL, 0);
     libretro_host_megadrive_bindApis();
     libretro_host_neogeo_unbindApis();
 }

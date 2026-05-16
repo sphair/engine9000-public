@@ -16,6 +16,7 @@
 #include "emu_mega.h"
 #include "e9ui.h"
 #include "libretro.h"
+#include "mega_audio_vis.h"
 #include "mega_memview.h"
 #include "mega_palette_debug.h"
 #include "mega_sprite_debug.h"
@@ -59,6 +60,8 @@ static emu_mega_histogram_mode_t emu_mega_histogramMode = emu_mega_histogramMode
 static e9ui_component_t *emu_mega_histogramBtn = NULL;
 static int emu_mega_spriteShadowReady = 0;
 static e9k_debug_mega_sprite_state_t emu_mega_spriteShadow;
+static int emu_mega_audioFrameReady = 0;
+static e9k_debug_mega_audio_frame_t emu_mega_audioFrame;
 
 void
 emu_mega_setSpriteState(const e9k_debug_mega_sprite_state_t *state, int ready)
@@ -69,6 +72,17 @@ emu_mega_setSpriteState(const e9k_debug_mega_sprite_state_t *state, int ready)
     } else {
         emu_mega_spriteShadowReady = 0;
     }
+}
+
+void
+emu_mega_setAudioFrame(const e9k_debug_mega_audio_frame_t *frame, int ready)
+{
+    if (!ready || !frame) {
+        emu_mega_audioFrameReady = 0;
+        return;
+    }
+    emu_mega_audioFrame = *frame;
+    emu_mega_audioFrameReady = 1;
 }
 
 static uint32_t
@@ -210,6 +224,14 @@ emu_mega_togglePaletteDebug(e9ui_context_t *ctx, void *user)
     (void)ctx;
     (void)user;
     mega_palette_debug_toggle();
+}
+
+static void
+emu_mega_toggleAudioVis(e9ui_context_t *ctx, void *user)
+{
+    (void)ctx;
+    (void)user;
+    mega_audio_vis_toggle();
 }
 
 static void
@@ -577,6 +599,14 @@ emu_mega_createOverlays(e9ui_component_t *comp, e9ui_component_t *button_stack)
         void *paletteBtnMeta = alloc_strdup("mega_palette_debug");
         e9ui_child_add(button_stack, btnPalette, paletteBtnMeta);
     }
+
+    e9ui_component_t *btnAudio = e9ui_button_make("Audio", emu_mega_toggleAudioVis, comp);
+    if (btnAudio) {
+        e9ui_button_setMini(btnAudio, 1);
+        e9ui_setFocusTarget(btnAudio, comp);
+        void *audioBtnMeta = alloc_strdup("mega_audio_vis");
+        e9ui_child_add(button_stack, btnAudio, audioBtnMeta);
+    }
 }
 
 static void
@@ -590,6 +620,9 @@ emu_mega_render(e9ui_context_t *ctx, SDL_Rect *dst)
     }
     if (mega_memview_isOpen()) {
         mega_memview_render();
+    }
+    if (mega_audio_vis_isOpen() && emu_mega_audioFrameReady) {
+        mega_audio_vis_render(&emu_mega_audioFrame);
     }
 }
 

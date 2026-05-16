@@ -1800,6 +1800,13 @@ libretro_host_start(const char *corePath, const char *romPath,
     libretro_host.debugNeogeoGetAudioFrame = NULL;
     libretro_host.debugNeogeoSetAudioVisEnabled = NULL;
     libretro_host.debugNeogeoSetAudioMuteMask = NULL;
+    libretro_host.debugMegadriveGetSpriteState = NULL;
+    libretro_host.debugMegadriveGetRoms = NULL;
+    libretro_host.debugMegadriveSetPaletteGreyscaleMask = NULL;
+    libretro_host.debugMegadriveGetPaletteGreyscaleMask = NULL;
+    libretro_host.debugMegadriveGetAudioFrame = NULL;
+    libretro_host.debugMegadriveSetAudioVisEnabled = NULL;
+    libretro_host.debugMegadriveSetAudioMuteMask = NULL;
     libretro_host.debugDisassembleQuick = (e9k_debug_disassemble_quick_fn_t)libretro_host_loadSymbol("e9k_debug_disassemble_quick");
     libretro_host.debugReadKnownPcs = (e9k_debug_read_known_pcs_fn_t)libretro_host_loadSymbol("e9k_debug_read_known_pcs");
     libretro_host.debugResetKnownPcs = (e9k_debug_reset_known_pcs_fn_t)libretro_host_loadSymbol("e9k_debug_reset_known_pcs");

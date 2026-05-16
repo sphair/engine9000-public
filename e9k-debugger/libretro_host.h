@@ -443,6 +443,15 @@ libretro_host_megadrive_setPaletteGreyscaleMask(uint32_t mask);
 bool
 libretro_host_megadrive_getPaletteGreyscaleMask(uint32_t *outMask);
 
+bool
+libretro_host_megadrive_getAudioFrame(e9k_debug_mega_audio_frame_t *out);
+
+bool
+libretro_host_megadrive_setAudioVisEnabled(int enabled);
+
+bool
+libretro_host_megadrive_setAudioMuteMask(uint32_t mask);
+
 void
 libretro_host_megadrive_bindApis(void);
 

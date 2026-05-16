@@ -777,7 +777,7 @@ This should create:
 - `e9k-debugger/deps/tree-sitter*/` Copyright © 2018 Max Brunsfeld - MIT license - see https://github.com/tree-sitter/tree-sitter
 - `e9k-debugger/libretro.h` contains the libretro API header Copyright © 2010-2020 The RetroArch team - MIT. See https://github.com/libretro/libretro-common
 - `e9k-debugger/neogeo_sprite_debug.c` contains adapted MAME code Copyright © (Bryan McPhail, Ernesto Corvi, Andrew Prime, Zsolt Vasvari) - BSD 3 Clause (see below) See https://github.com/mamedev/mame
-- `e9k-debugger/romset_crypto.c` contains adapted MAME code Copyright © (S. Smith, David Haywood, Fabio Priuli) - BSD-3-Clause (see below). See https://github.com/mamedev/mame
+- `e9k-debugger/romset_crypto.c` contains adapted MAME code Copyright © (S. Smith, David Haywood, Fabio Priuli, Razoola, Mr.K) - BSD-3-Clause (see below). See https://github.com/mamedev/mame
 - `e9k-debugger/tinyfiledialogs.[ch]` Copyright © 2014 - 2024 Guillaume Vareille - Zlib. See http://tinyfiledialogs.sourceforge.net
 - `e9k-lib/e9k-z80-dasm-data.*`, contains code derived from z80dasm 1.1.6 Copyright © 1994-2007 Jan Panteltje and Copyright (C) 2007-2019 Tomaz Solc - GNU General Public License version 2 or later. See https://www.tablix.org/~avian/blog/archives/2019/06/debian_buster_and_z80dasm/
 

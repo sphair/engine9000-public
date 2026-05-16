@@ -92,6 +92,9 @@ typedef size_t (*e9k_debug_megadrive_get_sprite_state_fn_t)(e9k_debug_mega_sprit
 typedef size_t (*e9k_debug_megadrive_get_roms_fn_t)(e9k_debug_rom_entry_t *out, size_t cap);
 typedef void (*e9k_debug_megadrive_set_palette_greyscale_mask_fn_t)(uint32_t mask);
 typedef uint32_t (*e9k_debug_megadrive_get_palette_greyscale_mask_fn_t)(void);
+typedef size_t (*e9k_debug_megadrive_get_audio_frame_fn_t)(e9k_debug_mega_audio_frame_t *out, size_t cap);
+typedef void (*e9k_debug_megadrive_set_audio_vis_enabled_fn_t)(int enabled);
+typedef void (*e9k_debug_megadrive_set_audio_mute_mask_fn_t)(uint32_t mask);
 typedef size_t (*e9k_debug_disassemble_quick_fn_t)(uint32_t pc, char *out, size_t cap);
 typedef size_t (*e9k_debug_read_known_pcs_fn_t)(uint32_t startAddr, uint32_t endAddr, uint32_t *out, size_t cap);
 typedef void (*e9k_debug_reset_known_pcs_fn_t)(void);
@@ -262,6 +265,9 @@ typedef struct {
     e9k_debug_megadrive_get_roms_fn_t debugMegadriveGetRoms;
     e9k_debug_megadrive_set_palette_greyscale_mask_fn_t debugMegadriveSetPaletteGreyscaleMask;
     e9k_debug_megadrive_get_palette_greyscale_mask_fn_t debugMegadriveGetPaletteGreyscaleMask;
+    e9k_debug_megadrive_get_audio_frame_fn_t debugMegadriveGetAudioFrame;
+    e9k_debug_megadrive_set_audio_vis_enabled_fn_t debugMegadriveSetAudioVisEnabled;
+    e9k_debug_megadrive_set_audio_mute_mask_fn_t debugMegadriveSetAudioMuteMask;
     e9k_debug_disassemble_quick_fn_t debugDisassembleQuick;
     e9k_debug_read_known_pcs_fn_t debugReadKnownPcs;
     e9k_debug_reset_known_pcs_fn_t debugResetKnownPcs;

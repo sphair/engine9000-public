@@ -1,5 +1,5 @@
-NEOGEO_TESTS=test-neogeosound test-neogeosavestate test-neogeostepping test-neogeoprint test-neogeoz80 test-neogeosprite test-neogeotracker test-neogeolog test-neogeomemview test-neogeozip test-neogeofolder
-NEOGEO_REMAKE=remake-test-neogeosound remake-test-neogeosavestate remake-test-neogeostepping remake-test-neogeoprint remake-test-neogeoz80 remake-test-neogeosprite remake-test-neogeotracker remake-test-neogeolog remake-test-neogeomemview remake-test-neogeozip remake-test-neogeofolder
+NEOGEO_TESTS=test-neogeosound test-neogeosavestate test-neogeostepping test-neogeoprint test-neogeoz80 test-neogeosprite test-neogeotracker test-neogeolog test-neogeomemview test-neogeoaudiovis test-neogeozip test-neogeofolder test-neogeosmoke
+NEOGEO_REMAKE=remake-test-neogeosound remake-test-neogeosavestate remake-test-neogeostepping remake-test-neogeoprint remake-test-neogeoz80 remake-test-neogeosprite remake-test-neogeotracker remake-test-neogeolog remake-test-neogeomemview remake-test-neogeoaudiovis remake-test-neogeozip remake-test-neogeofolder
 
 # makers
 
@@ -21,6 +21,9 @@ make-test-neogeotracker: all
 make-test-neogeomemview: all 
 	./e9k-debugger --volume=0 --neogeo --rom=./tests/neogeo/sound/st.neo --make-test tests/results/neogeo/memview
 
+make-test-neogeoaudiovis: all
+	./e9k-debugger --volume=0 --neogeo --rom=./tests/neogeo/sound/st.neo --make-test tests/results/neogeo/audiovis
+
 make-test-neogeostepping: tests/neogeo/stepping/build/rom.elf
 	./e9k-debugger --neogeo --source-dir=./tests/neogeo/stepping --elf=./tests/neogeo/stepping/build/rom.elf --rom=./tests/neogeo/stepping/build/stepping.neo --make-test tests/results/neogeo/stepping
 
@@ -35,6 +38,9 @@ make-test-neogeozip: all
 
 make-test-neogeofolder: all
 	./e9k-debugger --neogeo --rom-folder=./tests/neogeo/folder/test --make-test tests/results/neogeo/folder
+
+make-test-neogeosmoke: all
+	./e9k-debugger --neogeo --rom=./tests/neogeo/sound/st.neo --make-smoke tests/results/neogeo/smoke
 
 
 # remakers
@@ -62,6 +68,10 @@ remake-test-neogeotracker: all
 remake-test-neogeomemview: all 
 	@printf "NEO GEO MEMORY VIEW ($@) ..."
 	./e9k-debugger --neogeo --volume=0 --rom=./tests/neogeo/sound/st.neo --remake-test tests/results/neogeo/memview
+
+remake-test-neogeoaudiovis: all
+	@printf "NEO GEO AUDIOVIS ($@) ..."
+	./e9k-debugger --neogeo --volume=0 --rom=./tests/neogeo/sound/st.neo --remake-test tests/results/neogeo/audiovis
 
 remake-test-neogeostepping: tests/neogeo/stepping/build/rom.elf
 	@printf "NEO GEO STEPPING ($@) ..."
@@ -117,6 +127,11 @@ test-neogeomemview: all
 	@./e9k-debugger $(HEADLESS) --volume=0 --neogeo --rom=./tests/neogeo/sound/st.neo --test tests/results/neogeo/memview >> test.log 2>&1
 	@echo "PASSED ✅"
 
+test-neogeoaudiovis: all
+	@printf "NEO GEO AUDIOVIS ($@) ..."
+	@./e9k-debugger $(HEADLESS) --volume=0 --neogeo --rom=./tests/neogeo/sound/st.neo --test tests/results/neogeo/audiovis >> test.log 2>&1
+	@echo "PASSED ✅"
+
 test-neogeostepping: tests/neogeo/stepping/build/rom.elf
 	@printf "NEO GEO STEPPING ($@) ..." 
 	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/stepping --elf=./tests/neogeo/stepping/build/rom.elf --rom=./tests/neogeo/stepping/build/stepping.neo --test tests/results/neogeo/stepping  >> test.log 2>&1
@@ -140,6 +155,11 @@ test-neogeozip: all
 test-neogeofolder: all
 	@printf "NEO GEO FOLDER ROM ($@) ..."
 	@./e9k-debugger $(HEADLESS) --neogeo --volume=0 --rom-folder=./tests/neogeo/folder/test --test tests/results/neogeo/folder >> test.log 2>&1
+	@echo "PASSED ✅"
+
+test-neogeosmoke: all
+	@printf "NEO GEO SMOKE TEST ($@) ..."
+	@./e9k-debugger $(HEADLESS) --neogeo --volume=0 --rom=./tests/neogeo/sound/st.neo --smoke-test tests/results/neogeo/smoke >> test.log 2>&1
 	@echo "PASSED ✅"
 
 # assets

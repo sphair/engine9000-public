@@ -13,6 +13,9 @@
 
 #define E9K_DEBUG_MEGA_MAX_LINES 240
 #define E9K_DEBUG_MEGA_MAX_FRAME_SPRITES 80
+#define E9K_DEBUG_MEGA_AUDIO_MUTE_FM (1u << 0)
+#define E9K_DEBUG_MEGA_AUDIO_MUTE_PSG (1u << 1)
+#define E9K_DEBUG_MEGA_AUDIO_MUTE_DAC (1u << 2)
 
 #define E9K_DEBUG_MEGA_LINEFLAG_TILE_OVERFLOW   0x01u
 #define E9K_DEBUG_MEGA_LINEFLAG_SPRITE_OVERFLOW 0x02u
@@ -61,3 +64,18 @@ typedef struct e9k_debug_mega_sprite_state
     int spriteEntryCount;
     e9k_debug_mega_sprite_entry_t spriteEntries[E9K_DEBUG_MEGA_MAX_FRAME_SPRITES];
 } e9k_debug_mega_sprite_state_t;
+
+typedef struct e9k_debug_mega_audio_source
+{
+    int32_t peakL;
+    int32_t peakR;
+} e9k_debug_mega_audio_source_t;
+
+typedef struct e9k_debug_mega_audio_frame
+{
+    uint64_t frameNo;
+    e9k_debug_mega_audio_source_t fm;
+    e9k_debug_mega_audio_source_t psg;
+    e9k_debug_mega_audio_source_t dac;
+    e9k_debug_mega_audio_source_t mixed;
+} e9k_debug_mega_audio_frame_t;

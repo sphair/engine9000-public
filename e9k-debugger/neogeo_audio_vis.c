@@ -33,6 +33,7 @@
 #define NEOGEO_AUDIO_VIS_SCALE_DENOM 32768
 #define NEOGEO_AUDIO_VIS_SEGMENT_BRIGHTNESS_MAX 255
 #define NEOGEO_AUDIO_VIS_SEGMENT_HALF_LIFE_SECONDS 0.2
+#define NEOGEO_AUDIO_VIS_FRAME_RATE 60.0
 #define NEOGEO_AUDIO_VIS_ROW_COUNT (4 + E9K_DEBUG_GEO_ADPCM_A_CHANNELS)
 #define NEOGEO_AUDIO_VIS_METER_COUNT (8 + E9K_DEBUG_GEO_ADPCM_A_CHANNELS * 2)
 #define NEOGEO_AUDIO_VIS_MUTE_ROW_COUNT (3 + E9K_DEBUG_GEO_ADPCM_A_CHANNELS)
@@ -43,7 +44,8 @@ typedef struct neogeo_audio_vis_state {
     e9k_debug_audio_frame_t lastFrame;
     uint32_t muteMask;
     uint8_t segmentBrightness[NEOGEO_AUDIO_VIS_METER_COUNT][NEOGEO_AUDIO_VIS_METER_SEGMENTS];
-    uint64_t lastFadeCounter;
+    uint64_t lastFadeFrame;
+    int hasLastFadeFrame;
     int hasLastFrame;
 } neogeo_audio_vis_state_t;
 
@@ -129,23 +131,22 @@ static void
 neogeo_audio_vis_resetSegmentBrightness(void)
 {
     memset(neogeo_audio_vis_state.segmentBrightness, 0, sizeof(neogeo_audio_vis_state.segmentBrightness));
-    neogeo_audio_vis_state.lastFadeCounter = 0;
+    neogeo_audio_vis_state.lastFadeFrame = 0;
+    neogeo_audio_vis_state.hasLastFadeFrame = 0;
 }
 
 static double
-neogeo_audio_vis_fadeFactor(void)
+neogeo_audio_vis_fadeFactor(uint64_t frameNo)
 {
-    uint64_t now = SDL_GetPerformanceCounter();
-    uint64_t freq = SDL_GetPerformanceFrequency();
-    double elapsed;
-
-    if (neogeo_audio_vis_state.lastFadeCounter == 0 || freq == 0) {
-        neogeo_audio_vis_state.lastFadeCounter = now;
+    if (!neogeo_audio_vis_state.hasLastFadeFrame || frameNo <= neogeo_audio_vis_state.lastFadeFrame) {
+        neogeo_audio_vis_state.lastFadeFrame = frameNo;
+        neogeo_audio_vis_state.hasLastFadeFrame = 1;
         return 1.0;
     }
 
-    elapsed = (double)(now - neogeo_audio_vis_state.lastFadeCounter) / (double)freq;
-    neogeo_audio_vis_state.lastFadeCounter = now;
+    double elapsed = (double)(frameNo - neogeo_audio_vis_state.lastFadeFrame) / NEOGEO_AUDIO_VIS_FRAME_RATE;
+    neogeo_audio_vis_state.lastFadeFrame = frameNo;
+    neogeo_audio_vis_state.hasLastFadeFrame = 1;
     if (elapsed <= 0.0) {
         return 1.0;
     }
@@ -457,7 +458,7 @@ neogeo_audio_vis_updateSegmentBrightnessAll(const e9k_debug_audio_frame_t *frame
         return;
     }
 
-    fadeFactor = neogeo_audio_vis_fadeFactor();
+    fadeFactor = neogeo_audio_vis_fadeFactor(frame->frameNo);
     neogeo_audio_vis_updateSegmentBrightness(meterIndex++, frame->fm.peakL, fadeFactor);
     neogeo_audio_vis_updateSegmentBrightness(meterIndex++, frame->fm.peakR, fadeFactor);
     neogeo_audio_vis_updateSegmentBrightness(meterIndex++, frame->ssg.peakL, fadeFactor);

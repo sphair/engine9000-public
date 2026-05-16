@@ -489,6 +489,37 @@ mega_palette_debug_loadConfigProperty(const char *prop, const char *value)
     return 0;
 }
 
+void
+mega_audio_vis_toggle(void)
+{
+}
+
+int
+mega_audio_vis_isOpen(void)
+{
+    return 0;
+}
+
+void
+mega_audio_vis_render(const e9k_debug_mega_audio_frame_t *frame)
+{
+    (void)frame;
+}
+
+void
+mega_audio_vis_persistConfig(FILE *file)
+{
+    (void)file;
+}
+
+int
+mega_audio_vis_loadConfigProperty(const char *prop, const char *value)
+{
+    (void)prop;
+    (void)value;
+    return 0;
+}
+
 int
 megadrive_coreOptionsDirty(void)
 {

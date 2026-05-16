@@ -24,6 +24,7 @@
 #include "neogeo_register_log.h"
 #include "neogeo_sprite_debug.h"
 #include "neogeo_audio_vis.h"
+#include "mega_audio_vis.h"
 #include "machine.h"
 #include "base_map.h"
 #include "source.h"
@@ -672,6 +673,9 @@ debugger_cleanup(void)
   neogeo_register_log_shutdown();
   if (mega_sprite_debug_is_open()) {
     mega_sprite_debug_toggle();
+  }
+  if (mega_audio_vis_isOpen()) {
+    mega_audio_vis_toggle();
   }
   if (mega_memview_isOpen()) {
     mega_memview_toggle();

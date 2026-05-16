@@ -55,6 +55,36 @@ libretro_host_megadrive_getPaletteGreyscaleMask(uint32_t *outMask)
     return true;
 }
 
+bool
+libretro_host_megadrive_getAudioFrame(e9k_debug_mega_audio_frame_t *out)
+{
+    if (!out || !libretro_host.debugMegadriveGetAudioFrame) {
+        return false;
+    }
+    size_t n = libretro_host.debugMegadriveGetAudioFrame(out, sizeof(*out));
+    return n == sizeof(*out);
+}
+
+bool
+libretro_host_megadrive_setAudioVisEnabled(int enabled)
+{
+    if (!libretro_host.debugMegadriveSetAudioVisEnabled) {
+        return false;
+    }
+    libretro_host.debugMegadriveSetAudioVisEnabled(enabled ? 1 : 0);
+    return true;
+}
+
+bool
+libretro_host_megadrive_setAudioMuteMask(uint32_t mask)
+{
+    if (!libretro_host.debugMegadriveSetAudioMuteMask) {
+        return false;
+    }
+    libretro_host.debugMegadriveSetAudioMuteMask(mask);
+    return true;
+}
+
 void
 libretro_host_megadrive_bindApis(void)
 {
@@ -66,6 +96,12 @@ libretro_host_megadrive_bindApis(void)
         (e9k_debug_megadrive_set_palette_greyscale_mask_fn_t)libretro_host_loadSymbol("e9k_debug_megadrive_set_palette_greyscale_mask");
     libretro_host.debugMegadriveGetPaletteGreyscaleMask =
         (e9k_debug_megadrive_get_palette_greyscale_mask_fn_t)libretro_host_loadSymbol("e9k_debug_megadrive_get_palette_greyscale_mask");
+    libretro_host.debugMegadriveGetAudioFrame =
+        (e9k_debug_megadrive_get_audio_frame_fn_t)libretro_host_loadSymbol("e9k_debug_megadrive_get_audio_frame");
+    libretro_host.debugMegadriveSetAudioVisEnabled =
+        (e9k_debug_megadrive_set_audio_vis_enabled_fn_t)libretro_host_loadSymbol("e9k_debug_megadrive_set_audio_vis_enabled");
+    libretro_host.debugMegadriveSetAudioMuteMask =
+        (e9k_debug_megadrive_set_audio_mute_mask_fn_t)libretro_host_loadSymbol("e9k_debug_megadrive_set_audio_mute_mask");
 }
 
 void
@@ -75,4 +111,7 @@ libretro_host_megadrive_unbindApis(void)
     libretro_host.debugMegadriveGetRoms = NULL;
     libretro_host.debugMegadriveSetPaletteGreyscaleMask = NULL;
     libretro_host.debugMegadriveGetPaletteGreyscaleMask = NULL;
+    libretro_host.debugMegadriveGetAudioFrame = NULL;
+    libretro_host.debugMegadriveSetAudioVisEnabled = NULL;
+    libretro_host.debugMegadriveSetAudioMuteMask = NULL;
 }

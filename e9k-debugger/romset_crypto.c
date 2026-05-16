@@ -15,7 +15,8 @@
  *   src/devices/bus/neogeo/prot_sma.cpp
  *
  * Original MAME source license: BSD-3-Clause
- * Original MAME copyright-holders: S. Smith, David Haywood, Fabio Priuli
+ * Original MAME copyright-holders: S. Smith, David Haywood, Fabio Priuli,
+ * Razoola, Mr.K
  */
 
 #include <stdint.h>
@@ -26,6 +27,7 @@
 
 #define ROMSET_NGH264_CMC50_GFX_KEY 0x3f
 #define ROMSET_NGH256_CMC42_GFX_KEY 0xad
+#define ROMSET_NGH253_CMC42_GFX_KEY 0x06
 
 static const uint8_t romset_crypto_cmc42Type0T03[256] =
 {
@@ -751,6 +753,64 @@ romset_crypto_smaNgh256Decrypt68k(uint8_t *rom, size_t romSize)
     return 1;
 }
 
+static int
+romset_crypto_smaNgh253Decrypt68kWithTables(uint8_t *rom,
+                                            size_t romSize,
+                                            const int *dataBits,
+                                            const int *fixedBits,
+                                            const int *bankBits,
+                                            uint32_t fixedBase)
+{
+    if (!rom || romSize < 0x900000u) {
+        return 0;
+    }
+
+    for (size_t offset = 0x100000u; offset < 0x900000u; offset += 2u) {
+        uint16_t value = romset_crypto_read16le(rom, offset);
+        romset_crypto_write16le(rom, offset, romset_crypto_bitswap16(value, dataBits));
+    }
+
+    for (size_t wordIndex = 0; wordIndex < 0x0c0000u / 2u; ++wordIndex) {
+        uint32_t sourceWord = fixedBase / 2u + romset_crypto_bitswap32((uint32_t)wordIndex, fixedBits, 19);
+        uint16_t value = romset_crypto_read16le(rom, (size_t)sourceWord * 2u);
+        romset_crypto_write16le(rom, wordIndex * 2u, value);
+    }
+
+    uint8_t *buffer = (uint8_t *)malloc(0x8000u);
+    if (!buffer) {
+        return 0;
+    }
+    for (size_t blockOffset = 0x100000u; blockOffset < 0x900000u; blockOffset += 0x8000u) {
+        memcpy(buffer, rom + blockOffset, 0x8000u);
+        for (size_t wordIndex = 0; wordIndex < 0x8000u / 2u; ++wordIndex) {
+            uint32_t sourceWord = romset_crypto_bitswap32((uint32_t)wordIndex, bankBits, 14);
+            uint16_t value = romset_crypto_read16le(buffer, (size_t)sourceWord * 2u);
+            romset_crypto_write16le(rom, blockOffset + wordIndex * 2u, value);
+        }
+    }
+    free(buffer);
+
+    return 1;
+}
+
+static int
+romset_crypto_smaNgh253Decrypt68k(uint8_t *rom, size_t romSize)
+{
+    static const int dataBits[16] = {13,12,14,10,8,2,3,1,5,9,11,4,15,0,6,7};
+    static const int fixedBits[19] = {18,4,5,16,14,7,9,6,13,17,15,3,1,2,12,11,8,10,0};
+    static const int bankBits[14] = {9,4,8,3,13,6,2,7,0,12,1,11,10,5};
+    return romset_crypto_smaNgh253Decrypt68kWithTables(rom, romSize, dataBits, fixedBits, bankBits, 0x710000u);
+}
+
+static int
+romset_crypto_smaNgh253RevisionBDecrypt68k(uint8_t *rom, size_t romSize)
+{
+    static const int dataBits[16] = {14,5,1,11,7,4,10,15,3,12,8,13,0,2,9,6};
+    static const int fixedBits[19] = {18,5,16,11,2,6,7,17,3,12,8,14,4,0,9,1,10,15,13};
+    static const int bankBits[14] = {12,8,1,7,11,3,13,10,6,9,5,4,0,2};
+    return romset_crypto_smaNgh253Decrypt68kWithTables(rom, romSize, dataBits, fixedBits, bankBits, 0x7f8000u);
+}
+
 int
 romset_crypto_applyNgh264Cmc50Pcm2(uint8_t *crom,
                                    size_t cromSize,
@@ -786,6 +846,42 @@ romset_crypto_applyNgh256SmaCmc42(uint8_t *prom,
         return 0;
     }
     if (!romset_crypto_cmc42GfxDecrypt(crom, cromSize, ROMSET_NGH256_CMC42_GFX_KEY)) {
+        return 0;
+    }
+    romset_crypto_sfixDecrypt(crom, cromSize, srom, sromSize);
+    return 1;
+}
+
+int
+romset_crypto_applyNgh253RevisionBSmaCmc42(uint8_t *prom,
+                                           size_t promSize,
+                                           uint8_t *crom,
+                                           size_t cromSize,
+                                           uint8_t *srom,
+                                           size_t sromSize)
+{
+    if (!romset_crypto_smaNgh253RevisionBDecrypt68k(prom, promSize)) {
+        return 0;
+    }
+    if (!romset_crypto_cmc42GfxDecrypt(crom, cromSize, ROMSET_NGH253_CMC42_GFX_KEY)) {
+        return 0;
+    }
+    romset_crypto_sfixDecrypt(crom, cromSize, srom, sromSize);
+    return 1;
+}
+
+int
+romset_crypto_applyNgh253SmaCmc42(uint8_t *prom,
+                                  size_t promSize,
+                                  uint8_t *crom,
+                                  size_t cromSize,
+                                  uint8_t *srom,
+                                  size_t sromSize)
+{
+    if (!romset_crypto_smaNgh253Decrypt68k(prom, promSize)) {
+        return 0;
+    }
+    if (!romset_crypto_cmc42GfxDecrypt(crom, cromSize, ROMSET_NGH253_CMC42_GFX_KEY)) {
         return 0;
     }
     romset_crypto_sfixDecrypt(crom, cromSize, srom, sromSize);

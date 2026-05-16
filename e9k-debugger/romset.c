@@ -55,6 +55,11 @@ typedef struct romset_chunk_reader {
     int isZip;
 } romset_chunk_reader_t;
 
+typedef enum romset_ngh253_revision {
+    romset_ngh253_revisionA = 0,
+    romset_ngh253_revisionB
+} romset_ngh253_revision_t;
+
 static const char *
 romset_basename(const char *path)
 {
@@ -601,6 +606,29 @@ romset_detectNgh(const romset_romset_t *set)
     return ngh;
 }
 
+static romset_ngh253_revision_t
+romset_detectNgh253Revision(const romset_romset_t *set)
+{
+    if (!set) {
+        return romset_ngh253_revisionA;
+    }
+
+    for (size_t chunkIndex = 0; chunkIndex < set->pCount; ++chunkIndex) {
+        const char *base = romset_basename(set->pChunks[chunkIndex].path);
+        if (base && romset_strEqNoCase(base, "ke.neo-sma")) {
+            return romset_ngh253_revisionB;
+        }
+    }
+
+    if (set->pCount == 3u &&
+        set->pChunks[1].size == 0x400000u &&
+        set->pChunks[2].size == 0x400000u) {
+        return romset_ngh253_revisionB;
+    }
+
+    return romset_ngh253_revisionA;
+}
+
 static int
 romset_chunkReaderOpen(romset_chunk_reader_t *reader, const romset_romchunk_t *chunk)
 {
@@ -911,6 +939,37 @@ romset_readNgh256PChunks(uint8_t *dest, size_t destSize, const romset_romchunk_t
 }
 
 static int
+romset_readNgh253PChunks(uint8_t *dest, size_t destSize, const romset_romchunk_t *chunks, size_t chunkCount)
+{
+    if (!dest || destSize < 0x900000u || !chunks) {
+        return 0;
+    }
+
+    int hasSma = 0;
+    int hasProgram = 0;
+    size_t programOffset = 0x100000u;
+    for (size_t chunkIndex = 0; chunkIndex < chunkCount; ++chunkIndex) {
+        if (chunks[chunkIndex].index == 0) {
+            hasSma = 1;
+            if (!romset_readChunkInto(dest, destSize, 0x0c0000u, &chunks[chunkIndex])) {
+                return 0;
+            }
+            continue;
+        }
+        if (chunks[chunkIndex].index < 1) {
+            continue;
+        }
+        hasProgram = 1;
+        if (!romset_readChunkInto(dest, destSize, programOffset, &chunks[chunkIndex])) {
+            return 0;
+        }
+        programOffset += chunks[chunkIndex].size;
+    }
+
+    return hasSma && hasProgram && programOffset <= destSize;
+}
+
+static int
 romset_writeBuffer(FILE *output, const uint8_t *data, size_t dataSize)
 {
     if (!output || (!data && dataSize > 0)) {
@@ -920,6 +979,60 @@ romset_writeBuffer(FILE *output, const uint8_t *data, size_t dataSize)
         return 1;
     }
     return fwrite(data, 1, dataSize, output) == dataSize;
+}
+
+static int
+romset_writeNgh253Neo(FILE *output, const romset_romset_t *set, const uint8_t *header, size_t headerSize,
+                      size_t pSize, size_t sSize, size_t mSize, size_t vSize, size_t cSize,
+                      romset_ngh253_revision_t revision)
+{
+    uint8_t *pBuffer = NULL;
+    uint8_t *sBuffer = NULL;
+    uint8_t *mBuffer = NULL;
+    uint8_t *vBuffer = NULL;
+    uint8_t *cBuffer = NULL;
+    int ok = 0;
+
+    pBuffer = pSize ? calloc(1, pSize) : NULL;
+    sBuffer = sSize ? calloc(1, sSize) : NULL;
+    mBuffer = mSize ? calloc(1, mSize) : NULL;
+    vBuffer = vSize ? malloc(vSize) : NULL;
+    cBuffer = cSize ? malloc(cSize) : NULL;
+    if ((pSize && !pBuffer) || (sSize && !sBuffer) || (mSize && !mBuffer) || (vSize && !vBuffer) || (cSize && !cBuffer)) {
+        goto done;
+    }
+
+    if (!romset_readNgh253PChunks(pBuffer, pSize, set->pChunks, set->pCount) ||
+        !romset_readChunks(mBuffer, mSize, set->mChunks, set->mCount, 1) ||
+        !romset_readChunks(vBuffer, vSize, set->vChunks, set->vCount, 0) ||
+        !romset_readCChunksInterleaved(cBuffer, cSize, set->cChunks, set->cCount)) {
+        goto done;
+    }
+
+    if (revision == romset_ngh253_revisionB) {
+        if (!romset_crypto_applyNgh253RevisionBSmaCmc42(pBuffer, pSize, cBuffer, cSize, sBuffer, sSize)) {
+            goto done;
+        }
+    } else {
+        if (!romset_crypto_applyNgh253SmaCmc42(pBuffer, pSize, cBuffer, cSize, sBuffer, sSize)) {
+            goto done;
+        }
+    }
+
+    ok = romset_writeBuffer(output, header, headerSize) &&
+         romset_writeBuffer(output, pBuffer, pSize) &&
+         romset_writeBuffer(output, sBuffer, sSize) &&
+         romset_writeBuffer(output, mBuffer, mSize) &&
+         romset_writeBuffer(output, vBuffer, vSize) &&
+         romset_writeBuffer(output, cBuffer, cSize);
+
+done:
+    free(pBuffer);
+    free(sBuffer);
+    free(mBuffer);
+    free(vBuffer);
+    free(cBuffer);
+    return ok;
 }
 
 static int
@@ -1054,6 +1167,7 @@ romset_buildNeoFromScannedInput(const char *inputPath, int isZip, char *outPath,
     romset_dedupeChunksByIndex(set.cChunks, &set.cCount, 'c');
 
     uint32_t ngh = romset_detectNgh(&set);
+    romset_ngh253_revision_t ngh253Revision = romset_detectNgh253Revision(&set);
 
     if (!romset_buildNeoOutputPath(inputPath,
                                    isZip,
@@ -1074,7 +1188,10 @@ romset_buildNeoFromScannedInput(const char *inputPath, int isZip, char *outPath,
     v2Size = 0;
     size_t mDisplaySize = mSize;
 
-    if (ngh == 0x256) {
+    if (ngh == 0x253) {
+        pSize = 0x900000;
+        sSize = 0x80000;
+    } else if (ngh == 0x256) {
         pSize = 0x900000;
         sSize = 0x80000;
         if (mSize < 0x90000) {
@@ -1111,6 +1228,26 @@ romset_buildNeoFromScannedInput(const char *inputPath, int isZip, char *outPath,
     if (!output) {
         romset_romsetFree(&set);
         return 0;
+    }
+
+    if (ngh == 0x253) {
+        if (!romset_writeNgh253Neo(output,
+                                   &set,
+                                   header,
+                                   sizeof(header),
+                                   pSize,
+                                   sSize,
+                                   mSize,
+                                   v1Size,
+                                   cSize,
+                                   ngh253Revision)) {
+            fclose(output);
+            romset_romsetFree(&set);
+            return 0;
+        }
+        fclose(output);
+        romset_romsetFree(&set);
+        return 1;
     }
 
     if (ngh == 0x256) {
