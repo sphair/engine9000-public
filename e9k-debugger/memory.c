@@ -755,35 +755,14 @@ memory_collectSearchRanges(memory_view_state_t *st, target_memory_range_t *outRa
         return 0;
     }
     *outCount = 0;
-    target_memory_space_t space;
-    if (memory_getSelectedSpace(st, &space) && space.processorMemory) {
-        outRanges[0].baseAddr = space.minAddr;
-        outRanges[0].size = (space.maxAddr - space.minAddr) + 1u;
-        *outCount = 1;
-        return 1;
-    }
-    if (target && target->memoryTrackGetRanges) {
-        size_t count = 0;
-        if (target->memoryTrackGetRanges(outRanges, cap, &count) && count > 0) {
-            size_t write = 0;
-            for (size_t i = 0; i < count && write < cap; ++i) {
-                if (outRanges[i].size == 0) {
-                    continue;
-                }
-                outRanges[write++] = outRanges[i];
-            }
-            if (write > 0) {
-                *outCount = write;
-                return 1;
-            }
-        }
-    }
+
     uint32_t minAddr = 0;
     uint32_t maxAddr = 0x00ffffffu;
     if (!memory_getSelectedAddressLimits(st, &minAddr, &maxAddr)) {
         minAddr = 0;
         maxAddr = 0x00ffffffu;
     }
+
     if (maxAddr < minAddr) {
         return 0;
     }
