@@ -266,6 +266,7 @@ typedef struct {
     e9k_debug_neogeo_get_audio_frame_fn_t debugNeogeoGetAudioFrame;
     e9k_debug_neogeo_set_audio_vis_enabled_fn_t debugNeogeoSetAudioVisEnabled;
     e9k_debug_neogeo_set_audio_mute_mask_fn_t debugNeogeoSetAudioMuteMask;
+    e9k_debug_set_neogeo_register_log_frame_callback_fn_t debugNeogeoSetRegisterLogFrameCallback;
     e9k_debug_megadrive_get_sprite_state_fn_t debugMegadriveGetSpriteState;
     e9k_debug_megadrive_get_roms_fn_t debugMegadriveGetRoms;
     e9k_debug_megadrive_set_palette_greyscale_mask_fn_t debugMegadriveSetPaletteGreyscaleMask;
@@ -284,7 +285,6 @@ typedef struct {
     e9k_debug_read_cycle_count_fn_t debugReadCycleCount;
     e9k_debug_set_vblank_callback_fn_t setVblankCallback;
     e9k_debug_set_amiga_custom_log_frame_callback_fn_t setAmigaCustomLogFrameCallback;
-    e9k_debug_set_neogeo_register_log_frame_callback_fn_t setNeogeoRegisterLogFrameCallback;
     e9k_debug_amiga_set_deterministic_fn_t setAmigaDeterministic;
     e9k_debug_amiga_set_base_callback_fn_t setAmigaDebugBaseCallback;
     e9k_debug_amiga_set_base_stack_callback_fn_t setAmigaDebugBaseStackCallback;

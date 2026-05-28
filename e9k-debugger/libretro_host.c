@@ -1800,6 +1800,7 @@ libretro_host_start(const char *corePath, const char *romPath,
     libretro_host.debugNeogeoGetAudioFrame = NULL;
     libretro_host.debugNeogeoSetAudioVisEnabled = NULL;
     libretro_host.debugNeogeoSetAudioMuteMask = NULL;
+    libretro_host.debugNeogeoSetRegisterLogFrameCallback = NULL;
     libretro_host.debugMegadriveGetSpriteState = NULL;
     libretro_host.debugMegadriveGetRoms = NULL;
     libretro_host.debugMegadriveSetPaletteGreyscaleMask = NULL;
@@ -1817,7 +1818,6 @@ libretro_host_start(const char *corePath, const char *romPath,
     libretro_host.debugGetCheckpointEnabled = (e9k_debug_get_checkpoint_enabled_fn_t)libretro_host_loadSymbol("e9k_debug_get_checkpoint_enabled");
     libretro_host.debugReadCycleCount = (e9k_debug_read_cycle_count_fn_t)libretro_host_loadSymbol("e9k_debug_read_cycle_count");
     libretro_host.setVblankCallback = (e9k_debug_set_vblank_callback_fn_t)libretro_host_loadSymbol("e9k_debug_set_vblank_callback");
-    libretro_host.setNeogeoRegisterLogFrameCallback = (e9k_debug_set_neogeo_register_log_frame_callback_fn_t)libretro_host_loadSymbol("e9k_debug_set_neogeo_register_log_frame_callback");
     if (!libretro_host.setEnvironment || !libretro_host.setVideoRefresh ||
         !libretro_host.setInputPoll || !libretro_host.setInputState ||
         !libretro_host.init || !libretro_host.loadGame || !libretro_host.getSystemAvInfo ||

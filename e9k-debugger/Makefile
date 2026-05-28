@@ -77,7 +77,7 @@ RELEASE_DIR = releases
 RELEASE_MINOR_FILE = assets/release_minor.txt
 RELEASE_PACKAGE_NAME = e9k-debugger
 RELEASE_W64_DLLS = libfreetype-6.dll libpng16-16.dll libreadline8.dll libssp-0.dll libtermcap-0.dll libwinpthread-1.dll SDL2_image.dll SDL2_ttf.dll SDL2.dll zlib1.dll
-RELEASE_SYSTEM_FILES = v-hunk-addr2line.exe v-hunk-objdump.exe z80_srcmap.exe ami9000.dll geo9000.dll
+RELEASE_SYSTEM_FILES = v-hunk-addr2line.exe v-hunk-objdump.exe load9000 z80_srcmap.exe ami9000.dll geo9000.dll
 W64_CFLAGS = $(LTO_FLAGS) -O2 -Wall -Wextra -std=c99 -MMD -MP
 W64_CFLAGS += $(BASE_INCLUDES)
 W64_CFLAGS +=  -D_THREAD_SAFE

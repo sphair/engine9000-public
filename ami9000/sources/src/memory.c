@@ -56,6 +56,9 @@ static uint32_t memory_e9kChipmemWriteSource = E9K_WATCH_ACCESS_SOURCE_UNKNOWN;
 #define E9K_DBG_ARG_COUNT     10u
 #define E9K_DBG_ARG_SIZE      4u
 #define E9K_DBG_ARG_LAST_ADDR (E9K_DBG_ARG_BASE_ADDR + (E9K_DBG_ARG_COUNT * E9K_DBG_ARG_SIZE) - 1u)
+#define E9K_DBG_CYCLE_COUNT_ADDR 0x00B7E928u
+#define E9K_DBG_CYCLE_COUNT_SCALE 4u
+#define E9K_DBG_LAST_ADDR (E9K_DBG_CYCLE_COUNT_ADDR + 3u)
 
 uae_u32 e9k_debug_arg_read_fromPeripheral(uae_u32 index);
 
@@ -74,31 +77,36 @@ memory_e9kChipmemRestoreWriteSource(uint32_t previousSource)
 }
 
 static int
-memory_e9kDebugArgReadLong(uaecptr addr, uae_u32 *valueOut)
+memory_e9kDebugPeripheralReadLong(uaecptr addr, uae_u32 *valueOut)
 {
 	if (!valueOut) {
 		return 0;
 	}
 	addr &= 0x00ffffffu;
-	if (addr < E9K_DBG_ARG_BASE_ADDR || addr > E9K_DBG_ARG_LAST_ADDR) {
+	if ((addr & 3u) != 0u) {
 		return 0;
 	}
-	uaecptr offset = addr - E9K_DBG_ARG_BASE_ADDR;
-	if ((offset & 3u) != 0u) {
-		return 0;
+	if (addr >= E9K_DBG_ARG_BASE_ADDR && addr <= E9K_DBG_ARG_LAST_ADDR) {
+		uaecptr offset = addr - E9K_DBG_ARG_BASE_ADDR;
+		*valueOut = e9k_debug_arg_read_fromPeripheral((uae_u32)(offset >> 2));
+		return 1;
 	}
-	*valueOut = e9k_debug_arg_read_fromPeripheral((uae_u32)(offset >> 2));
-	return 1;
+	if (addr == E9K_DBG_CYCLE_COUNT_ADDR) {
+		uint64_t cycleCount = e9k_debug_read_cycle_count();
+		*valueOut = (uae_u32)((cycleCount / E9K_DBG_CYCLE_COUNT_SCALE) & 0xffffffffu);
+		return 1;
+	}
+	return 0;
 }
 
 static int
-memory_e9kDebugArgReadWord(uaecptr addr, uae_u32 *valueOut)
+memory_e9kDebugPeripheralReadWord(uaecptr addr, uae_u32 *valueOut)
 {
 	if (!valueOut) {
 		return 0;
 	}
 	addr &= 0x00ffffffu;
-	if (addr < E9K_DBG_ARG_BASE_ADDR || addr > E9K_DBG_ARG_LAST_ADDR) {
+	if (addr < E9K_DBG_ARG_BASE_ADDR || addr > E9K_DBG_LAST_ADDR) {
 		return 0;
 	}
 	if ((addr & 1u) != 0u) {
@@ -107,10 +115,29 @@ memory_e9kDebugArgReadWord(uaecptr addr, uae_u32 *valueOut)
 
 	uaecptr longAddr = addr & ~3u;
 	uae_u32 value = 0;
-	if (!memory_e9kDebugArgReadLong(longAddr, &value)) {
+	if (!memory_e9kDebugPeripheralReadLong(longAddr, &value)) {
 		return 0;
 	}
 	*valueOut = (addr & 2u) ? (value & 0xffffu) : (value >> 16);
+	return 1;
+}
+
+static int
+memory_e9kDebugPeripheralReadByte(uaecptr addr, uae_u32 *valueOut)
+{
+	if (!valueOut) {
+		return 0;
+	}
+	addr &= 0x00ffffffu;
+	if (addr < E9K_DBG_ARG_BASE_ADDR || addr > E9K_DBG_LAST_ADDR) {
+		return 0;
+	}
+	uae_u32 value = 0;
+	if (!memory_e9kDebugPeripheralReadLong(addr & ~3u, &value)) {
+		return 0;
+	}
+	uae_u32 shift = (3u - (addr & 3u)) * 8u;
+	*valueOut = (value >> shift) & 0xffu;
 	return 1;
 }
 
@@ -535,7 +562,7 @@ static uae_u32 REGPARAM2
 memory_e9kDebugArgLget(uaecptr addr)
 {
 	uae_u32 value = 0;
-	if (memory_e9kDebugArgReadLong(addr, &value)) {
+	if (memory_e9kDebugPeripheralReadLong(addr, &value)) {
 		return value;
 	}
 	if (currprefs.illegal_mem) {
@@ -548,7 +575,7 @@ static uae_u32 REGPARAM2
 memory_e9kDebugArgWget(uaecptr addr)
 {
 	uae_u32 value = 0;
-	if (memory_e9kDebugArgReadWord(addr, &value)) {
+	if (memory_e9kDebugPeripheralReadWord(addr, &value)) {
 		return value;
 	}
 	if (currprefs.illegal_mem) {
@@ -560,6 +587,10 @@ memory_e9kDebugArgWget(uaecptr addr)
 static uae_u32 REGPARAM2
 memory_e9kDebugArgBget(uaecptr addr)
 {
+	uae_u32 value = 0;
+	if (memory_e9kDebugPeripheralReadByte(addr, &value)) {
+		return value;
+	}
 	if (currprefs.illegal_mem) {
 		dummylog(0, addr, sz_byte, 0, 0);
 	}
@@ -1901,7 +1932,7 @@ addrbank dummy_bank = {
 static addrbank memory_e9kDebugArgBank = {
 	memory_e9kDebugArgLget, memory_e9kDebugArgWget, memory_e9kDebugArgBget,
 	dummy_lput, dummy_wput, dummy_bput,
-	default_xlate, dummy_check, NULL, NULL, _T("e9k debug args"),
+	default_xlate, dummy_check, NULL, NULL, _T("e9k debug peripheral"),
 	dummy_lgeti, dummy_wgeti,
 	ABFLAG_NONE, S_READ, S_WRITE
 };

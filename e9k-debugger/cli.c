@@ -87,6 +87,15 @@ cli_addDebugArg(const char *value)
     return 1;
 }
 
+static void
+cli_setNeogeoSystemType(const char *value)
+{
+    strncpy(debugger.cliConfig.neogeo.systemType,
+            value,
+            sizeof(debugger.cliConfig.neogeo.systemType) - 1);
+    debugger.cliConfig.neogeo.systemType[sizeof(debugger.cliConfig.neogeo.systemType) - 1] = '\0';
+}
+
 static int
 cli_uiTestSessionConfigExists(const char *folder, char *outCfgPath, size_t outCap)
 {
@@ -208,6 +217,22 @@ cli_parseArgs(int argc, char **argv)
                 return;
             }
             cli_copyPath(debugger.cliConfig.neogeo.romFolder, sizeof(debugger.cliConfig.neogeo.romFolder), argv[i] + sizeof("--rom-folder=") - 1);
+            continue;
+        }
+        if (strcmp(argv[i], "--aes") == 0) {
+            if (targetSystem != target_neogeo()) {
+                cli_setError("aes: only supported for Neo Geo (use --neogeo)");
+                return;
+            }
+            cli_setNeogeoSystemType("aes");
+            continue;
+        }
+        if (strcmp(argv[i], "--mvs") == 0) {
+            if (targetSystem != target_neogeo()) {
+                cli_setError("mvs: only supported for Neo Geo (use --neogeo)");
+                return;
+            }
+            cli_setNeogeoSystemType("mvs");
             continue;
         }
         if (strcmp(argv[i], "--elf") == 0) {
@@ -809,6 +834,8 @@ cli_printUsage(const char *argv0)
     printf("  --symbols PATH               Text symbol map path\n");
     printf("  --rom PATH                   Neo Geo ROM (.neo) path\n");
     printf("  --rom-folder PATH            ROM folder (generates a .neo)\n");
+    printf("  --aes                        Use Neo Geo AES system type\n");
+    printf("  --mvs                        Use Neo Geo MVS system type\n");
     printf("\n");
 #endif
 #if E9K_ENABLE_MEGADRIVE
@@ -874,6 +901,12 @@ cli_applyOverrides(void)
     }
     if (debugger.cliConfig.neogeo.libretro.toolchainPrefix[0]) {
         cli_copyPath(debugger.config.neogeo.libretro.toolchainPrefix, sizeof(debugger.config.neogeo.libretro.toolchainPrefix), debugger.cliConfig.neogeo.libretro.toolchainPrefix);
+    }
+    if (debugger.cliConfig.neogeo.systemType[0]) {
+        strncpy(debugger.config.neogeo.systemType,
+                debugger.cliConfig.neogeo.systemType,
+                sizeof(debugger.config.neogeo.systemType) - 1);
+        debugger.config.neogeo.systemType[sizeof(debugger.config.neogeo.systemType) - 1] = '\0';
     }
     if (debugger.cliConfig.neogeo.libretro.audioBufferMs > 0) {
         debugger.config.neogeo.libretro.audioBufferMs = debugger.cliConfig.neogeo.libretro.audioBufferMs;

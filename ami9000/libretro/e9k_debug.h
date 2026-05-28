@@ -73,13 +73,34 @@ size_t
 e9k_debug_read_regs(uint32_t *out, size_t cap);
 
 size_t
+e9k_debug_read_processors(e9k_debug_processor_info_t *out, size_t cap);
+
+size_t
+e9k_debug_read_processor_regs(uint32_t processorId, e9k_debug_processor_reg_t *out, size_t cap);
+
+size_t
 e9k_debug_read_memory(uint32_t addr, uint8_t *out, size_t cap);
+
+size_t
+e9k_debug_read_processor_memory(uint32_t processorId, uint32_t addr, uint8_t *out, size_t cap);
 
 int
 e9k_debug_write_memory(uint32_t addr, uint32_t value, size_t size);
 
+int
+e9k_debug_write_processor_memory(uint32_t processorId, uint32_t addr, uint32_t value, size_t size);
+
 size_t
 e9k_debug_disassemble_quick(uint32_t pc, char *out, size_t cap);
+
+size_t
+e9k_debug_disassemble_processor_quick(uint32_t processorId, uint32_t pc, char *out, size_t cap);
+
+int
+e9k_debug_suppress_processor_breakpoint_at_pc(uint32_t processorId);
+
+int
+e9k_debug_step_processor_instr(uint32_t processorId);
 
 uint64_t
 e9k_debug_read_cycle_count(void);
@@ -89,6 +110,12 @@ e9k_debug_add_breakpoint(uint32_t addr);
 
 void
 e9k_debug_remove_breakpoint(uint32_t addr);
+
+void
+e9k_debug_add_processor_breakpoint(uint32_t processorId, uint32_t addr);
+
+void
+e9k_debug_remove_processor_breakpoint(uint32_t processorId, uint32_t addr);
 
 void
 e9k_debug_add_temp_breakpoint(uint32_t addr);

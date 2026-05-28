@@ -101,10 +101,14 @@ NOTE: Testing on Linux/Windows builds has been minimal at this stage.
 - `0xFC0008` - writing a long word to this address sets this as the base address of the .data section
 - `0xFC000C` - writing a long word to this address sets this as the base address of the .bss section
 - `0xFC0010` - writing a long word to this address sets a breakpoint at the written address
+- `0xFC0014` - write a long word as the base address of section
+- `0xFC0018` - write a long word as the type of section (`0` = text, `1` = data, `2` = bss)
+- `0xFC001C` - write a long word size of section (commits the section)
 - `0xFC0020` - write checkpoint slot index (`0-63`) for checkpoint profiling
 - `0xFC0024` - write the word `0xDEAD` to this address exits the debugger
 - `0xFC0028` - any write starts a smoke test configured with `--smoke-start-on-write` and/or a profiling session configured with `--profile-start-on-write`; does nothing otherwise
 - `0xB7E900` through `0xB7E924` - read-only 32-bit debug argument registers 0-9, set with `--debug-arg VALUE`
+- `0xB7E928` - read-only 32-bit current processor cycle count divided by 4
 - `0xFC0100` - checkpoint description array base (`uint32_t[64]`), write `description_ptr` to `0xFC0100 + index*4`
 - `0xFCxxxx` debug registers overlay ROM addresses; the `0xB7E900` argument block is mapped as an e9k-only debug peripheral outside ROM and outside the usual Zorro II fast RAM range. Other emulators or real Amiga might crash if you use these.
 
