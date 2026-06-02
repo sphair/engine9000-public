@@ -125,7 +125,7 @@ There are two complementary profiling mechanisms:
   - Checkpoints are set by the target by writing to a fake peripheral
   - Captures per-checkpoint cycle segment stats (`current/avg/min/max`)
   - Captures checkpoint write scanline (`live/avg/min/max`)
-  - Supports per-checkpoint descriptions via fake register arrays
+  - Supports segment descriptions via fake register arrays; row N uses checkpoint N+1's description
   - Optional scanline overlay can be toggled from the checkpoint panel (Neo Geo and Amiga)
 
 ### Timeline / Rewind-Oriented Tools

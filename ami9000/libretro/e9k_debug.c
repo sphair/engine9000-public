@@ -142,6 +142,8 @@ static uint64_t e9k_debug_protectEnabledMask = 0;
 
 static int e9k_debug_checkpointEnabled = 0;
 static e9k_debug_checkpoint_t e9k_debug_checkpoints[E9K_CHECKPOINT_COUNT];
+static e9k_debug_checkpoint_t e9k_debug_publishedCheckpoints[E9K_CHECKPOINT_COUNT];
+static int e9k_debug_hasPublishedCheckpoints = 0;
 #if E9K_HACK_CHECKPOINTS
 static int e9k_debug_checkpointActive = -1;
 static uint64_t e9k_debug_checkpointLastCycle = 0;
@@ -149,6 +151,13 @@ static uint64_t e9k_debug_checkpointLastCycle = 0;
 static e9k_debug_ami_video_line_state_t e9k_debug_amiVideoLineStates[MAXVPOS];
 
 static int e9k_debug_profilerEnabled = 0;
+
+static void
+e9k_debug_publish_checkpoints(void)
+{
+	memcpy(e9k_debug_publishedCheckpoints, e9k_debug_checkpoints, sizeof(e9k_debug_checkpoints));
+	e9k_debug_hasPublishedCheckpoints = 1;
+}
 
 // Minimal PC-sampling profiler used by e9k-debugger. The debugger resolves PCs to symbols/lines.
 // We stream aggregated PC hits as JSON in e9k_debug_profiler_stream_next(), matching geo9000.
@@ -2940,7 +2949,11 @@ e9k_debug_read_checkpoints(e9k_debug_checkpoint_t *out, size_t cap)
 		count = maxEntries;
 	}
 
-	memcpy(out, e9k_debug_checkpoints, count * sizeof(out[0]));
+	if (e9k_debug_hasPublishedCheckpoints) {
+		memcpy(out, e9k_debug_publishedCheckpoints, count * sizeof(out[0]));
+	} else {
+		memcpy(out, e9k_debug_checkpoints, count * sizeof(out[0]));
+	}
 	return count * sizeof(out[0]);
 }
 
@@ -2948,6 +2961,8 @@ E9K_DEBUG_EXPORT void
 e9k_debug_reset_checkpoints(void)
 {
 	memset(e9k_debug_checkpoints, 0, sizeof(e9k_debug_checkpoints));
+	memset(e9k_debug_publishedCheckpoints, 0, sizeof(e9k_debug_publishedCheckpoints));
+	e9k_debug_hasPublishedCheckpoints = 0;
 #if E9K_HACK_CHECKPOINTS
 	e9k_debug_checkpointActive = -1;
 	e9k_debug_checkpointLastCycle = 0;
@@ -3006,6 +3021,10 @@ e9k_debug_checkpoint_write(uint8_t index)
 		prev->average = prev->count ? (prev->accumulator / prev->count) : 0;
 	}
 
+	if (index == 0 && e9k_debug_checkpointActive >= 0) {
+		e9k_debug_publish_checkpoints();
+	}
+
 	{
 		e9k_debug_checkpoint_t *cur = &e9k_debug_checkpoints[index];
 		if (cur->scanlineCount == 0) {
@@ -3051,6 +3070,7 @@ e9k_debug_checkpoint_set_name_from_pointer(uint8_t index, uint32_t ptrValue)
 	}
 
 	memcpy(e9k_debug_checkpoints[index].name, name, sizeof(name));
+	memcpy(e9k_debug_publishedCheckpoints[index].name, name, sizeof(name));
 }
 #endif
 

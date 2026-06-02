@@ -9,6 +9,7 @@
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #include "profile_checkpoints.h"
@@ -37,6 +38,7 @@ static char profile_checkpoints_tipReset[96];
 static char profile_checkpoints_tipDump[96];
 static int profile_checkpoints_showScanlines = 0;
 static int profile_checkpoints_showScanlineOverlay = 0;
+static uint64_t profile_checkpoints_overlaySelectedMask = 0;
 static const uint8_t profile_checkpoints_overlayColors[][3] = {
     {255, 0, 0},
     {0, 180, 255},
@@ -59,12 +61,102 @@ static void profile_checkpoints_refresh(profile_checkpoints_state_t *st);
 static int  profile_checkpoints_preferredHeight(e9ui_component_t *self, e9ui_context_t *ctx, int availW);
 static void profile_checkpoints_layout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_rect_t bounds);
 static void profile_checkpoints_render(e9ui_component_t *self, e9ui_context_t *ctx);
+static void profile_checkpoints_onListClick(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_mouse_event_t *mouseEv);
 static void profile_checkpoints_onToggle(e9ui_context_t *ctx, void *user);
 static void profile_checkpoints_onReset(e9ui_context_t *ctx, void *user);
 static void profile_checkpoints_onDump(e9ui_context_t *ctx, void *user);
 static void profile_checkpoints_onToggleMode(e9ui_context_t *ctx, void *user);
 static void profile_checkpoints_onToggleOverlay(e9ui_context_t *ctx, void *user);
 static void profile_checkpoints_contentSize(profile_checkpoints_state_t *st, e9ui_context_t *ctx, int *contentWidth, int *contentHeight);
+static const char *profile_checkpoints_entryDisplayName(const e9k_debug_checkpoint_t *entries, size_t entryCount, size_t index);
+static int profile_checkpoints_entryIsVisible(const e9k_debug_checkpoint_t *entries, size_t entryCount, size_t index);
+static int profile_checkpoints_entryHasDisplayName(const e9k_debug_checkpoint_t *entries, size_t entryCount, size_t index);
+static int profile_checkpoints_entryHasData(const e9k_debug_checkpoint_t *entries, size_t entryCount, size_t index);
+static int profile_checkpoints_entriesHaveNames(const e9k_debug_checkpoint_t *entries, size_t entryCount);
+static int profile_checkpoints_overlayEntryIsSelected(size_t index);
+static void profile_checkpoints_drawSwatchCheck(e9ui_context_t *ctx, SDL_Rect swatch);
+
+static const char *
+profile_checkpoints_entryDisplayName(const e9k_debug_checkpoint_t *entries, size_t entryCount, size_t index)
+{
+    if (!entries || index + 1 >= entryCount || index >= E9K_CHECKPOINT_COUNT) {
+        return "";
+    }
+    return entries[index + 1].name;
+}
+
+static int
+profile_checkpoints_entryIsVisible(const e9k_debug_checkpoint_t *entries, size_t entryCount, size_t index)
+{
+    if (!entries || index >= entryCount || index + 1 >= entryCount) {
+        return 0;
+    }
+    if (profile_checkpoints_entriesHaveNames(entries, entryCount)) {
+        return profile_checkpoints_entryHasDisplayName(entries, entryCount, index);
+    }
+    return profile_checkpoints_entryHasData(entries, entryCount, index);
+}
+
+static int
+profile_checkpoints_entryHasDisplayName(const e9k_debug_checkpoint_t *entries, size_t entryCount, size_t index)
+{
+    const char *displayName = profile_checkpoints_entryDisplayName(entries, entryCount, index);
+    return displayName[0] != '\0';
+}
+
+static int
+profile_checkpoints_entryHasData(const e9k_debug_checkpoint_t *entries, size_t entryCount, size_t index)
+{
+    if (!entries || index >= entryCount) {
+        return 0;
+    }
+    return entries[index].count != 0 || entries[index].scanlineCount != 0;
+}
+
+static int
+profile_checkpoints_entriesHaveNames(const e9k_debug_checkpoint_t *entries, size_t entryCount)
+{
+    if (!entries) {
+        return 0;
+    }
+    for (size_t i = 0; i < entryCount; ++i) {
+        if (entries[i].name[0] != '\0') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int
+profile_checkpoints_overlayEntryIsSelected(size_t index)
+{
+    if (index >= 64) {
+        return 0;
+    }
+    return (profile_checkpoints_overlaySelectedMask & (UINT64_C(1) << index)) ? 1 : 0;
+}
+
+static void
+profile_checkpoints_drawSwatchCheck(e9ui_context_t *ctx, SDL_Rect swatch)
+{
+    if (!ctx || !ctx->renderer) {
+        return;
+    }
+    int innerPad = e9ui_scale_px(ctx, 2);
+    if (innerPad <= 0) {
+        innerPad = 2;
+    }
+    SDL_Rect outline = {
+        swatch.x + innerPad,
+        swatch.y + innerPad,
+        swatch.w - (innerPad * 2),
+        swatch.h - (innerPad * 2)
+    };
+    if (outline.w > 0 && outline.h > 0) {
+        SDL_SetRenderDrawColor(ctx->renderer, 120, 220, 120, 255);
+        SDL_RenderDrawRect(ctx->renderer, &outline);
+    }
+}
 
 static void
 profile_checkpoints_refreshModeButton(void)
@@ -89,6 +181,7 @@ profile_checkpoints_refreshOverlayButton(void)
         e9ui_button_setLabel(profile_checkpoints_btnOverlay, "Overlay On");
         e9ui_button_setTheme(profile_checkpoints_btnOverlay, e9ui_theme_button_preset_profile_active());
     } else {
+        profile_checkpoints_overlaySelectedMask = 0;
         e9ui_button_setLabel(profile_checkpoints_btnOverlay, "Overlay Off");
         e9ui_button_clearTheme(profile_checkpoints_btnOverlay);
     }
@@ -182,7 +275,7 @@ profile_checkpoints_refresh(profile_checkpoints_state_t *st)
     }
     st->visibleCount = 0;
     for (size_t i = 0; i < st->entryCount; ++i) {
-        if (st->entries[i].count > 0 || st->entries[i].scanlineCount > 0 || st->entries[i].name[0] != '\0') {
+        if (profile_checkpoints_entryIsVisible(st->entries, st->entryCount, i)) {
             st->visibleCount++;
         }
     }
@@ -224,7 +317,7 @@ profile_checkpoints_contentSize(profile_checkpoints_state_t *st, e9ui_context_t 
             }
         } else {
             for (size_t i = 0; i < st->entryCount; ++i) {
-                if (st->entries[i].count == 0 && st->entries[i].scanlineCount == 0 && st->entries[i].name[0] == '\0') {
+                if (!profile_checkpoints_entryIsVisible(st->entries, st->entryCount, i)) {
                     continue;
                 }
 
@@ -243,7 +336,7 @@ profile_checkpoints_contentSize(profile_checkpoints_state_t *st, e9ui_context_t 
                     snprintf(line, sizeof(line),
                              "%02zu %-16.16s live:%llu avg:%llu min:%llu max:%llu",
                              i,
-                             st->entries[i].name,
+                             profile_checkpoints_entryDisplayName(st->entries, st->entryCount, i),
                              (unsigned long long)live,
                              (unsigned long long)avg,
                              (unsigned long long)min,
@@ -252,7 +345,7 @@ profile_checkpoints_contentSize(profile_checkpoints_state_t *st, e9ui_context_t 
                     snprintf(line, sizeof(line),
                              "%02zu %-16.16s avg:%llu min:%llu max:%llu",
                              i,
-                             st->entries[i].name,
+                             profile_checkpoints_entryDisplayName(st->entries, st->entryCount, i),
                              (unsigned long long)avg,
                              (unsigned long long)min,
                              (unsigned long long)max);
@@ -355,7 +448,7 @@ profile_checkpoints_render(e9ui_component_t *self, e9ui_context_t *ctx)
     }
 
     for (size_t i = 0; i < st->entryCount; ++i) {
-        if (st->entries[i].count == 0 && st->entries[i].scanlineCount == 0 && st->entries[i].name[0] == '\0') {
+        if (!profile_checkpoints_entryIsVisible(st->entries, st->entryCount, i)) {
             continue;
         }
 
@@ -375,7 +468,7 @@ profile_checkpoints_render(e9ui_component_t *self, e9ui_context_t *ctx)
             snprintf(line, sizeof(line),
                      "%02zu %-16.16s live:%llu avg:%llu min:%llu max:%llu",
                      i,
-                     st->entries[i].name,
+                     profile_checkpoints_entryDisplayName(st->entries, st->entryCount, i),
                      (unsigned long long)live,
                      (unsigned long long)avg,
                      (unsigned long long)min,
@@ -384,7 +477,7 @@ profile_checkpoints_render(e9ui_component_t *self, e9ui_context_t *ctx)
             snprintf(line, sizeof(line),
                      "%02zu %-16.16s avg:%llu min:%llu max:%llu",
                      i,
-                     st->entries[i].name,
+                     profile_checkpoints_entryDisplayName(st->entries, st->entryCount, i),
                      (unsigned long long)avg,
                      (unsigned long long)min,
                      (unsigned long long)max);
@@ -406,6 +499,9 @@ profile_checkpoints_render(e9ui_component_t *self, e9ui_context_t *ctx)
             SDL_RenderFillRect(ctx->renderer, &swatch);
             SDL_SetRenderDrawColor(ctx->renderer, 8, 8, 8, 255);
             SDL_RenderDrawRect(ctx->renderer, &swatch);
+            if (profile_checkpoints_showScanlineOverlay && profile_checkpoints_overlayEntryIsSelected(i)) {
+                profile_checkpoints_drawSwatchCheck(ctx, swatch);
+            }
             textX += swatchSize + 6;
             SDL_Rect rect = { textX, y, tw, th };
             SDL_RenderCopy(ctx->renderer, tex, NULL, &rect);
@@ -502,9 +598,60 @@ profile_checkpoints_list_makeComponent(void)
     comp->preferredHeight = profile_checkpoints_preferredHeight;
     comp->layout = profile_checkpoints_layout;
     comp->render = profile_checkpoints_render;
+    comp->onClick = profile_checkpoints_onListClick;
     comp->dtor = profile_checkpoints_listDtor;
 
     return comp;
+}
+
+static void
+profile_checkpoints_onListClick(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_mouse_event_t *mouseEv)
+{
+    if (!self || !ctx || !self->state || !mouseEv || mouseEv->button != E9UI_MOUSE_BUTTON_LEFT) {
+        return;
+    }
+    profile_checkpoints_state_t *st = (profile_checkpoints_state_t*)self->state;
+    profile_checkpoints_refresh(st);
+    if (st->visibleCount == 0) {
+        return;
+    }
+
+    TTF_Font *font = e9ui->theme.text.source ? e9ui->theme.text.source : ctx->font;
+    int lineHeight = font ? TTF_FontHeight(font) : 16;
+    if (lineHeight <= 0) {
+        lineHeight = 16;
+    }
+    int padX = e9ui_scale_px(ctx, PROFILE_LIST_PADDING_X);
+    int padY = e9ui_scale_px(ctx, PROFILE_LIST_PADDING_Y);
+    int swatchSize = lineHeight - 4;
+    if (swatchSize < 6) {
+        swatchSize = 6;
+    }
+    int swatchX = self->bounds.x + padX;
+    int lineIndex = 0;
+
+    for (size_t i = 0; i < st->entryCount && i < 64; ++i) {
+        if (!profile_checkpoints_entryIsVisible(st->entries, st->entryCount, i)) {
+            continue;
+        }
+        int y = self->bounds.y + padY + lineIndex * lineHeight;
+        int swatchY = y + (lineHeight - swatchSize) / 2;
+        if (mouseEv->x >= swatchX && mouseEv->x < swatchX + swatchSize &&
+            mouseEv->y >= swatchY && mouseEv->y < swatchY + swatchSize) {
+            if (!profile_checkpoints_showScanlineOverlay) {
+                profile_checkpoints_showScanlineOverlay = 1;
+                profile_checkpoints_refreshOverlayButton();
+            }
+            uint64_t bit = UINT64_C(1) << i;
+            if (profile_checkpoints_overlaySelectedMask & bit) {
+                profile_checkpoints_overlaySelectedMask &= ~bit;
+            } else {
+                profile_checkpoints_overlaySelectedMask |= bit;
+            }
+            return;
+        }
+        lineIndex++;
+    }
 }
 
 static void
@@ -546,6 +693,9 @@ profile_checkpoints_onToggleOverlay(e9ui_context_t *ctx, void *user)
     (void)ctx;
     (void)user;
     profile_checkpoints_showScanlineOverlay = profile_checkpoints_showScanlineOverlay ? 0 : 1;
+    if (!profile_checkpoints_showScanlineOverlay) {
+        profile_checkpoints_overlaySelectedMask = 0;
+    }
     profile_checkpoints_refreshOverlayButton();
 }
 
@@ -591,12 +741,12 @@ profile_checkpoints_dump(void)
            "max");
     printf("--- ---------------- | ---------- ---------- ---------- | ---------- ---------- ----------\n");
     for (size_t i = 0; i < entryCount; ++i) {
-        if (entries[i].count == 0 && entries[i].scanlineCount == 0 && entries[i].name[0] == '\0') {
+        if (!profile_checkpoints_entryIsVisible(entries, entryCount, i)) {
             continue;
         }
         printf("%02zu  %-16.16s | %10llu %10llu %10llu | %10llu %10llu %10llu\n",
                i,
-               entries[i].name,
+               profile_checkpoints_entryDisplayName(entries, entryCount, i),
                (unsigned long long)entries[i].average,
                (unsigned long long)entries[i].minimum,
                (unsigned long long)entries[i].maximum,
@@ -608,9 +758,8 @@ profile_checkpoints_dump(void)
 }
 
 void
-profile_checkpoints_renderScanlineOverlay(e9ui_context_t *ctx, const SDL_Rect *dst)
+profile_checkpoints_renderScanlineOverlay(e9ui_context_t *ctx, const SDL_Rect *dst, uint64_t scanlineCount)
 {
-    const uint64_t scanlineCount = 264u;
     const int totalRasterLines = 256;
     const int preActiveLines = 16;
     typedef struct profile_checkpoint_overlay_boundary {
@@ -622,6 +771,9 @@ profile_checkpoints_renderScanlineOverlay(e9ui_context_t *ctx, const SDL_Rect *d
         return;
     }
     if (dst->w <= 0 || dst->h <= 0) {
+        return;
+    }
+    if (scanlineCount == 0) {
         return;
     }
 
@@ -651,31 +803,35 @@ profile_checkpoints_renderScanlineOverlay(e9ui_context_t *ctx, const SDL_Rect *d
         return;
     }
 
-    int cropT = 8;
-    int cropB = 8;
-    e9k_debug_sprite_state_t spriteState;
-    if (libretro_host_neogeo_getSpriteState(&spriteState)) {
-        cropT = spriteState.crop_t;
-        cropB = spriteState.crop_b;
-    }
-    if (cropT < 0) {
-        cropT = 0;
-    }
-    if (cropB < 0) {
-        cropB = 0;
-    }
-    if (cropT > totalRasterLines) {
-        cropT = totalRasterLines;
-    }
-    if (cropB > totalRasterLines) {
-        cropB = totalRasterLines;
-    }
+    int visibleStartLine = 0;
+    int visibleHeightLines = (int)scanlineCount;
+    if (scanlineCount == 264u) {
+        int cropT = 8;
+        int cropB = 8;
+        e9k_debug_sprite_state_t spriteState;
+        if (libretro_host_neogeo_getSpriteState(&spriteState)) {
+            cropT = spriteState.crop_t;
+            cropB = spriteState.crop_b;
+        }
+        if (cropT < 0) {
+            cropT = 0;
+        }
+        if (cropB < 0) {
+            cropB = 0;
+        }
+        if (cropT > totalRasterLines) {
+            cropT = totalRasterLines;
+        }
+        if (cropB > totalRasterLines) {
+            cropB = totalRasterLines;
+        }
 
-    int visibleStartLine = preActiveLines + cropT;
-    int visibleHeightLines = totalRasterLines - (preActiveLines + cropT + cropB);
-    if (visibleHeightLines <= 0) {
-        visibleStartLine = 24;
-        visibleHeightLines = 224;
+        visibleStartLine = preActiveLines + cropT;
+        visibleHeightLines = totalRasterLines - (preActiveLines + cropT + cropB);
+        if (visibleHeightLines <= 0) {
+            visibleStartLine = 24;
+            visibleHeightLines = 224;
+        }
     }
 
     SDL_BlendMode prevBlend = SDL_BLENDMODE_BLEND;
@@ -696,6 +852,12 @@ profile_checkpoints_renderScanlineOverlay(e9ui_context_t *ctx, const SDL_Rect *d
         }
 
         size_t checkpointIndex = boundaries[i].checkpointIndex;
+        if (!profile_checkpoints_entryIsVisible(entries, entryCount, checkpointIndex)) {
+            continue;
+        }
+        if (profile_checkpoints_overlaySelectedMask != 0 && !profile_checkpoints_overlayEntryIsSelected(checkpointIndex)) {
+            continue;
+        }
         const uint8_t *color = profile_checkpoints_overlayColors[checkpointIndex % (sizeof(profile_checkpoints_overlayColors) / sizeof(profile_checkpoints_overlayColors[0]))];
         SDL_SetRenderDrawColor(ctx->renderer, color[0], color[1], color[2], 128);
 
@@ -728,6 +890,12 @@ profile_checkpoints_renderScanlineOverlay(e9ui_context_t *ctx, const SDL_Rect *d
         uint64_t borderLine = boundaries[i].scanline;
         int y = dst->y + (int)((((int64_t)borderLine - (int64_t)visibleStartLine) * (int64_t)dst->h) / (int64_t)visibleHeightLines);
         size_t checkpointIndex = boundaries[i].checkpointIndex;
+        if (!profile_checkpoints_entryIsVisible(entries, entryCount, checkpointIndex)) {
+            continue;
+        }
+        if (profile_checkpoints_overlaySelectedMask != 0 && !profile_checkpoints_overlayEntryIsSelected(checkpointIndex)) {
+            continue;
+        }
         const uint8_t *color = profile_checkpoints_overlayColors[checkpointIndex % (sizeof(profile_checkpoints_overlayColors) / sizeof(profile_checkpoints_overlayColors[0]))];
         SDL_SetRenderDrawColor(ctx->renderer, color[0], color[1], color[2], 240);
         SDL_RenderDrawLine(ctx->renderer, dst->x, y, dst->x + dst->w - 1, y);

@@ -880,8 +880,16 @@ amiga_custom_regs_tooltip_decodeFmode(uint16_t value,
 {
     unsigned bplFetch = (unsigned)(value & 0x3u);
     unsigned sprFetch = (unsigned)((value >> 2) & 0x3u);
-    unsigned scan2 = (unsigned)((value >> 14) & 0x1u);
+    unsigned bscan2 = (unsigned)((value >> 14) & 0x1u);
+    unsigned sscan2 = (unsigned)((value >> 15) & 0x1u);
+    unsigned ignored = (unsigned)(value & 0x3ff0u);
 
+    const char *bplWidth = "16-bit";
+    if (bplFetch == 1u || bplFetch == 2u) {
+        bplWidth = "32-bit";
+    } else if (bplFetch == 3u) {
+        bplWidth = "64-bit";
+    }
     const char *sprWidth = "16px";
     if (sprFetch == 1u || sprFetch == 2u) {
         sprWidth = "32px";
@@ -895,9 +903,33 @@ amiga_custom_regs_tooltip_decodeFmode(uint16_t value,
                                          bplFetch,
                                          sprFetch);
     amiga_custom_regs_tooltip_appendLine(builder,
-                                         "Sprite fetch width=%s SSCAN2=%u",
-                                         sprWidth,
-                                         scan2);
+                                         "Bitplane fetch=%s Sprite width=%s",
+                                         bplWidth,
+                                         sprWidth);
+    amiga_custom_regs_tooltip_appendLine(builder,
+                                         "BSCAN2=%u bitplane SSCAN2=%u sprite",
+                                         bscan2,
+                                         sscan2);
+    if (ignored != 0u) {
+        amiga_custom_regs_tooltip_appendLine(builder,
+                                             "Ignored bits=$%04x (core masks to $%04x)",
+                                             ignored,
+                                             (unsigned)(value & 0xc00fu));
+    }
+
+    if (bplFetch == 1u) {
+        amiga_custom_regs_tooltip_appendLine(builder, "BPLF=1: 32-bit, BPLxDAT duplicated.");
+    } else if (bplFetch == 2u) {
+        amiga_custom_regs_tooltip_appendLine(builder, "BPLF=2: 32-bit, previous bus word then data.");
+    } else if (bplFetch == 3u) {
+        amiga_custom_regs_tooltip_appendLine(builder, "BPLF=3: 64-bit, previous bus word then data repeated.");
+    }
+
+    if (sprFetch == 1u || sprFetch == 2u) {
+        amiga_custom_regs_tooltip_appendLine(builder, "SPRF=%u: 32-pixel sprite fetch.", sprFetch);
+    } else if (sprFetch == 3u) {
+        amiga_custom_regs_tooltip_appendLine(builder, "SPRF=3: 64-pixel sprite fetch.");
+    }
 }
 
 static void

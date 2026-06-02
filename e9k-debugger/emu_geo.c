@@ -728,7 +728,7 @@ emu_geo_translateKey(SDL_Keycode key)
 void
 emu_geo_render(e9ui_context_t *ctx, SDL_Rect* dst)    
 {
-  profile_checkpoints_renderScanlineOverlay(ctx, dst);
+  profile_checkpoints_renderScanlineOverlay(ctx, dst, 264u);
 
   if (emu_geo_histogramEnabled && emu_geo_spriteShadowReady) {
     emu_e9k_spriteOverlayRender(ctx->renderer, dst, &emu_geo_spriteShadow);
