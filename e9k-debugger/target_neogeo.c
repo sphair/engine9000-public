@@ -43,9 +43,30 @@ typedef struct target_neogeo_romfolder_cache {
 } target_neogeo_romfolder_cache_t;
 
 static target_neogeo_romfolder_cache_t target_neogeo_romFolderCache;
+static char target_neogeo_activeRomMemorySpace[16];
+static char target_neogeo_activeRomMemoryAddress[32];
+static char target_neogeo_activeRomMemorySearch[128];
 
 static const char *
 target_neogeo_defaultCorePath(void);
+
+static const char *
+target_neogeo_memorySpaceOptionKey(void)
+{
+    return "e9k_debugger_neogeo_memory_space";
+}
+
+static const char *
+target_neogeo_memoryAddressOptionKey(void)
+{
+    return "e9k_debugger_neogeo_memory_address";
+}
+
+static const char *
+target_neogeo_memorySearchOptionKey(void)
+{
+    return "e9k_debugger_neogeo_memory_search";
+}
 
 static int
 target_neogeo_romPathIsZip(const char *path)
@@ -1013,6 +1034,84 @@ target_neogeo_controllerMapButton(SDL_GameControllerButton button, unsigned *out
   return 0;
 }
 
+static size_t
+target_neogeo_romConfigCustomOptionCount(void)
+{
+    return 3;
+}
+
+static const char *
+target_neogeo_romConfigCustomOptionKeyAt(size_t index)
+{
+    if (index == 0) {
+        return target_neogeo_memorySpaceOptionKey();
+    }
+    if (index == 1) {
+        return target_neogeo_memoryAddressOptionKey();
+    }
+    if (index == 2) {
+        return target_neogeo_memorySearchOptionKey();
+    }
+    return NULL;
+}
+
+static const char *
+target_neogeo_romConfigGetActiveCustomOptionValue(const char *key)
+{
+    if (!key) {
+        return NULL;
+    }
+    if (strcmp(key, target_neogeo_memorySpaceOptionKey()) == 0) {
+        return target_neogeo_activeRomMemorySpace[0] ? target_neogeo_activeRomMemorySpace : NULL;
+    }
+    if (strcmp(key, target_neogeo_memoryAddressOptionKey()) == 0) {
+        return target_neogeo_activeRomMemoryAddress[0] ? target_neogeo_activeRomMemoryAddress : NULL;
+    }
+    if (strcmp(key, target_neogeo_memorySearchOptionKey()) == 0) {
+        return target_neogeo_activeRomMemorySearch[0] ? target_neogeo_activeRomMemorySearch : NULL;
+    }
+    return NULL;
+}
+
+static void
+target_neogeo_romConfigSetActiveCustomOptionValue(const char *key, const char *value)
+{
+    if (!key) {
+        return;
+    }
+    if (strcmp(key, target_neogeo_memorySpaceOptionKey()) == 0) {
+        strutil_strlcpy(target_neogeo_activeRomMemorySpace, sizeof(target_neogeo_activeRomMemorySpace), value ? value : "");
+        return;
+    }
+    if (strcmp(key, target_neogeo_memoryAddressOptionKey()) == 0) {
+        strutil_strlcpy(target_neogeo_activeRomMemoryAddress, sizeof(target_neogeo_activeRomMemoryAddress), value ? value : "");
+        return;
+    }
+    if (strcmp(key, target_neogeo_memorySearchOptionKey()) == 0) {
+        strutil_strlcpy(target_neogeo_activeRomMemorySearch, sizeof(target_neogeo_activeRomMemorySearch), value ? value : "");
+    }
+}
+
+static void
+target_neogeo_romConfigClearActiveCustomOptions(void)
+{
+    target_neogeo_activeRomMemorySpace[0] = '\0';
+    target_neogeo_activeRomMemoryAddress[0] = '\0';
+    target_neogeo_activeRomMemorySearch[0] = '\0';
+}
+
+static int
+target_neogeo_memoryPanelOptions(target_memory_panel_options_t *outOptions)
+{
+    if (!outOptions) {
+        return 0;
+    }
+    outOptions->spaceKey = target_neogeo_memorySpaceOptionKey();
+    outOptions->addressKey = target_neogeo_memoryAddressOptionKey();
+    outOptions->searchKey = target_neogeo_memorySearchOptionKey();
+    return 1;
+}
+
 static target_iface_t _target_neogeo = {
     .name = "NEO GEO",
     .dasm = &dasm_geo_iface,
@@ -1052,10 +1151,16 @@ static target_iface_t _target_neogeo = {
     .memoryGetLimits = target_neogeo_memoryGetLimits,
     .memoryGetSpaces = target_neogeo_memoryGetSpaces,
     .memoryTrackGetRanges = target_neogeo_memoryTrackGetRanges,
+    .memoryPanelOptions = target_neogeo_memoryPanelOptions,
     .registersReadExtra = target_neogeo_registersReadExtra,
     .getBadgeTexture = target_neogeo_getBadgeTexture,
     .configControllerPorts = target_neogeo_configControllerPorts,
     .controllerMapButton = target_neogeo_controllerMapButton,
+    .romConfigCustomOptionCount = target_neogeo_romConfigCustomOptionCount,
+    .romConfigCustomOptionKeyAt = target_neogeo_romConfigCustomOptionKeyAt,
+    .romConfigGetActiveCustomOptionValue = target_neogeo_romConfigGetActiveCustomOptionValue,
+    .romConfigSetActiveCustomOptionValue = target_neogeo_romConfigSetActiveCustomOptionValue,
+    .romConfigClearActiveCustomOptions = target_neogeo_romConfigClearActiveCustomOptions,
 
 };
 

@@ -47,6 +47,13 @@ typedef struct target_memory_space
     uint32_t processorId;
 } target_memory_space_t;
 
+typedef struct target_memory_panel_options
+{
+    const char *spaceKey;
+    const char *addressKey;
+    const char *searchKey;
+} target_memory_panel_options_t;
+
 typedef struct target_iface
 {
     const char *name;
@@ -100,6 +107,7 @@ typedef struct target_iface
     int (*memoryGetLimits)(uint32_t *outMinAddr, uint32_t *outMaxAddr);
     int (*memoryGetSpaces)(target_memory_space_t *outSpaces, size_t cap, size_t *outCount);
     int (*memoryTrackGetRanges)(target_memory_range_t *outRanges, size_t cap, size_t *outCount);
+    int (*memoryPanelOptions)(target_memory_panel_options_t *outOptions);
     int (*registersReadExtra)(const char **outTitle, e9k_debug_processor_reg_t *outRegs, size_t cap, size_t *outCount);
     SDL_Texture *(*getBadgeTexture)(SDL_Renderer *renderer, struct target_iface *t, int *outW, int *outH);
     void (*configControllerPorts)(void);

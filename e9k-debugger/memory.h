@@ -13,3 +13,5 @@
 e9ui_component_t *
 memory_makeComponent(void);
 
+void
+memory_restorePersistentState(void);

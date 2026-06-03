@@ -29,6 +29,7 @@
 #include "e9ui_step_buttons.h"
 #include "e9ui_scrollbar.h"
 #include "target.h"
+#include "rom_config.h"
 #include "hex_byte_color.h"
 #include "inline_edit_pause.h"
 #include "libretro_host.h"
@@ -105,6 +106,8 @@ memory_inlineEditCommit(memory_view_state_t *st, e9ui_context_t *ctx);
 
 static int
 memory_beginInlineEditAtPoint(e9ui_component_t *self, e9ui_context_t *ctx, memory_view_state_t *st, int mx, int my);
+
+static memory_view_state_t *memory_activeState = NULL;
 
 static int
 memory_parseU64SmartHex(const char *text, unsigned long long *outValue, char **outEnd)
@@ -186,6 +189,68 @@ memory_getSpaces(target_memory_space_t *outSpaces, size_t cap, size_t *outCount)
 }
 
 static int
+memory_getPanelOptions(target_memory_panel_options_t *outOptions)
+{
+    if (!outOptions) {
+        return 0;
+    }
+    memset(outOptions, 0, sizeof(*outOptions));
+    if (!target || !target->memoryPanelOptions) {
+        return 0;
+    }
+    return target->memoryPanelOptions(outOptions);
+}
+
+static const char *
+memory_activeOptionValue(const char *key)
+{
+    if (!key || !*key || !target || !target->romConfigGetActiveCustomOptionValue) {
+        return NULL;
+    }
+    return target->romConfigGetActiveCustomOptionValue(key);
+}
+
+static void
+memory_setActiveOptionValue(const char *key, const char *value, int save)
+{
+    if (!key || !*key || !target || !target->romConfigSetActiveCustomOptionValue) {
+        return;
+    }
+    target->romConfigSetActiveCustomOptionValue(key, value);
+    if (save) {
+        rom_config_saveCurrentRomSettings();
+    }
+}
+
+static void
+memory_copySpaceValue(memory_view_state_t *st, const char *value)
+{
+    if (!st || !value) {
+        return;
+    }
+    size_t len = strlen(value);
+    if (len >= sizeof(st->spaceValue)) {
+        len = sizeof(st->spaceValue) - 1;
+    }
+    memcpy(st->spaceValue, value, len);
+    st->spaceValue[len] = '\0';
+}
+
+static int
+memory_spaceValueExists(const target_memory_space_t *spaces, size_t count, const char *value)
+{
+    if (!spaces || !value || !*value) {
+        return 0;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (spaces[i].value && strcmp(spaces[i].value, value) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int
 memory_getSelectedSpace(const memory_view_state_t *st, target_memory_space_t *outSpace)
 {
     target_memory_space_t spaces[MEMORY_MAX_SPACES];
@@ -252,6 +317,67 @@ memory_syncTextboxFromBase(memory_view_state_t *st)
     char addrText[32];
     snprintf(addrText, sizeof(addrText), "0x%0*X", digits, st->base & maxAddr);
     e9ui_textbox_setText(st->addressBox, addrText);
+}
+
+static void
+memory_persistBase(memory_view_state_t *st, int save)
+{
+    if (!st) {
+        return;
+    }
+    target_memory_panel_options_t options;
+    if (!memory_getPanelOptions(&options) || !options.addressKey) {
+        return;
+    }
+    target_memory_space_t space;
+    int digits = 6;
+    uint32_t maxAddr = 0x00ffffffu;
+    if (memory_getSelectedSpace(st, &space)) {
+        digits = space.addressDigits > 0 ? space.addressDigits : 6;
+        maxAddr = space.maxAddr;
+    }
+    char addrText[32];
+    snprintf(addrText, sizeof(addrText), "0x%0*X", digits, st->base & maxAddr);
+    memory_setActiveOptionValue(options.addressKey, addrText, save);
+}
+
+static void
+memory_persistAddressText(memory_view_state_t *st, int save)
+{
+    if (!st || !st->addressBox) {
+        return;
+    }
+    target_memory_panel_options_t options;
+    if (!memory_getPanelOptions(&options) || !options.addressKey) {
+        return;
+    }
+    memory_setActiveOptionValue(options.addressKey, e9ui_textbox_getText(st->addressBox), save);
+}
+
+static void
+memory_persistSpace(memory_view_state_t *st, int save)
+{
+    if (!st) {
+        return;
+    }
+    target_memory_panel_options_t options;
+    if (!memory_getPanelOptions(&options) || !options.spaceKey) {
+        return;
+    }
+    memory_setActiveOptionValue(options.spaceKey, st->spaceValue, save);
+}
+
+static void
+memory_persistSearch(memory_view_state_t *st, int save)
+{
+    if (!st || !st->searchBox) {
+        return;
+    }
+    target_memory_panel_options_t options;
+    if (!memory_getPanelOptions(&options) || !options.searchKey) {
+        return;
+    }
+    memory_setActiveOptionValue(options.searchKey, e9ui_textbox_getText(st->searchBox), save);
 }
 
 static unsigned int
@@ -346,6 +472,7 @@ memory_scrollRows(memory_view_state_t *st, int rows)
     }
     st->base = clamped;
     memory_syncTextboxFromBase(st);
+    memory_persistBase(st, 1);
 }
 
 static void
@@ -714,6 +841,15 @@ memory_onAddressSubmit(e9ui_context_t *ctx, void *user)
     }
     st->base = memory_clampBaseForView(st, addr);
     memory_syncTextboxFromBase(st);
+    memory_persistBase(st, 1);
+}
+
+static void
+memory_onAddressChange(e9ui_context_t *ctx, void *user)
+{
+    (void)ctx;
+    memory_view_state_t *st = (memory_view_state_t*)user;
+    memory_persistAddressText(st, 1);
 }
 
 static void
@@ -728,12 +864,7 @@ memory_onSpaceChanged(e9ui_context_t *ctx, e9ui_component_t *comp, const char *v
     if (st->inlineEditActive) {
         memory_inlineEditCancel(st, ctx);
     }
-    size_t len = strlen(value);
-    if (len >= sizeof(st->spaceValue)) {
-        len = sizeof(st->spaceValue) - 1;
-    }
-    memcpy(st->spaceValue, value, len);
-    st->spaceValue[len] = '\0';
+    memory_copySpaceValue(st, value);
     st->searchMatchValid = 0;
     st->searchMatchAddr = 0;
     st->searchMatchLen = 0;
@@ -746,6 +877,8 @@ memory_onSpaceChanged(e9ui_context_t *ctx, e9ui_component_t *comp, const char *v
     (void)maxAddr;
     st->base = memory_clampBaseForView(st, minAddr);
     memory_syncTextboxFromBase(st);
+    memory_persistSpace(st, 0);
+    memory_persistBase(st, 1);
 }
 
 static int
@@ -1156,6 +1289,7 @@ memory_onSearchChange(e9ui_context_t *ctx, void *user)
 {
     (void)ctx;
     memory_view_state_t *st = (memory_view_state_t*)user;
+    memory_persistSearch(st, 1);
     memory_runSearch(st, 1, 0);
 }
 
@@ -1164,7 +1298,68 @@ memory_onSearchSubmit(e9ui_context_t *ctx, void *user)
 {
     (void)ctx;
     memory_view_state_t *st = (memory_view_state_t*)user;
+    memory_persistSearch(st, 1);
     memory_runSearch(st, 1, 1);
+}
+
+static void
+memory_restorePersistentStateForView(memory_view_state_t *st)
+{
+    if (!st || !rom_config_activeInit) {
+        return;
+    }
+
+    target_memory_space_t spaces[MEMORY_MAX_SPACES];
+    size_t spaceCount = 0;
+    size_t spaceCap = sizeof(spaces) / sizeof(spaces[0]);
+    memset(spaces, 0, sizeof(spaces));
+    if (memory_getSpaces(spaces, spaceCap, &spaceCount) && spaceCount > spaceCap) {
+        spaceCount = spaceCap;
+    }
+
+    target_memory_panel_options_t options;
+    memset(&options, 0, sizeof(options));
+    if (!memory_getPanelOptions(&options)) {
+        return;
+    }
+
+    const char *savedSpace = memory_activeOptionValue(options.spaceKey);
+    if (memory_spaceValueExists(spaces, spaceCount, savedSpace)) {
+        memory_copySpaceValue(st, savedSpace);
+        if (st->spaceSelect) {
+            e9ui_labeled_select_setValue(st->spaceSelect, savedSpace);
+        }
+    }
+
+    const char *savedAddress = memory_activeOptionValue(options.addressKey);
+    if (savedAddress && *savedAddress) {
+        if (st->addressBox) {
+            e9ui_textbox_setText(st->addressBox, savedAddress);
+        }
+        unsigned long long savedValue = 0;
+        char *end = NULL;
+        if (memory_parseU64SmartHex(savedAddress, &savedValue, &end)) {
+            while (end && *end && isspace((unsigned char)*end)) {
+                ++end;
+            }
+            if (end && !*end && savedValue <= UINT32_MAX) {
+                st->base = memory_clampBaseForView(st, (uint32_t)savedValue);
+                memory_syncTextboxFromBase(st);
+            }
+        }
+    }
+
+    const char *savedSearch = memory_activeOptionValue(options.searchKey);
+    if (savedSearch && st->searchBox) {
+        e9ui_textbox_setText(st->searchBox, savedSearch);
+        memory_runSearch(st, 1, 0);
+    }
+}
+
+void
+memory_restorePersistentState(void)
+{
+    memory_restorePersistentStateForView(memory_activeState);
 }
 
 static int
@@ -2221,6 +2416,7 @@ memory_makeComponent(void)
     c->handleEvent = memory_handleEvent;
     c->focusable = 1;
     st->ownerView = c;
+    memory_activeState = st;
 
     target_memory_space_t spaces[MEMORY_MAX_SPACES];
     e9ui_select_option_t options[MEMORY_MAX_SPACES];
@@ -2248,12 +2444,7 @@ memory_makeComponent(void)
         options[i].label = spaces[i].label ? spaces[i].label : options[i].value;
     }
     if (spaces[0].value) {
-        size_t len = strlen(spaces[0].value);
-        if (len >= sizeof(st->spaceValue)) {
-            len = sizeof(st->spaceValue) - 1;
-        }
-        memcpy(st->spaceValue, spaces[0].value, len);
-        st->spaceValue[len] = '\0';
+        memory_copySpaceValue(st, spaces[0].value);
     }
     
     uint32_t minAddr = 0;
@@ -2277,7 +2468,7 @@ memory_makeComponent(void)
                                                    memory_onSpaceChanged,
                                                    st);
     }
-    st->addressBox = e9ui_textbox_make(32, memory_onAddressSubmit, NULL, st);
+    st->addressBox = e9ui_textbox_make(32, memory_onAddressSubmit, memory_onAddressChange, st);
     st->searchBox = e9ui_textbox_make(128, memory_onSearchSubmit, memory_onSearchChange, st);
     e9ui_component_t *inlineEdit = e9ui_data_edit_make((int)MEMORY_BYTES_PER_ROW, memory_inlineEditSubmitted, st);
     e9ui_textbox_setFocusBorderVisible(st->addressBox, 0);
