@@ -299,6 +299,9 @@ static void
 ui_recordRefreshButton(void);
 
 static void
+ui_refreshFrameBackButton(void);
+
+static void
 ui_validateToolbarButtonRef(e9ui_component_t **slot)
 {
     if (!slot || !*slot) {
@@ -554,6 +557,7 @@ ui_refreshHotkeyTooltips(void)
     ui_setActionTooltip(ui_btnStepInst, "Step Inst", "step_inst", ui_tipStepInst, sizeof(ui_tipStepInst));
     ui_setActionTooltip(ui_btnWarp, "Warp", "warp", ui_tipWarp, sizeof(ui_tipWarp));
     ui_setActionTooltip(ui_btnFrameBack, "Frame step back", "frame_back", ui_tipFrameBack, sizeof(ui_tipFrameBack));
+    ui_refreshFrameBackButton();
     ui_setActionTooltip(ui_btnFrameStep, "Frame step", "frame_step", ui_tipFrameStep, sizeof(ui_tipFrameStep));
     ui_setActionTooltip(ui_btnFrameContinue, "Frame continue", "frame_continue", ui_tipFrameContinue, sizeof(ui_tipFrameContinue));
     ui_setActionTooltip(ui_btnSaveState, "Save state", "save_state", ui_tipSaveState, sizeof(ui_tipSaveState));
@@ -731,6 +735,7 @@ void
 ui_refreshOnPause(void)
 {
     machine_refresh();
+    registers_refreshExtraRegsNow(ui_compRegisters);
     for (size_t i = 0; i < sizeof(ui_source_panes)/sizeof(ui_source_panes[0]); ++i) {
         if (ui_source_panes[i]) {
             source_pane_markNeedsRefresh(ui_source_panes[i]);
@@ -850,6 +855,9 @@ ui_frameStepBack(e9ui_context_t *ctx, void *user)
 {
     (void)ctx;
     (void)user;
+    if (state_buffer_isRollingPaused()) {
+        return;
+    }
     debugger.frameStepMode = 1;
     debugger.frameStepPending = -1;
 }
@@ -1025,6 +1033,17 @@ ui_recordRefreshButton(void)
         e9ui_button_setTheme(ui_btnRecord, e9ui_theme_button_preset_red());
     }
     ui_recordRefreshTooltip();
+    ui_refreshFrameBackButton();
+}
+
+static void
+ui_refreshFrameBackButton(void)
+{
+    ui_validateToolbarButtonRef(&ui_btnFrameBack);
+    if (!ui_btnFrameBack) {
+        return;
+    }
+    e9ui_setDisabled(ui_btnFrameBack, state_buffer_isRollingPaused());
 }
 
 void

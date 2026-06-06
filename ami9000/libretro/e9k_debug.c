@@ -25,6 +25,7 @@
 #define E9K_DEBUG_CALLSTACK_MAX 256
 #define E9K_DEBUG_BREAKPOINT_MAX 4096
 #define E9K_DEBUG_AMI_KNOWN_PC_RING_CAP 256u
+#define E9K_DEBUG_AMI_PROCESSOR_68K 0u
 
 extern bool libretro_frame_end;
 
@@ -141,6 +142,8 @@ static uint64_t e9k_debug_protectEnabledMask = 0;
 
 static int e9k_debug_checkpointEnabled = 0;
 static e9k_debug_checkpoint_t e9k_debug_checkpoints[E9K_CHECKPOINT_COUNT];
+static e9k_debug_checkpoint_t e9k_debug_publishedCheckpoints[E9K_CHECKPOINT_COUNT];
+static int e9k_debug_hasPublishedCheckpoints = 0;
 #if E9K_HACK_CHECKPOINTS
 static int e9k_debug_checkpointActive = -1;
 static uint64_t e9k_debug_checkpointLastCycle = 0;
@@ -148,6 +151,13 @@ static uint64_t e9k_debug_checkpointLastCycle = 0;
 static e9k_debug_ami_video_line_state_t e9k_debug_amiVideoLineStates[MAXVPOS];
 
 static int e9k_debug_profilerEnabled = 0;
+
+static void
+e9k_debug_publish_checkpoints(void)
+{
+	memcpy(e9k_debug_publishedCheckpoints, e9k_debug_checkpoints, sizeof(e9k_debug_checkpoints));
+	e9k_debug_hasPublishedCheckpoints = 1;
+}
 
 // Minimal PC-sampling profiler used by e9k-debugger. The debugger resolves PCs to symbols/lines.
 // We stream aggregated PC hits as JSON in e9k_debug_profiler_stream_next(), matching geo9000.
@@ -1028,6 +1038,76 @@ e9k_debug_read_regs(uint32_t *out, size_t cap)
 	return count;
 }
 
+static void
+e9k_debug_setProcessorReg(e9k_debug_processor_reg_t *reg, const char *name, uint64_t value, uint8_t bits)
+{
+	memset(reg, 0, sizeof(*reg));
+	strncpy(reg->name, name, sizeof(reg->name) - 1);
+	reg->value = value;
+	reg->bits = bits;
+}
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_read_processors(e9k_debug_processor_info_t *out, size_t cap)
+{
+	static const e9k_debug_processor_info_t processors[] = {
+		{
+			.id = E9K_DEBUG_AMI_PROCESSOR_68K,
+			.name = "M68000",
+			.role = "main",
+			.addressBits = 24,
+			.flags = E9K_DEBUG_PROCESSOR_PRIMARY |
+				E9K_DEBUG_PROCESSOR_CAN_STEP |
+				E9K_DEBUG_PROCESSOR_CAN_BREAKPOINT |
+				E9K_DEBUG_PROCESSOR_CAN_DISASSEMBLE |
+				E9K_DEBUG_PROCESSOR_CAN_WRITE_MEMORY
+		}
+	};
+	size_t count = sizeof(processors) / sizeof(processors[0]);
+
+	if (!out || cap == 0) {
+		return 0;
+	}
+	if (count > cap) {
+		count = cap;
+	}
+	memcpy(out, processors, count * sizeof(processors[0]));
+	return count;
+}
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_read_processor_regs(uint32_t processorId, e9k_debug_processor_reg_t *out, size_t cap)
+{
+	static const char *names[] = {
+		"D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7",
+		"A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7",
+		"SR", "PC"
+	};
+	uint32_t values[18];
+	size_t count = 0;
+
+	if (processorId != E9K_DEBUG_AMI_PROCESSOR_68K || !out || cap == 0) {
+		return 0;
+	}
+	count = e9k_debug_read_regs(values, sizeof(values) / sizeof(values[0]));
+	if (count > cap) {
+		count = cap;
+	}
+	for (size_t i = 0; i < count; ++i) {
+		uint8_t bits = 32;
+		uint32_t value = values[i];
+		if (i == 16u) {
+			value &= 0xffffu;
+			bits = 16;
+		} else if (i == 17u) {
+			value &= 0x00ffffffu;
+			bits = 24;
+		}
+		e9k_debug_setProcessorReg(&out[i], names[i], value, bits);
+	}
+	return count;
+}
+
 E9K_DEBUG_EXPORT size_t
 e9k_debug_read_memory(uint32_t addr, uint8_t *out, size_t cap)
 {
@@ -1054,6 +1134,15 @@ e9k_debug_read_memory(uint32_t addr, uint8_t *out, size_t cap)
 	return readCount;
 }
 
+E9K_DEBUG_EXPORT size_t
+e9k_debug_read_processor_memory(uint32_t processorId, uint32_t addr, uint8_t *out, size_t cap)
+{
+	if (processorId != E9K_DEBUG_AMI_PROCESSOR_68K) {
+		return 0;
+	}
+	return e9k_debug_read_memory(addr, out, cap);
+}
+
 E9K_DEBUG_EXPORT int
 e9k_debug_write_memory(uint32_t addr, uint32_t value, size_t size)
 {
@@ -1078,6 +1167,15 @@ e9k_debug_write_memory(uint32_t addr, uint32_t value, size_t size)
 	return 0;
 }
 
+E9K_DEBUG_EXPORT int
+e9k_debug_write_processor_memory(uint32_t processorId, uint32_t addr, uint32_t value, size_t size)
+{
+	if (processorId != E9K_DEBUG_AMI_PROCESSOR_68K) {
+		return 0;
+	}
+	return e9k_debug_write_memory(addr, value, size);
+}
+
 E9K_DEBUG_EXPORT size_t
 e9k_debug_disassemble_quick(uint32_t pc, char *out, size_t cap)
 {
@@ -1097,6 +1195,36 @@ e9k_debug_disassemble_quick(uint32_t pc, char *out, size_t cap)
 	}
 	e9k_debug_watchpointSuspend--;
 	return 2;
+}
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_disassemble_processor_quick(uint32_t processorId, uint32_t pc, char *out, size_t cap)
+{
+	if (processorId != E9K_DEBUG_AMI_PROCESSOR_68K) {
+		return 0;
+	}
+	return e9k_debug_disassemble_quick(pc, out, cap);
+}
+
+E9K_DEBUG_EXPORT int
+e9k_debug_suppress_processor_breakpoint_at_pc(uint32_t processorId)
+{
+	if (processorId != E9K_DEBUG_AMI_PROCESSOR_68K) {
+		return 0;
+	}
+	e9k_debug_skipBreakpointOnce = 1;
+	e9k_debug_skipBreakpointPc = e9k_debug_maskAddr(m68k_getpc());
+	return 1;
+}
+
+E9K_DEBUG_EXPORT int
+e9k_debug_step_processor_instr(uint32_t processorId)
+{
+	if (processorId != E9K_DEBUG_AMI_PROCESSOR_68K) {
+		return 0;
+	}
+	e9k_debug_step_instr();
+	return 1;
 }
 
 E9K_DEBUG_EXPORT uint64_t
@@ -1188,6 +1316,24 @@ e9k_debug_remove_breakpoint(uint32_t addr)
 			return;
 		}
 	}
+}
+
+E9K_DEBUG_EXPORT void
+e9k_debug_add_processor_breakpoint(uint32_t processorId, uint32_t addr)
+{
+	if (processorId != E9K_DEBUG_AMI_PROCESSOR_68K) {
+		return;
+	}
+	e9k_debug_add_breakpoint(addr);
+}
+
+E9K_DEBUG_EXPORT void
+e9k_debug_remove_processor_breakpoint(uint32_t processorId, uint32_t addr)
+{
+	if (processorId != E9K_DEBUG_AMI_PROCESSOR_68K) {
+		return;
+	}
+	e9k_debug_remove_breakpoint(addr);
 }
 
 E9K_DEBUG_EXPORT void
@@ -2803,7 +2949,11 @@ e9k_debug_read_checkpoints(e9k_debug_checkpoint_t *out, size_t cap)
 		count = maxEntries;
 	}
 
-	memcpy(out, e9k_debug_checkpoints, count * sizeof(out[0]));
+	if (e9k_debug_hasPublishedCheckpoints) {
+		memcpy(out, e9k_debug_publishedCheckpoints, count * sizeof(out[0]));
+	} else {
+		memcpy(out, e9k_debug_checkpoints, count * sizeof(out[0]));
+	}
 	return count * sizeof(out[0]);
 }
 
@@ -2811,6 +2961,8 @@ E9K_DEBUG_EXPORT void
 e9k_debug_reset_checkpoints(void)
 {
 	memset(e9k_debug_checkpoints, 0, sizeof(e9k_debug_checkpoints));
+	memset(e9k_debug_publishedCheckpoints, 0, sizeof(e9k_debug_publishedCheckpoints));
+	e9k_debug_hasPublishedCheckpoints = 0;
 #if E9K_HACK_CHECKPOINTS
 	e9k_debug_checkpointActive = -1;
 	e9k_debug_checkpointLastCycle = 0;
@@ -2869,6 +3021,10 @@ e9k_debug_checkpoint_write(uint8_t index)
 		prev->average = prev->count ? (prev->accumulator / prev->count) : 0;
 	}
 
+	if (index == 0 && e9k_debug_checkpointActive >= 0) {
+		e9k_debug_publish_checkpoints();
+	}
+
 	{
 		e9k_debug_checkpoint_t *cur = &e9k_debug_checkpoints[index];
 		if (cur->scanlineCount == 0) {
@@ -2914,6 +3070,7 @@ e9k_debug_checkpoint_set_name_from_pointer(uint8_t index, uint32_t ptrValue)
 	}
 
 	memcpy(e9k_debug_checkpoints[index].name, name, sizeof(name));
+	memcpy(e9k_debug_publishedCheckpoints[index].name, name, sizeof(name));
 }
 #endif
 

@@ -101,10 +101,14 @@ NOTE: Testing on Linux/Windows builds has been minimal at this stage.
 - `0xFC0008` - writing a long word to this address sets this as the base address of the .data section
 - `0xFC000C` - writing a long word to this address sets this as the base address of the .bss section
 - `0xFC0010` - writing a long word to this address sets a breakpoint at the written address
+- `0xFC0014` - write a long word as the base address of section
+- `0xFC0018` - write a long word as the type of section (`0` = text, `1` = data, `2` = bss)
+- `0xFC001C` - write a long word size of section (commits the section)
 - `0xFC0020` - write checkpoint slot index (`0-63`) for checkpoint profiling
 - `0xFC0024` - write the word `0xDEAD` to this address exits the debugger
 - `0xFC0028` - any write starts a smoke test configured with `--smoke-start-on-write` and/or a profiling session configured with `--profile-start-on-write`; does nothing otherwise
 - `0xB7E900` through `0xB7E924` - read-only 32-bit debug argument registers 0-9, set with `--debug-arg VALUE`
+- `0xB7E928` - read-only 32-bit current processor cycle count divided by 4
 - `0xFC0100` - checkpoint description array base (`uint32_t[64]`), write `description_ptr` to `0xFC0100 + index*4`
 - `0xFCxxxx` debug registers overlay ROM addresses; the `0xB7E900` argument block is mapped as an e9k-only debug peripheral outside ROM and outside the usual Zorro II fast RAM range. Other emulators or real Amiga might crash if you use these.
 
@@ -121,7 +125,7 @@ There are two complementary profiling mechanisms:
   - Checkpoints are set by the target by writing to a fake peripheral
   - Captures per-checkpoint cycle segment stats (`current/avg/min/max`)
   - Captures checkpoint write scanline (`live/avg/min/max`)
-  - Supports per-checkpoint descriptions via fake register arrays
+  - Supports segment descriptions via fake register arrays; row N uses checkpoint N+1's description
   - Optional scanline overlay can be toggled from the checkpoint panel (Neo Geo and Amiga)
 
 ### Timeline / Rewind-Oriented Tools
@@ -632,22 +636,26 @@ Note: Amiga debugging is complicated by relocation. If your target application i
 
 - The `base` command - see "base" command documentation
 - Makeing your custom loader use the Amiga fake perphierals - see "Amiga Debug Peripherals" section
-- Use `load9000` amiga program to load your hunk based exectuable - see "load9000" section
+- Use `load9000` or `load9013` amiga programs to load your hunk based exectuable - see "load9000" section
 
 - An ELF image with dwarf information running on Amiga should technically work but is untested
 
-### load9000
+### load9000 / load9013
 
 A simple Amiga program is available in:
 
 `tools/amiga/load9000`
 
-This program is run on the emulated Amiga and parses the hunk section table before calling `LoadSeg`.
+These programs are run on the emulated Amiga and parse the hunk section table before loading the target and informing the debugger of the section base addresses.
 
-`load9000` will load your application, inform the debugger of your section base addresses and then optionally set a breakpoint at the entry point.
+`load9000` targets Kickstart 2.0+ `load9013` targets Kickstart 1.3.
 
 `load9000 <hunk>`
 `load9000 --break <hunk>`
+`load9000 --stack <bytes> <hunk>`
+`load9013 <hunk>`
+`load9013 --break <hunk>`
+`load9013 --stack <bytes> <hunk>`
 
 ### Config file + environment variables
 

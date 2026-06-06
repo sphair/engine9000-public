@@ -573,6 +573,7 @@ int firstword_bplcon1;
 
 static int last_copper_hpos;
 static int copper_access;
+static uaecptr copper_source_pc;
 
 /* Sprite collisions */
 static unsigned int clxdat, clxcon, clxcon2, clxcon_bpl_enable, clxcon_bpl_match;
@@ -11212,6 +11213,7 @@ static int custom_wput_copper(int hpos, uaecptr pt, uaecptr addr, uae_u32 value,
 	value = debug_putpeekdma_chipset(0xdff000 + addr, value, MW_MASK_COPPER, 0x08c);
 #endif
 	copper_access = 1;
+	copper_source_pc = pt - 4;
 #if E9K_HACK_DEBUGGER_RUNTIME
 	v = custom_wput_1_protected(hpos, addr, value, noget, E9K_WATCH_ACCESS_SOURCE_COPPER);
 #else
@@ -16022,7 +16024,7 @@ static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int n
 	addr &= 0x1FE;
 	value &= 0xffff;
 	custom_storage[addr >> 1].value = (uae_u16)value;
-	custom_storage[addr >> 1].pc = copper_access ? cop_state.ip | 1 : M68K_GETPC;
+	custom_storage[addr >> 1].pc = copper_access ? copper_source_pc | 1 : M68K_GETPC;
 #if E9K_DEBUGGER_CUSTOM_LOGGER
 	if (custom_customLoggerEnabled) {
 		e9k_debug_amiga_customLogWrite(vpos,

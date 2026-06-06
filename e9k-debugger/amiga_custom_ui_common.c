@@ -76,6 +76,52 @@ amiga_custom_ui_common_statsChartU32ToText(uint32_t value, char *buf, int cap)
 }
 
 
+static void
+amiga_custom_ui_common_statsChartAppendChar(char *buf, int cap, int *pos, char ch)
+{
+    if (!buf || !pos || cap <= 0 || *pos < 0 || *pos >= cap - 1) {
+        return;
+    }
+    buf[*pos] = ch;
+    *pos = *pos + 1;
+    buf[*pos] = '\0';
+}
+
+
+static void
+amiga_custom_ui_common_statsChartAppendText(char *buf, int cap, int *pos, const char *text)
+{
+    if (!buf || !pos || !text || cap <= 0 || *pos < 0) {
+        return;
+    }
+    while (*text && *pos < cap - 1) {
+        buf[*pos] = *text;
+        *pos = *pos + 1;
+        text++;
+    }
+    if (*pos >= cap) {
+        *pos = cap - 1;
+    }
+    buf[*pos] = '\0';
+}
+
+
+static void
+amiga_custom_ui_common_statsChartValueText(uint32_t value,
+                                           const char *suffix,
+                                           char *buf,
+                                           int cap)
+{
+    if (!buf || cap <= 0) {
+        return;
+    }
+    buf[0] = '\0';
+    int pos = amiga_custom_ui_common_statsChartU32ToText(value, buf, cap);
+    amiga_custom_ui_common_statsChartAppendChar(buf, cap, &pos, ' ');
+    amiga_custom_ui_common_statsChartAppendText(buf, cap, &pos, suffix);
+}
+
+
 void
 amiga_custom_ui_common_statsChartMeasureUint(e9ui_context_t *ctx, TTF_Font *font, uint32_t value, SDL_Color color, int *outW, int *outH)
 {
@@ -114,30 +160,6 @@ amiga_custom_ui_common_statsChartMeasureUint(e9ui_context_t *ctx, TTF_Font *font
 }
 
 
-static void
-amiga_custom_ui_common_statsChartDrawUint(e9ui_context_t *ctx, TTF_Font *font, uint32_t value, SDL_Color color, int x, int y)
-{
-    if (!ctx || !ctx->renderer || !font) {
-        return;
-    }
-    char digits[16];
-    int n = amiga_custom_ui_common_statsChartU32ToText(value, digits, (int)sizeof(digits));
-    int penX = x;
-    for (int i = 0; i < n; ++i) {
-        char ch[2] = { digits[i], '\0' };
-        int cw = 0;
-        int chh = 0;
-        SDL_Texture *tex = e9ui_text_cache_getText(ctx->renderer, font, ch, color, &cw, &chh);
-        if (!tex) {
-            continue;
-        }
-        SDL_Rect dst = { penX, y, cw, chh };
-        SDL_RenderCopy(ctx->renderer, tex, NULL, &dst);
-        penX += cw;
-    }
-}
-
-
 void
 amiga_custom_ui_common_statsChartMeasureText(e9ui_context_t *ctx, TTF_Font *font, const char *text, SDL_Color color, int *outW, int *outH)
 {
@@ -166,39 +188,38 @@ amiga_custom_ui_common_statsChartMeasureText(e9ui_context_t *ctx, TTF_Font *font
 
 
 void
-amiga_custom_ui_common_statsChartDrawValueUsedSuffix(e9ui_context_t *ctx,
-                                        TTF_Font *font,
-                                        uint32_t valueUsed,
-                                        const char *valueSuffix,
-                                        SDL_Color color,
-                                        int x,
-                                        int y)
+amiga_custom_ui_common_statsChartMeasureValueText(e9ui_context_t *ctx,
+                                                  TTF_Font *font,
+                                                  uint32_t value,
+                                                  const char *suffix,
+                                                  SDL_Color color,
+                                                  int *outW,
+                                                  int *outH)
 {
-    int usedW = 0;
-    int usedH = 0;
-    int spaceW = 0;
-    int spaceH = 0;
-    int suffixW = 0;
-    int suffixH = 0;
-    amiga_custom_ui_common_statsChartMeasureUint(ctx, font, valueUsed, color, &usedW, &usedH);
-    amiga_custom_ui_common_statsChartMeasureText(ctx, font, " ", color, &spaceW, &spaceH);
-    amiga_custom_ui_common_statsChartMeasureText(ctx, font, valueSuffix, color, &suffixW, &suffixH);
-    int lineH = usedH;
-    if (spaceH > lineH) {
-        lineH = spaceH;
-    }
-    if (suffixH > lineH) {
-        lineH = suffixH;
-    }
-    int penX = x;
-    int usedY = y + (lineH - usedH) / 2;
-    int spaceY = y + (lineH - spaceH) / 2;
-    int suffixY = y + (lineH - suffixH) / 2;
-    amiga_custom_ui_common_statsChartDrawUint(ctx, font, valueUsed, color, penX, usedY);
-    penX += usedW;
-    amiga_custom_ui_common_blitterStatsChartDrawText(ctx, font, " ", color, penX, spaceY);
-    penX += spaceW;
-    amiga_custom_ui_common_blitterStatsChartDrawText(ctx, font, valueSuffix, color, penX, suffixY);
+    char text[64];
+    amiga_custom_ui_common_statsChartValueText(value,
+                                               suffix,
+                                               text,
+                                               (int)sizeof(text));
+    amiga_custom_ui_common_statsChartMeasureText(ctx, font, text, color, outW, outH);
+}
+
+
+void
+amiga_custom_ui_common_statsChartDrawValueText(e9ui_context_t *ctx,
+                                               TTF_Font *font,
+                                               uint32_t value,
+                                               const char *suffix,
+                                               SDL_Color color,
+                                               int x,
+                                               int y)
+{
+    char text[64];
+    amiga_custom_ui_common_statsChartValueText(value,
+                                               suffix,
+                                               text,
+                                               (int)sizeof(text));
+    amiga_custom_ui_common_blitterStatsChartDrawText(ctx, font, text, color, x, y);
 }
 
 

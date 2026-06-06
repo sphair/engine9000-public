@@ -71,6 +71,8 @@ static geo_ymfm_audio_vis_accum_t geo_ymfm_audioVisSsg;
 static geo_ymfm_audio_vis_accum_t geo_ymfm_audioVisAdpcmA[E9K_DEBUG_GEO_ADPCM_A_CHANNELS];
 static geo_ymfm_audio_vis_accum_t geo_ymfm_audioVisAdpcmB;
 static geo_ymfm_audio_vis_accum_t geo_ymfm_audioVisMixed;
+static int16_t geo_ymfm_audioVisMixedSamples[E9K_DEBUG_GEO_AUDIO_SPECTRUM_SAMPLES];
+static uint32_t geo_ymfm_audioVisMixedSampleCount;
 #endif
 
 uint8_t ymfm_external_read(uint32_t type, uint32_t address) {
@@ -189,6 +191,7 @@ geo_ymfm_audioVisResetAll(void)
     }
     geo_ymfm_audioVisResetAccum(&geo_ymfm_audioVisAdpcmB);
     geo_ymfm_audioVisResetAccum(&geo_ymfm_audioVisMixed);
+    geo_ymfm_audioVisMixedSampleCount = 0;
 }
 
 static void
@@ -206,6 +209,16 @@ geo_ymfm_audioVisAdd(geo_ymfm_audio_vis_accum_t *accum, int32_t left, int32_t ri
     if (absR > accum->peakR) {
         accum->peakR = absR;
     }
+}
+
+static void
+geo_ymfm_audioVisAddMixedSample(int16_t left, int16_t right)
+{
+    if (geo_ymfm_audioVisMixedSampleCount >= E9K_DEBUG_GEO_AUDIO_SPECTRUM_SAMPLES) {
+        return;
+    }
+
+    geo_ymfm_audioVisMixedSamples[geo_ymfm_audioVisMixedSampleCount++] = (int16_t)(((int32_t)left + (int32_t)right) / 2);
 }
 
 static void
@@ -282,6 +295,12 @@ geo_ymfm_readAudioFrame(e9k_debug_audio_frame_t *out, size_t cap)
     }
     geo_ymfm_audioVisFillSource(&out->adpcmB, &geo_ymfm_audioVisAdpcmB);
     geo_ymfm_audioVisFillSource(&out->mixed, &geo_ymfm_audioVisMixed);
+    out->sampleRate = GEO_YMFM_AUDIO_VIS_SAMPLE_RATE;
+    out->mixedSampleCount = geo_ymfm_audioVisMixedSampleCount;
+    if (out->mixedSampleCount > E9K_DEBUG_GEO_AUDIO_SPECTRUM_SAMPLES) {
+        out->mixedSampleCount = E9K_DEBUG_GEO_AUDIO_SPECTRUM_SAMPLES;
+    }
+    memcpy(out->mixedSamples, geo_ymfm_audioVisMixedSamples, out->mixedSampleCount * sizeof(out->mixedSamples[0]));
     uint32_t adpcmAVolumes[E9K_DEBUG_GEO_ADPCM_A_CHANNELS][2];
     uint32_t adpcmBVolumes[2];
     ym2610_debug_get_source_volumes(adpcmAVolumes, adpcmBVolumes);
@@ -328,6 +347,7 @@ size_t geo_ymfm_exec(void) {
         }
         geo_ymfm_audioVisAdd(&geo_ymfm_audioVisAdpcmB, adpcmB[0], adpcmB[1]);
         geo_ymfm_audioVisAdd(&geo_ymfm_audioVisMixed, mixedL, mixedR);
+        geo_ymfm_audioVisAddMixedSample(mixedL, mixedR);
     }
 #endif
     ymbuf[bufpos++] = mixedL;

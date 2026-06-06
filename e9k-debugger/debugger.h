@@ -112,6 +112,7 @@ typedef struct e9k_debugger {
     int frameStepPending;
     int suppressBpActive;
     uint32_t suppressBpAddr;
+    int suppressVblankFrameCounter;
     uint64_t frameCounter;
     uint64_t frameTimeCounter;
     double frameTimeAccum;

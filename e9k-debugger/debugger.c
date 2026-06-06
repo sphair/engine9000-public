@@ -48,6 +48,7 @@
 #include "amiga_custom_log.h"
 #include "hotkeys.h"
 #include "amiga_custom_ui.h"
+#include "memory.h"
 #include "memory_track_ui.h"
 #include "crt.h"
 #include "settings.h"
@@ -895,6 +896,7 @@ debugger_main(int argc, char **argv)
   cli_applyOverrides();
   debugger_libretroSelectConfig();
   rom_config_syncActiveFromCurrentSystem();
+  memory_restorePersistentState();
   debugger_refreshElfValid();
   if (debugger.elfValid && debugger_analyseInitFailed) {
     debug_error("profile: aggregator init failed");
@@ -943,6 +945,7 @@ debugger_main(int argc, char **argv)
 	  snapshot_loadOnBoot();
         }
         rom_config_loadRuntimeStateOnBoot();
+        memory_restorePersistentState();
       }
     }
   }

@@ -35,6 +35,7 @@ w64:
 	$(MAKE) $(JOBS) -C tools/z80_srcmap w64 W64_CC=$(MINGW_CC)
 
 release-w64: w64
+	$(MAKE) $(JOBS) -C tools/amiga/load9000
 	$(MAKE) -C e9k-debugger release-w64-package
 
 clean:
@@ -46,6 +47,7 @@ clean:
 	$(MAKE) $(JOBS) -C e9k-debugger clean
 	$(MAKE) $(JOBS) -C tools/amiga/adf9000 clean
 	$(MAKE) $(JOBS) -C tools/amiga/hdf9000 clean
+	$(MAKE) $(JOBS) -C tools/amiga/load9000 clean
 	$(MAKE) $(JOBS) -C tools/amiga/v-hunk clean
 	$(MAKE) $(JOBS) -C tools/z80_srcmap clean
 

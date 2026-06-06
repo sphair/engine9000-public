@@ -29,7 +29,6 @@ smoketest-amiga
 amiga-smoke-test
 tests/results
 test.log
-docs/*.md
 elowar
 releases
 silents.uae

@@ -72,6 +72,9 @@ runtime_onVblank(void *user)
         return;
     }
     target->onVblank();
+    if (debugger.suppressVblankFrameCounter) {
+        return;
+    }
     debugger.frameCounter++;
     if (!debugger.smokeTestFailed && !debugger.smokeTestCompleted) {
         int smokeResult = smoke_test_captureFrame(debugger.frameCounter);
@@ -210,6 +213,7 @@ runtime_runLoop(void)
                 int wasRunning = machine_getRunning(debugger.machine);
                 machine_setRunning(&debugger.machine, paused ? 0 : 1);
                 if (paused && wasRunning) {
+                    debugger.suppressVblankFrameCounter = 0;
                     debugger_clearFrameStep();
                     runtime_restoreSuppressedBreakpoint();
                     int watchbreakHit = 0;
@@ -273,6 +277,7 @@ runtime_runLoop(void)
                             debugger.frameCounter -= 2;
                         }
                         debugger.frameStepPending = 0;
+                        ui_refreshOnPause();
                     }
                 } else if (running) {
                     if (runtime_isUiTestDeterministicMode()) {

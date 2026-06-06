@@ -76,8 +76,9 @@ W64_BUILD_DIR = build-w64
 RELEASE_DIR = releases
 RELEASE_MINOR_FILE = assets/release_minor.txt
 RELEASE_PACKAGE_NAME = e9k-debugger
+RELEASE_MEGA9000_PACKAGE_NAME = mega9000
 RELEASE_W64_DLLS = libfreetype-6.dll libpng16-16.dll libreadline8.dll libssp-0.dll libtermcap-0.dll libwinpthread-1.dll SDL2_image.dll SDL2_ttf.dll SDL2.dll zlib1.dll
-RELEASE_SYSTEM_FILES = v-hunk-addr2line.exe v-hunk-objdump.exe z80_srcmap.exe ami9000.dll geo9000.dll
+RELEASE_SYSTEM_FILES = v-hunk-addr2line.exe v-hunk-objdump.exe load9000 load9013 z80_srcmap.exe ami9000.dll geo9000.dll
 W64_CFLAGS = $(LTO_FLAGS) -O2 -Wall -Wextra -std=c99 -MMD -MP
 W64_CFLAGS += $(BASE_INCLUDES)
 W64_CFLAGS +=  -D_THREAD_SAFE
@@ -238,9 +239,24 @@ release-w64-package:
 	fi; \
 	next_minor=`expr "$$current_minor" + 1`; \
 	zip_name="e9k-debugger-v0.$$next_minor.zip"; \
+	mega9000_zip_name="mega9000-v0.$$next_minor.zip"; \
+	mega9000_package_dir="$$temp_dir/$(RELEASE_MEGA9000_PACKAGE_NAME)"; \
+	mkdir -p "$$mega9000_package_dir"; \
+	if [ ! -f "system/mega9000.dll" ]; then \
+		echo "Missing file: e9k-debugger/system/mega9000.dll"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "../mega9000/COPYING" ]; then \
+		echo "Missing file: ../mega9000/COPYING"; \
+		exit 1; \
+	fi; \
+	cp "system/mega9000.dll" "$$mega9000_package_dir/mega9000.dll"; \
+	cp "../mega9000/COPYING" "$$mega9000_package_dir/COPYING"; \
 	( cd "$$temp_dir" && zip -r "../$$zip_name" "$(RELEASE_PACKAGE_NAME)" ); \
+	( cd "$$temp_dir" && zip -r "../$$mega9000_zip_name" "$(RELEASE_MEGA9000_PACKAGE_NAME)" ); \
 	echo "$$next_minor" > "$(RELEASE_MINOR_FILE)"; \
-	echo "Created $(RELEASE_DIR)/$$zip_name"
+	echo "Created $(RELEASE_DIR)/$$zip_name"; \
+	echo "Created $(RELEASE_DIR)/$$mega9000_zip_name"
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)

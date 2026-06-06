@@ -5,23 +5,36 @@
 #include "geo_serial.h"
 
 static e9k_debug_checkpoint_t e9k_checkpoint_data[E9K_CHECKPOINT_COUNT];
+static e9k_debug_checkpoint_t e9k_checkpoint_publishedData[E9K_CHECKPOINT_COUNT];
 static int e9k_checkpoint_active = -1;
 static int e9k_checkpoint_enabled = 0;
+static int e9k_checkpoint_hasPublishedData = 0;
+
+static void
+e9k_checkpoint_publishData(void)
+{
+    memcpy(e9k_checkpoint_publishedData, e9k_checkpoint_data, sizeof(e9k_checkpoint_data));
+    e9k_checkpoint_hasPublishedData = 1;
+}
 
 void
 e9k_checkpoint_reset(void)
 {
     for (size_t i = 0; i < E9K_CHECKPOINT_COUNT; ++i) {
         memset(&e9k_checkpoint_data[i].current, 0, sizeof(e9k_checkpoint_data[i]) - offsetof(e9k_debug_checkpoint_t, current));
+        memset(&e9k_checkpoint_publishedData[i].current, 0, sizeof(e9k_checkpoint_publishedData[i]) - offsetof(e9k_debug_checkpoint_t, current));
     }
     e9k_checkpoint_active = -1;
+    e9k_checkpoint_hasPublishedData = 0;
 }
 
 void
 e9k_checkpoint_resetHard(void)
 {
     memset(e9k_checkpoint_data, 0, sizeof(e9k_checkpoint_data));
+    memset(e9k_checkpoint_publishedData, 0, sizeof(e9k_checkpoint_publishedData));
     e9k_checkpoint_active = -1;
+    e9k_checkpoint_hasPublishedData = 0;
 }
 
 void
@@ -40,7 +53,7 @@ e9k_checkpoint_isEnabled(void)
 }
 
 void
-e9k_checkpoint_state_save(uint8_t *st)
+e9k_checkpoint_stateSave(uint8_t *st)
 {
     geo_serial_push8(st, (uint8_t)e9k_checkpoint_enabled);
     geo_serial_push32(st, (uint32_t)e9k_checkpoint_active);
@@ -64,7 +77,7 @@ e9k_checkpoint_state_save(uint8_t *st)
 }
 
 void
-e9k_checkpoint_state_load(uint8_t *st)
+e9k_checkpoint_stateLoad(uint8_t *st)
 {
     if (!st) {
         return;
@@ -96,6 +109,7 @@ e9k_checkpoint_state_load(uint8_t *st)
     if (e9k_checkpoint_active < -1 || e9k_checkpoint_active >= (int)E9K_CHECKPOINT_COUNT) {
         e9k_checkpoint_active = -1;
     }
+    e9k_checkpoint_publishData();
 }
 
 void
@@ -106,7 +120,9 @@ e9k_checkpoint_setName(uint8_t index, const char *name)
     }
 
     e9k_debug_checkpoint_t *entry = &e9k_checkpoint_data[index];
+    e9k_debug_checkpoint_t *publishedEntry = &e9k_checkpoint_publishedData[index];
     memset(entry->name, 0, sizeof(entry->name));
+    memset(publishedEntry->name, 0, sizeof(publishedEntry->name));
     if (!name) {
         return;
     }
@@ -114,11 +130,13 @@ e9k_checkpoint_setName(uint8_t index, const char *name)
     for (size_t i = 0; i + 1 < sizeof(entry->name); ++i) {
         char c = name[i];
         entry->name[i] = c;
+        publishedEntry->name[i] = c;
         if (c == '\0') {
             return;
         }
     }
     entry->name[sizeof(entry->name) - 1] = '\0';
+    publishedEntry->name[sizeof(publishedEntry->name) - 1] = '\0';
 }
 
 void
@@ -148,6 +166,10 @@ e9k_checkpoint_write(uint8_t index, uint32_t scanline)
         prev->accumulator += sample;
         prev->average = prev->count ? (prev->accumulator / prev->count) : 0;
         prev->current = 0;
+    }
+
+    if (index == 0 && e9k_checkpoint_active >= 0) {
+        e9k_checkpoint_publishData();
     }
 
     e9k_debug_checkpoint_t *cur = &e9k_checkpoint_data[index];
@@ -190,6 +212,10 @@ e9k_checkpoint_read(e9k_debug_checkpoint_t *out, size_t cap)
     if (!out || cap < sizeof(e9k_checkpoint_data)) {
         return 0;
     }
-    memcpy(out, e9k_checkpoint_data, sizeof(e9k_checkpoint_data));
+    if (e9k_checkpoint_hasPublishedData) {
+        memcpy(out, e9k_checkpoint_publishedData, sizeof(e9k_checkpoint_publishedData));
+    } else {
+        memcpy(out, e9k_checkpoint_data, sizeof(e9k_checkpoint_data));
+    }
     return sizeof(e9k_checkpoint_data);
 }

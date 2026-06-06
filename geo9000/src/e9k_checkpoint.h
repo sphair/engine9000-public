@@ -17,10 +17,10 @@ int
 e9k_checkpoint_isEnabled(void);
 
 void
-e9k_checkpoint_state_save(uint8_t *st);
+e9k_checkpoint_stateSave(uint8_t *st);
 
 void
-e9k_checkpoint_state_load(uint8_t *st);
+e9k_checkpoint_stateLoad(uint8_t *st);
 
 void
 e9k_checkpoint_write(uint8_t index, uint32_t scanline);

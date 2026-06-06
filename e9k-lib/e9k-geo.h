@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #define E9K_DEBUG_GEO_ADPCM_A_CHANNELS 6
+#define E9K_DEBUG_GEO_AUDIO_SPECTRUM_SAMPLES 1024
 #define E9K_DEBUG_GEO_AUDIO_MUTE_FM (1u << 0)
 #define E9K_DEBUG_GEO_AUDIO_MUTE_SSG (1u << 1)
 #define E9K_DEBUG_GEO_AUDIO_MUTE_ADPCM_A0 (1u << 2)
@@ -75,6 +76,9 @@ typedef struct geo_debug_audio_frame {
     e9k_debug_audio_source_t adpcmB;
     e9k_debug_audio_source_t mixed;
     uint32_t adpcmBPlaybackMilliHz;
+    uint32_t sampleRate;
+    uint32_t mixedSampleCount;
+    int16_t mixedSamples[E9K_DEBUG_GEO_AUDIO_SPECTRUM_SAMPLES];
 } e9k_debug_audio_frame_t;
 
 

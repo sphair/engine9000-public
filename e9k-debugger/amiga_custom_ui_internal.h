@@ -388,13 +388,22 @@ amiga_custom_ui_common_statsChartMeasureText(e9ui_context_t *ctx, TTF_Font *font
                                       int *outW, int *outH);
 
 void
-amiga_custom_ui_common_statsChartDrawValueUsedSuffix(e9ui_context_t *ctx,
-                                              TTF_Font *font,
-                                              uint32_t valueUsed,
-                                              const char *valueSuffix,
-                                              SDL_Color color,
-                                              int x,
-                                              int y);
+amiga_custom_ui_common_statsChartMeasureValueText(e9ui_context_t *ctx,
+                                                  TTF_Font *font,
+                                                  uint32_t value,
+                                                  const char *suffix,
+                                                  SDL_Color color,
+                                                  int *outW,
+                                                  int *outH);
+
+void
+amiga_custom_ui_common_statsChartDrawValueText(e9ui_context_t *ctx,
+                                               TTF_Font *font,
+                                               uint32_t value,
+                                               const char *suffix,
+                                               SDL_Color color,
+                                               int x,
+                                               int y);
 
 void
 amiga_custom_ui_common_blitterStatsChartFillGradient(e9ui_context_t *ctx,

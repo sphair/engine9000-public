@@ -25,4 +25,3 @@ console_cmd_continue_command(int argc, char **argv)
     debug_error("continue: resume failed");
     return 0;
 }
-

@@ -2599,7 +2599,7 @@ static void
 emu_ami_render(e9ui_context_t *ctx, SDL_Rect* dst)
 {
     emu_ami_tryBindCustomLogFrameCallback();
-    profile_checkpoints_renderScanlineOverlay(ctx, dst);
+    profile_checkpoints_renderScanlineOverlay(ctx, dst, 313u);
     emu_ami_renderDmaDebugOverlay(ctx, dst);
     emu_ami_renderCopperDebugOverlay(ctx, dst);
     amiga_blittervis_renderOverlay(ctx, dst);

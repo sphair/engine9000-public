@@ -200,23 +200,13 @@ amiga_custom_ui_blitter_statsChartRenderBarRow(e9ui_context_t *ctx,
         if (!hasData) {
             amiga_custom_ui_common_statsChartMeasureText(ctx, ctx->font, "n/a", textColor, &tw, &th);
         } else {
-            int usedW = 0;
-            int usedH = 0;
-            int spaceW = 0;
-            int spaceH = 0;
-            int suffixW = 0;
-            int suffixH = 0;
-            amiga_custom_ui_common_statsChartMeasureUint(ctx, ctx->font, valueUsed, textColor, &usedW, &usedH);
-            amiga_custom_ui_common_statsChartMeasureText(ctx, ctx->font, " ", textColor, &spaceW, &spaceH);
-            amiga_custom_ui_common_statsChartMeasureText(ctx, ctx->font, valueSuffix, textColor, &suffixW, &suffixH);
-            tw = usedW + spaceW + suffixW;
-            th = usedH;
-            if (spaceH > th) {
-                th = spaceH;
-            }
-            if (suffixH > th) {
-                th = suffixH;
-            }
+            amiga_custom_ui_common_statsChartMeasureValueText(ctx,
+                                                              ctx->font,
+                                                              valueUsed,
+                                                              valueSuffix,
+                                                              textColor,
+                                                              &tw,
+                                                              &th);
         }
         if (tw > 0 && th > 0) {
             int tx = barX + (barW - tw) / 2;
@@ -256,21 +246,21 @@ amiga_custom_ui_blitter_statsChartRenderBarRow(e9ui_context_t *ctx,
                 amiga_custom_ui_common_blitterStatsChartDrawText(ctx, NULL, "n/a", textColor, tx, ty);
             } else {
                 if (useTextShadow) {
-                    amiga_custom_ui_common_statsChartDrawValueUsedSuffix(ctx,
-                                                            ctx->font,
-                                                            valueUsed,
-                                                            valueSuffix,
-                                                            textShadow,
-                                                            tx + 1,
-                                                            ty + 1);
+                    amiga_custom_ui_common_statsChartDrawValueText(ctx,
+                                                                   ctx->font,
+                                                                   valueUsed,
+                                                                   valueSuffix,
+                                                                   textShadow,
+                                                                   tx + 1,
+                                                                   ty + 1);
                 }
-                amiga_custom_ui_common_statsChartDrawValueUsedSuffix(ctx,
-                                                        ctx->font,
-                                                        valueUsed,
-                                                        valueSuffix,
-                                                        textColor,
-                                                        tx,
-                                                        ty);
+                amiga_custom_ui_common_statsChartDrawValueText(ctx,
+                                                               ctx->font,
+                                                               valueUsed,
+                                                               valueSuffix,
+                                                               textColor,
+                                                               tx,
+                                                               ty);
             }
             if (useTextClip) {
                 if (hadPrevClip) {

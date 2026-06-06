@@ -338,7 +338,7 @@ geo_state_serialize(uint8_t *dst)
     geo_serial_push8(dst, ngsys.sound_code);
     geo_serial_push8(dst, ngsys.sound_reply);
 
-    e9k_checkpoint_state_save(dst);
+    e9k_checkpoint_stateSave(dst);
     geo_cycles_state_save(dst);
     geo_lspc_state_save(dst);
     geo_m68k_state_save(dst);
@@ -405,7 +405,7 @@ geo_state_loadDecoded(uint8_t *st)
     ngsys.sound_code = geo_serial_pop8(st);
     ngsys.sound_reply = geo_serial_pop8(st);
 
-    e9k_checkpoint_state_load(st);
+    e9k_checkpoint_stateLoad(st);
     geo_cycles_state_load(st);
     geo_lspc_state_load(st);
     geo_m68k_state_load(st);

@@ -77,6 +77,24 @@ target_amiga_mouseCaptureOptionKey(void)
 }
 
 static const char *
+target_amiga_memorySpaceOptionKey(void)
+{
+    return "e9k_debugger_amiga_memory_space";
+}
+
+static const char *
+target_amiga_memoryAddressOptionKey(void)
+{
+    return "e9k_debugger_amiga_memory_address";
+}
+
+static const char *
+target_amiga_memorySearchOptionKey(void)
+{
+    return "e9k_debugger_amiga_memory_search";
+}
+
+static const char *
 target_amiga_portDeviceOptionKeyAt(size_t index)
 {
     static const char *keys[2] = {
@@ -90,6 +108,7 @@ target_amiga_portDeviceOptionKeyAt(size_t index)
 }
 
 #define TARGET_AMIGA_FLOPPY_RECENTS_MAX 8
+#define TARGET_AMIGA_ROM_CONFIG_FIXED_OPTION_COUNT 6
 static const char target_amiga_floppyRecentClearLabel[] = "<CLEAR RECENTS>";
 static const char target_amiga_floppyRecentClearValue[] = "__e9k_amiga_clear_floppy_recents__";
 
@@ -149,6 +168,9 @@ target_amiga_normalizeMouseCaptureOverrideValue(const char *value)
 static char target_amiga_activeRomMouseCaptureOverride[16];
 static int target_amiga_hasActiveRomMouseCaptureOverride = 0;
 static char target_amiga_activeRomPortDevice[2][16];
+static char target_amiga_activeRomMemorySpace[16];
+static char target_amiga_activeRomMemoryAddress[32];
+static char target_amiga_activeRomMemorySearch[128];
 static char target_amiga_activeRomFloppyRecents[2][TARGET_AMIGA_FLOPPY_RECENTS_MAX][PATH_MAX];
 static int target_amiga_settingsMediaInitiallyEmpty = 0;
 static int target_amiga_settingsMediaNeedsRestart = 0;
@@ -379,7 +401,7 @@ target_amiga_captureFloppyRecentsFromUae(void)
 static size_t
 target_amiga_romConfigCustomOptionCount(void)
 {
-    return 3 + (TARGET_AMIGA_FLOPPY_RECENTS_MAX * 2);
+    return TARGET_AMIGA_ROM_CONFIG_FIXED_OPTION_COUNT + (TARGET_AMIGA_FLOPPY_RECENTS_MAX * 2);
 }
 
 static const char *
@@ -394,7 +416,16 @@ target_amiga_romConfigCustomOptionKeyAt(size_t index)
     if (index == 2) {
         return target_amiga_portDeviceOptionKeyAt(1);
     }
-    index -= 3;
+    if (index == 3) {
+        return target_amiga_memorySpaceOptionKey();
+    }
+    if (index == 4) {
+        return target_amiga_memoryAddressOptionKey();
+    }
+    if (index == 5) {
+        return target_amiga_memorySearchOptionKey();
+    }
+    index -= TARGET_AMIGA_ROM_CONFIG_FIXED_OPTION_COUNT;
     if (index < TARGET_AMIGA_FLOPPY_RECENTS_MAX) {
         return target_amiga_df0RecentOptionKeyAt(index);
     }
@@ -413,6 +444,15 @@ target_amiga_romConfigGetActiveCustomOptionValue(const char *key)
     }
     if (strcmp(key, target_amiga_mouseCaptureOptionKey()) == 0) {
         return target_amiga_getActiveMouseCaptureOverride();
+    }
+    if (strcmp(key, target_amiga_memorySpaceOptionKey()) == 0) {
+        return target_amiga_activeRomMemorySpace[0] ? target_amiga_activeRomMemorySpace : NULL;
+    }
+    if (strcmp(key, target_amiga_memoryAddressOptionKey()) == 0) {
+        return target_amiga_activeRomMemoryAddress[0] ? target_amiga_activeRomMemoryAddress : NULL;
+    }
+    if (strcmp(key, target_amiga_memorySearchOptionKey()) == 0) {
+        return target_amiga_activeRomMemorySearch[0] ? target_amiga_activeRomMemorySearch : NULL;
     }
     for (size_t i = 0; i < 2; ++i) {
         const char *portKey = target_amiga_portDeviceOptionKeyAt(i);
@@ -438,6 +478,18 @@ target_amiga_romConfigSetActiveCustomOptionValue(const char *key, const char *va
         target_amiga_setActiveMouseCaptureOverride(value);
         return;
     }
+    if (strcmp(key, target_amiga_memorySpaceOptionKey()) == 0) {
+        strutil_strlcpy(target_amiga_activeRomMemorySpace, sizeof(target_amiga_activeRomMemorySpace), value ? value : "");
+        return;
+    }
+    if (strcmp(key, target_amiga_memoryAddressOptionKey()) == 0) {
+        strutil_strlcpy(target_amiga_activeRomMemoryAddress, sizeof(target_amiga_activeRomMemoryAddress), value ? value : "");
+        return;
+    }
+    if (strcmp(key, target_amiga_memorySearchOptionKey()) == 0) {
+        strutil_strlcpy(target_amiga_activeRomMemorySearch, sizeof(target_amiga_activeRomMemorySearch), value ? value : "");
+        return;
+    }
     for (size_t i = 0; i < 2; ++i) {
         const char *portKey = target_amiga_portDeviceOptionKeyAt(i);
         if (portKey && strcmp(key, portKey) == 0) {
@@ -459,7 +511,22 @@ target_amiga_romConfigClearActiveCustomOptions(void)
 {
     target_amiga_setActiveMouseCaptureOverride(NULL);
     memset(target_amiga_activeRomPortDevice, 0, sizeof(target_amiga_activeRomPortDevice));
+    target_amiga_activeRomMemorySpace[0] = '\0';
+    target_amiga_activeRomMemoryAddress[0] = '\0';
+    target_amiga_activeRomMemorySearch[0] = '\0';
     target_amiga_clearActiveFloppyRecents();
+}
+
+static int
+target_amiga_memoryPanelOptions(target_memory_panel_options_t *outOptions)
+{
+    if (!outOptions) {
+        return 0;
+    }
+    outOptions->spaceKey = target_amiga_memorySpaceOptionKey();
+    outOptions->addressKey = target_amiga_memoryAddressOptionKey();
+    outOptions->searchKey = target_amiga_memorySearchOptionKey();
+    return 1;
 }
 
 static int
@@ -1854,6 +1921,7 @@ static target_iface_t _target_amiga = {
     .memoryGetLimits = target_amiga_memoryGetLimits,
     .memoryGetSpaces = target_amiga_memoryGetSpaces,
     .memoryTrackGetRanges = target_amiga_memoryTrackGetRanges,
+    .memoryPanelOptions = target_amiga_memoryPanelOptions,
     .registersReadExtra = target_amiga_registersReadExtra,
     .getBadgeTexture = target_amiga_getBadgeTexture,
     .configControllerPorts = target_amiga_configControllerPorts,

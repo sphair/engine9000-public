@@ -133,10 +133,10 @@ libretro_host_neogeo_setAudioMuteMask(uint32_t mask)
 bool
 libretro_host_neogeo_setRegisterLogFrameCallback(e9k_debug_geo_register_log_frame_callback_t cb, void *user)
 {
-    if (!libretro_host.setNeogeoRegisterLogFrameCallback) {
+    if (!libretro_host.debugNeogeoSetRegisterLogFrameCallback) {
         return false;
     }
-    libretro_host.setNeogeoRegisterLogFrameCallback(cb, user);
+    libretro_host.debugNeogeoSetRegisterLogFrameCallback(cb, user);
     return true;
 }
 
@@ -161,6 +161,8 @@ libretro_host_neogeo_bindApis(void)
         (e9k_debug_neogeo_set_audio_vis_enabled_fn_t)libretro_host_loadSymbol("e9k_debug_neogeo_set_audio_vis_enabled");
     libretro_host.debugNeogeoSetAudioMuteMask =
         (e9k_debug_neogeo_set_audio_mute_mask_fn_t)libretro_host_loadSymbol("e9k_debug_neogeo_set_audio_mute_mask");
+    libretro_host.debugNeogeoSetRegisterLogFrameCallback =
+        (e9k_debug_set_neogeo_register_log_frame_callback_fn_t)libretro_host_loadSymbol("e9k_debug_set_neogeo_register_log_frame_callback");
 }
 
 void
@@ -175,4 +177,5 @@ libretro_host_neogeo_unbindApis(void)
     libretro_host.debugNeogeoGetAudioFrame = NULL;
     libretro_host.debugNeogeoSetAudioVisEnabled = NULL;
     libretro_host.debugNeogeoSetAudioMuteMask = NULL;
+    libretro_host.debugNeogeoSetRegisterLogFrameCallback = NULL;
 }
