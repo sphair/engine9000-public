@@ -111,6 +111,46 @@ libretro_host_neogeo_getAudioFrame(e9k_debug_audio_frame_t *out)
 }
 
 bool
+libretro_host_neogeo_setSpriteGrayscaleSelection(const e9k_debug_sprite_grayscale_selection_t *selection)
+{
+    if (!selection || !libretro_host.debugNeogeoSetSpriteGrayscaleSelection) {
+        return false;
+    }
+    libretro_host.debugNeogeoSetSpriteGrayscaleSelection(selection);
+    return true;
+}
+
+bool
+libretro_host_neogeo_setPaletteGrayscaleMask(const e9k_debug_palette_grayscale_mask_t *mask)
+{
+    if (!mask || !libretro_host.debugNeogeoSetPaletteGrayscaleMask) {
+        return false;
+    }
+    libretro_host.debugNeogeoSetPaletteGrayscaleMask(mask);
+    return true;
+}
+
+bool
+libretro_host_neogeo_getPaletteGrayscaleMask(e9k_debug_palette_grayscale_mask_t *outMask)
+{
+    if (!outMask || !libretro_host.debugNeogeoGetPaletteGrayscaleMask) {
+        return false;
+    }
+    size_t n = libretro_host.debugNeogeoGetPaletteGrayscaleMask(outMask, sizeof(*outMask));
+    return n == sizeof(*outMask);
+}
+
+bool
+libretro_host_neogeo_setFixLayerMode(e9k_debug_geo_fix_layer_mode_t mode)
+{
+    if (!libretro_host.debugNeogeoSetFixLayerMode) {
+        return false;
+    }
+    libretro_host.debugNeogeoSetFixLayerMode((int)mode);
+    return true;
+}
+
+bool
 libretro_host_neogeo_setAudioVisEnabled(int enabled)
 {
     if (!libretro_host.debugNeogeoSetAudioVisEnabled) {
@@ -157,6 +197,14 @@ libretro_host_neogeo_bindApis(void)
         (e9k_debug_neogeo_get_palette_state_fn_t)libretro_host_loadSymbol("e9k_debug_neogeo_get_palette_state");
     libretro_host.debugNeogeoGetAudioFrame =
         (e9k_debug_neogeo_get_audio_frame_fn_t)libretro_host_loadSymbol("e9k_debug_neogeo_get_audio_frame");
+    libretro_host.debugNeogeoSetSpriteGrayscaleSelection =
+        (e9k_debug_neogeo_set_sprite_grayscale_selection_fn_t)libretro_host_loadSymbol("e9k_debug_neogeo_set_sprite_grayscale_selection");
+    libretro_host.debugNeogeoSetPaletteGrayscaleMask =
+        (e9k_debug_neogeo_set_palette_grayscale_mask_fn_t)libretro_host_loadSymbol("e9k_debug_neogeo_set_palette_grayscale_mask");
+    libretro_host.debugNeogeoGetPaletteGrayscaleMask =
+        (e9k_debug_neogeo_get_palette_grayscale_mask_fn_t)libretro_host_loadSymbol("e9k_debug_neogeo_get_palette_grayscale_mask");
+    libretro_host.debugNeogeoSetFixLayerMode =
+        (e9k_debug_neogeo_set_fix_layer_mode_fn_t)libretro_host_loadSymbol("e9k_debug_neogeo_set_fix_layer_mode");
     libretro_host.debugNeogeoSetAudioVisEnabled =
         (e9k_debug_neogeo_set_audio_vis_enabled_fn_t)libretro_host_loadSymbol("e9k_debug_neogeo_set_audio_vis_enabled");
     libretro_host.debugNeogeoSetAudioMuteMask =
@@ -175,6 +223,10 @@ libretro_host_neogeo_unbindApis(void)
     libretro_host.debugNeogeoGetRoms = NULL;
     libretro_host.debugNeogeoGetPaletteState = NULL;
     libretro_host.debugNeogeoGetAudioFrame = NULL;
+    libretro_host.debugNeogeoSetSpriteGrayscaleSelection = NULL;
+    libretro_host.debugNeogeoSetPaletteGrayscaleMask = NULL;
+    libretro_host.debugNeogeoGetPaletteGrayscaleMask = NULL;
+    libretro_host.debugNeogeoSetFixLayerMode = NULL;
     libretro_host.debugNeogeoSetAudioVisEnabled = NULL;
     libretro_host.debugNeogeoSetAudioMuteMask = NULL;
     libretro_host.debugNeogeoSetRegisterLogFrameCallback = NULL;

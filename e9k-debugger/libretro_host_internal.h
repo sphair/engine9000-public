@@ -86,6 +86,10 @@ typedef size_t (*e9k_debug_neogeo_get_fix_rom_fn_t)(e9k_debug_rom_region_t *out,
 typedef size_t (*e9k_debug_neogeo_get_roms_fn_t)(e9k_debug_rom_entry_t *out, size_t cap);
 typedef size_t (*e9k_debug_neogeo_get_palette_state_fn_t)(e9k_debug_palette_state_t *out, size_t cap);
 typedef size_t (*e9k_debug_neogeo_get_audio_frame_fn_t)(e9k_debug_audio_frame_t *out, size_t cap);
+typedef void (*e9k_debug_neogeo_set_sprite_grayscale_selection_fn_t)(const e9k_debug_sprite_grayscale_selection_t *selection);
+typedef void (*e9k_debug_neogeo_set_palette_grayscale_mask_fn_t)(const e9k_debug_palette_grayscale_mask_t *mask);
+typedef size_t (*e9k_debug_neogeo_get_palette_grayscale_mask_fn_t)(e9k_debug_palette_grayscale_mask_t *out, size_t cap);
+typedef void (*e9k_debug_neogeo_set_fix_layer_mode_fn_t)(int mode);
 typedef void (*e9k_debug_neogeo_set_audio_vis_enabled_fn_t)(int enabled);
 typedef void (*e9k_debug_neogeo_set_audio_mute_mask_fn_t)(uint32_t mask);
 typedef size_t (*e9k_debug_megadrive_get_sprite_state_fn_t)(e9k_debug_mega_sprite_state_t *out, size_t cap);
@@ -96,6 +100,7 @@ typedef size_t (*e9k_debug_megadrive_get_audio_frame_fn_t)(e9k_debug_mega_audio_
 typedef void (*e9k_debug_megadrive_set_audio_vis_enabled_fn_t)(int enabled);
 typedef void (*e9k_debug_megadrive_set_audio_mute_mask_fn_t)(uint32_t mask);
 typedef size_t (*e9k_debug_megadrive_get_vdp_bandwidth_frame_fn_t)(e9k_debug_mega_vdp_bandwidth_frame_t *out, size_t cap);
+typedef int (*e9k_debug_megadrive_get_raster_line_count_fn_t)(void);
 typedef size_t (*e9k_debug_disassemble_quick_fn_t)(uint32_t pc, char *out, size_t cap);
 typedef size_t (*e9k_debug_read_known_pcs_fn_t)(uint32_t startAddr, uint32_t endAddr, uint32_t *out, size_t cap);
 typedef void (*e9k_debug_reset_known_pcs_fn_t)(void);
@@ -103,6 +108,8 @@ typedef size_t (*e9k_debug_read_checkpoints_fn_t)(e9k_debug_checkpoint_t *out, s
 typedef void (*e9k_debug_reset_checkpoints_fn_t)(void);
 typedef void (*e9k_debug_set_checkpoint_enabled_fn_t)(int enabled);
 typedef int (*e9k_debug_get_checkpoint_enabled_fn_t)(void);
+typedef size_t (*e9k_debug_read_counters_fn_t)(e9k_debug_counter_t *out, size_t cap);
+typedef void (*e9k_debug_reset_counters_fn_t)(void);
 typedef uint64_t (*e9k_debug_read_cycle_count_fn_t)(void);
 typedef void (*e9k_debug_set_vblank_callback_fn_t)(void (*cb)(void *), void *user);
 typedef void (*e9k_debug_set_amiga_custom_log_frame_callback_fn_t)(e9k_debug_ami_custom_log_frame_callback_t cb, void *user);
@@ -120,10 +127,13 @@ typedef size_t (*e9k_debug_amiga_blitter_vis_read_stats_fn_t)(e9k_debug_ami_blit
 typedef size_t (*e9k_debug_amiga_blitter_vis_read_word_tags_fn_t)(uint32_t addr, uint32_t *out, size_t cap);
 typedef void (*e9k_debug_amiga_set_sprite_vis_fn_t)(int enabled);
 typedef int (*e9k_debug_amiga_get_sprite_vis_fn_t)(void);
+typedef void (*e9k_debug_amiga_set_statusbar_fn_t)(int enabled);
+typedef int (*e9k_debug_amiga_get_statusbar_fn_t)(void);
 typedef size_t (*e9k_debug_amiga_sprite_vis_read_points_fn_t)(e9k_debug_ami_sprite_vis_point_t *out, size_t cap, uint32_t *out_width, uint32_t *out_height);
 typedef const e9k_debug_ami_dma_debug_frame_view_t *(*e9k_debug_amiga_dma_debug_get_frame_view_fn_t)(uint32_t frameSelect);
 typedef const e9k_debug_ami_copper_debug_frame_view_t *(*e9k_debug_amiga_copper_debug_get_frame_view_fn_t)(uint32_t frameSelect);
 typedef int (*e9k_debug_amiga_get_video_line_count_fn_t)(void);
+typedef int (*e9k_debug_amiga_get_raster_line_count_fn_t)(void);
 typedef int (*e9k_debug_amiga_video_line_to_core_line_fn_t)(int videoLine);
 typedef int (*e9k_debug_amiga_core_line_to_video_line_fn_t)(int coreLine);
 typedef const e9k_debug_ami_video_line_state_t *(*e9k_debug_amiga_get_video_line_states_fn_t)(void);
@@ -264,6 +274,10 @@ typedef struct {
     e9k_debug_neogeo_get_roms_fn_t debugNeogeoGetRoms;
     e9k_debug_neogeo_get_palette_state_fn_t debugNeogeoGetPaletteState;
     e9k_debug_neogeo_get_audio_frame_fn_t debugNeogeoGetAudioFrame;
+    e9k_debug_neogeo_set_sprite_grayscale_selection_fn_t debugNeogeoSetSpriteGrayscaleSelection;
+    e9k_debug_neogeo_set_palette_grayscale_mask_fn_t debugNeogeoSetPaletteGrayscaleMask;
+    e9k_debug_neogeo_get_palette_grayscale_mask_fn_t debugNeogeoGetPaletteGrayscaleMask;
+    e9k_debug_neogeo_set_fix_layer_mode_fn_t debugNeogeoSetFixLayerMode;
     e9k_debug_neogeo_set_audio_vis_enabled_fn_t debugNeogeoSetAudioVisEnabled;
     e9k_debug_neogeo_set_audio_mute_mask_fn_t debugNeogeoSetAudioMuteMask;
     e9k_debug_set_neogeo_register_log_frame_callback_fn_t debugNeogeoSetRegisterLogFrameCallback;
@@ -275,6 +289,7 @@ typedef struct {
     e9k_debug_megadrive_set_audio_vis_enabled_fn_t debugMegadriveSetAudioVisEnabled;
     e9k_debug_megadrive_set_audio_mute_mask_fn_t debugMegadriveSetAudioMuteMask;
     e9k_debug_megadrive_get_vdp_bandwidth_frame_fn_t debugMegadriveGetVdpBandwidthFrame;
+    e9k_debug_megadrive_get_raster_line_count_fn_t debugMegadriveGetRasterLineCount;
     e9k_debug_disassemble_quick_fn_t debugDisassembleQuick;
     e9k_debug_read_known_pcs_fn_t debugReadKnownPcs;
     e9k_debug_reset_known_pcs_fn_t debugResetKnownPcs;
@@ -282,6 +297,8 @@ typedef struct {
     e9k_debug_reset_checkpoints_fn_t debugResetCheckpoints;
     e9k_debug_set_checkpoint_enabled_fn_t debugSetCheckpointEnabled;
     e9k_debug_get_checkpoint_enabled_fn_t debugGetCheckpointEnabled;
+    e9k_debug_read_counters_fn_t debugReadCounters;
+    e9k_debug_reset_counters_fn_t debugResetCounters;
     e9k_debug_read_cycle_count_fn_t debugReadCycleCount;
     e9k_debug_set_vblank_callback_fn_t setVblankCallback;
     e9k_debug_set_amiga_custom_log_frame_callback_fn_t setAmigaCustomLogFrameCallback;
@@ -303,10 +320,13 @@ typedef struct {
     e9k_debug_amiga_blitter_vis_read_word_tags_fn_t debugAmigaBlitterVisReadWordTags;
     e9k_debug_amiga_set_sprite_vis_fn_t debugAmigaSetSpriteVis;
     e9k_debug_amiga_get_sprite_vis_fn_t debugAmigaGetSpriteVis;
+    e9k_debug_amiga_set_statusbar_fn_t debugAmigaSetStatusbar;
+    e9k_debug_amiga_get_statusbar_fn_t debugAmigaGetStatusbar;
     e9k_debug_amiga_sprite_vis_read_points_fn_t debugAmigaSpriteVisReadPoints;
     e9k_debug_amiga_dma_debug_get_frame_view_fn_t debugAmigaDmaDebugGetFrameView;
     e9k_debug_amiga_copper_debug_get_frame_view_fn_t debugAmigaCopperDebugGetFrameView;
     e9k_debug_amiga_get_video_line_count_fn_t debugAmigaGetVideoLineCount;
+    e9k_debug_amiga_get_raster_line_count_fn_t debugAmigaGetRasterLineCount;
     e9k_debug_amiga_video_line_to_core_line_fn_t debugAmigaVideoLineToCoreLine;
     e9k_debug_amiga_core_line_to_video_line_fn_t debugAmigaCoreLineToVideoLine;
     e9k_debug_amiga_get_video_line_states_fn_t debugAmigaGetVideoLineStates;

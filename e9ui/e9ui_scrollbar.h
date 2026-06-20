@@ -23,6 +23,16 @@ e9ui_scrollbar_maxScroll(int contentSize, int viewSize);
 void
 e9ui_scrollbar_clamp(int viewW, int viewH, int contentW, int contentH, int *scrollX, int *scrollY);
 
+int
+e9ui_scrollbar_pointInScrollbarPx(e9ui_context_t *ctx,
+                                  e9ui_rect_t bounds,
+                                  int viewW,
+                                  int viewH,
+                                  int contentW,
+                                  int contentH,
+                                  int mouseX,
+                                  int mouseY);
+
 void
 e9ui_scrollbar_render(void *owner,
                       e9ui_context_t *ctx,

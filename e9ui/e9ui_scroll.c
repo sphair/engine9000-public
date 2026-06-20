@@ -8,6 +8,9 @@
 
 #include "e9ui.h"
 
+#include <stdio.h>
+
+#include "config.h"
 #include "e9ui_scrollbar.h"
 
 typedef struct e9ui_scroll_state {
@@ -19,8 +22,21 @@ typedef struct e9ui_scroll_state {
     int contentWidthPx;
     int contentHeightPx;
     int lineHeight;
+    const char *persistKey;
+    int pendingScrollX;
+    int pendingScrollY;
+    int hasPendingScroll;
     e9ui_scrollbar_state_t scrollbar;
 } e9ui_scroll_state_t;
+
+static void
+scroll_saveConfig(e9ui_scroll_state_t *st)
+{
+    if (!st || !st->persistKey) {
+        return;
+    }
+    config_saveConfig();
+}
 
 static int
 scroll_measureLineHeight(e9ui_context_t *ctx)
@@ -76,6 +92,11 @@ scroll_layout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_rect_t bounds)
     st->contentW = contentW;
     st->contentH = contentH;
     st->lineHeight = scroll_measureLineHeight(ctx);
+    if (st->hasPendingScroll) {
+        st->scrollX = st->pendingScrollX;
+        st->scrollY = st->pendingScrollY;
+        st->hasPendingScroll = 0;
+    }
     scroll_clamp(st, bounds.w, bounds.h);
     e9ui_rect_t childBounds = { bounds.x - st->scrollX, bounds.y - st->scrollY, st->contentW, st->contentH };
     st->child->layout(st->child, ctx, childBounds);
@@ -133,6 +154,8 @@ scroll_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event
         return 0;
     }
 
+    int oldScrollX = st->scrollX;
+    int oldScrollY = st->scrollY;
     if (e9ui_scrollbar_handleEvent(self,
                                    ctx,
                                    ev,
@@ -144,6 +167,9 @@ scroll_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event
                                    &st->scrollX,
                                    &st->scrollY,
                                    &st->scrollbar)) {
+        if (st->scrollX != oldScrollX || st->scrollY != oldScrollY) {
+            scroll_saveConfig(st);
+        }
         return 1;
     }
 
@@ -155,6 +181,8 @@ scroll_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event
             int consumed = 0;
             int wheelX = ev->wheel.x;
             int wheelY = ev->wheel.y;
+            int oldScrollX = st->scrollX;
+            int oldScrollY = st->scrollY;
             SDL_Keymod mods = ctx->keyMods;
             if (wheelX == 0 && (mods & KMOD_SHIFT)) {
                 wheelX = wheelY;
@@ -176,6 +204,9 @@ scroll_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event
             }
             if (consumed) {
                 scroll_clamp(st, self->bounds.w, self->bounds.h);
+                if (st->scrollX != oldScrollX || st->scrollY != oldScrollY) {
+                    scroll_saveConfig(st);
+                }
                 return 1;
             }
         }
@@ -267,7 +298,79 @@ e9ui_scroll_setScrollPx(e9ui_component_t *scroll, int scrollX, int scrollY)
         return;
     }
     e9ui_scroll_state_t *st = (e9ui_scroll_state_t*)scroll->state;
+    int oldScrollX = st->scrollX;
+    int oldScrollY = st->scrollY;
     st->scrollX = scrollX;
     st->scrollY = scrollY;
     scroll_clamp(st, scroll->bounds.w, scroll->bounds.h);
+    if (st->scrollX != oldScrollX || st->scrollY != oldScrollY) {
+        scroll_saveConfig(st);
+    }
+}
+
+void
+e9ui_scroll_setPersistKey(e9ui_component_t *scroll, const char *persistKey)
+{
+    if (!scroll || !scroll->state) {
+        return;
+    }
+    e9ui_scroll_state_t *st = (e9ui_scroll_state_t*)scroll->state;
+    st->persistKey = persistKey;
+}
+
+void
+e9ui_scroll_loadPersistedPx(e9ui_component_t *scroll, int scrollX, int scrollY)
+{
+    if (!scroll || !scroll->state) {
+        return;
+    }
+    e9ui_scroll_state_t *st = (e9ui_scroll_state_t*)scroll->state;
+    st->pendingScrollX = scrollX;
+    st->pendingScrollY = scrollY;
+    st->hasPendingScroll = 1;
+}
+
+void
+e9ui_scroll_persistConfig(FILE *file, e9ui_component_t *scroll)
+{
+    if (!file || !scroll || !scroll->state) {
+        return;
+    }
+    e9ui_scroll_state_t *st = (e9ui_scroll_state_t*)scroll->state;
+    if (!st->persistKey) {
+        return;
+    }
+    fprintf(file, "%s.scroll_x=%d\n", st->persistKey, st->scrollX);
+    fprintf(file, "%s.scroll_y=%d\n", st->persistKey, st->scrollY);
+}
+
+int
+e9ui_scroll_pointInContentPx(e9ui_component_t *scroll,
+                             e9ui_context_t *ctx,
+                             int contentW,
+                             int contentH,
+                             int mouseX,
+                             int mouseY)
+{
+    if (!scroll) {
+        return 0;
+    }
+
+    e9ui_rect_t bounds = scroll->bounds;
+    if (mouseX < bounds.x || mouseX >= bounds.x + bounds.w ||
+        mouseY < bounds.y || mouseY >= bounds.y + bounds.h) {
+        return 0;
+    }
+
+    if (e9ui_scrollbar_pointInScrollbarPx(ctx,
+                                          bounds,
+                                          bounds.w,
+                                          bounds.h,
+                                          contentW,
+                                          contentH,
+                                          mouseX,
+                                          mouseY)) {
+        return 0;
+    }
+    return 1;
 }

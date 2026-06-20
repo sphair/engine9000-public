@@ -11,6 +11,12 @@
 #include "e9ui.h"
 
 e9ui_component_t *
-profile_hotspot_make(unsigned int pc, unsigned long long samples, const char *location);
-
-
+profile_hotspot_make(unsigned int pc,
+                     unsigned long long samples,
+                     unsigned long long cycles,
+                     unsigned long long total,
+                     int showSamples,
+                     const char *location,
+                     const char *source,
+                     const char *file,
+                     int line);

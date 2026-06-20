@@ -16,6 +16,7 @@
 #include "neogeo_core_options.h"
 #include "neogeo_audio_vis.h"
 #include "neogeo_sprite_debug.h"
+#include "neogeo_sprite_list.h"
 #include "neogeo_register_log.h"
 
 static void
@@ -428,6 +429,14 @@ neogeo_sprite_debug_render(const e9k_debug_sprite_state_t *st)
 }
 
 void
+neogeo_sprite_debug_setSelection(int spriteIndex, int chainRootIndex, int highlightChain)
+{
+    (void)spriteIndex;
+    (void)chainRootIndex;
+    (void)highlightChain;
+}
+
+void
 neogeo_sprite_debug_persistConfig(FILE *file)
 {
     (void)file;
@@ -435,6 +444,37 @@ neogeo_sprite_debug_persistConfig(FILE *file)
 
 int
 neogeo_sprite_debug_loadConfigProperty(const char *prop, const char *value)
+{
+    (void)prop;
+    (void)value;
+    return 0;
+}
+
+void
+neogeo_sprite_list_toggle(void)
+{
+}
+
+int
+neogeo_sprite_list_isOpen(void)
+{
+    return 0;
+}
+
+void
+neogeo_sprite_list_render(const e9k_debug_sprite_state_t *st)
+{
+    (void)st;
+}
+
+void
+neogeo_sprite_list_persistConfig(FILE *file)
+{
+    (void)file;
+}
+
+int
+neogeo_sprite_list_loadConfigProperty(const char *prop, const char *value)
 {
     (void)prop;
     (void)value;

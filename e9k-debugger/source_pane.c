@@ -3316,6 +3316,55 @@ source_pane_submitAddress(e9ui_component_t *comp, e9ui_context_t *ctx, uint32_t 
     source_pane_asmAddressSubmitted(ctx, st);
 }
 
+void
+source_pane_openSourceLocation(e9ui_component_t *comp, e9ui_context_t *ctx, const char *file, int line)
+{
+    if (!comp || !comp->state || !file || !*file || line <= 0) {
+        return;
+    }
+    source_pane_state_t *st = (source_pane_state_t*)comp->state;
+    source_pane_setMode(comp, source_pane_mode_c);
+
+    char resolved[PATH_MAX];
+    source_pane_resolveSourcePath(file, resolved, sizeof(resolved));
+    if (!resolved[0]) {
+        strutil_strlcpy(resolved, sizeof(resolved), file);
+    }
+
+    alloc_free(st->manualSrcPath);
+    st->manualSrcPath = alloc_strdup(resolved);
+    if (!st->manualSrcPath) {
+        st->manualSrcActive = 0;
+        return;
+    }
+    st->manualSrcActive = 1;
+    st->curSrcLine = line;
+    strutil_strlcpy(st->curSrcPath, sizeof(st->curSrcPath), resolved);
+
+    int maxLines = 1;
+    if (ctx && st->ownerPane) {
+        TTF_Font *useFont = source_pane_resolveFont(ctx);
+        if (useFont) {
+            source_pane_line_metrics_t metrics = source_pane_computeLineMetrics(st->ownerPane, ctx, useFont, 10);
+            if (metrics.maxLines > 0) {
+                maxLines = metrics.maxLines;
+            }
+        }
+    }
+    int start = line - (maxLines / 2);
+    if (start < 1) {
+        start = 1;
+    }
+    st->scrollLine = start;
+    st->scrollLocked = 1;
+    st->gutterPending = 0;
+    source_pane_clearFunctionScrollLock(st);
+    source_pane_symbols_refreshSourceFunctions(st->ownerPane, st, st->manualSrcPath);
+    source_pane_symbols_syncFileSelect(st->ownerPane, st);
+    source_pane_symbols_syncFunctionSelect(st->ownerPane, st);
+    source_pane_syncLockButtonVisual(st);
+}
+
 int
 source_pane_getCurrentFile(e9ui_component_t *comp, char *out, size_t cap)
 {

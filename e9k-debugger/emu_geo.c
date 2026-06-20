@@ -14,13 +14,16 @@
 #include "neogeo_palette_debug.h"
 #include "neogeo_register_log.h"
 #include "neogeo_sprite_debug.h"
+#include "neogeo_sprite_list.h"
 #include "profile_checkpoints.h"
 #include "libretro.h"
 #include "alloc.h"
 
 #define GEO_SPRITE_COUNT 382u
 #define GEO_SPRITES_PER_LINE_MAX 96u
-#define GEO_SPRITE_LINE_OFFSET 32
+#define GEO_SCANLINE_COUNT 264u
+#define GEO_VISIBLE_SCANLINE_BASE 16u
+#define GEO_VISIBLE_SCANLINE_DEFAULT_COUNT 224u
 
 typedef struct  {
     SDL_Texture *texture;
@@ -35,8 +38,8 @@ typedef struct  {
     int grad_w;
     int last_screen_w;
     int last_screen_h;
+    int last_visible_h;
     int last_crop_t;
-    int last_crop_b;
     int last_crop_l;
     int last_crop_r;
     unsigned last_sprlimit;
@@ -51,6 +54,32 @@ static uint16_t *emu_geo_spriteShadowVram = NULL;
 static size_t emu_geo_spriteShadowWords = 0;
 static int emu_geo_audioFrameReady = 0;
 static e9k_debug_audio_frame_t emu_geo_audioFrame;
+
+static void
+emu_geo_renderCheckpointOverlay(e9ui_context_t *ctx, SDL_Rect *dst, const SDL_Rect *clipRect)
+{
+    uint64_t videoStartScanline = GEO_VISIBLE_SCANLINE_BASE;
+    uint64_t videoScanlineCount = GEO_VISIBLE_SCANLINE_DEFAULT_COUNT;
+
+    if (emu_geo_spriteShadowReady) {
+        int cropTop = emu_geo_spriteShadow.crop_t;
+        int visibleHeight = emu_geo_spriteShadow.visible_h;
+        if (cropTop < 0) {
+            cropTop = 0;
+        }
+        if (visibleHeight > 0) {
+            videoStartScanline = GEO_VISIBLE_SCANLINE_BASE + (uint64_t)cropTop;
+            videoScanlineCount = (uint64_t)visibleHeight;
+        }
+    }
+
+    profile_checkpoints_renderScanlineOverlay(ctx,
+                                              dst,
+                                              clipRect,
+                                              GEO_SCANLINE_COUNT,
+                                              videoStartScanline,
+                                              videoScanlineCount);
+}
 
 void
 emu_geo_setSpriteState(const e9k_debug_sprite_state_t *state, int ready)
@@ -338,11 +367,10 @@ emu_e9k_spriteOverlayRender(SDL_Renderer *renderer, const SDL_Rect *dst, const e
     int screen_w = (st->screen_w > 0) ? st->screen_w : 320;
     int screen_h = (st->screen_h > 0) ? st->screen_h : 224;
     int crop_t = st->crop_t;
-    int crop_b = st->crop_b;
     int crop_l = st->crop_l;
     int crop_r = st->crop_r;
     int vis_w = screen_w - crop_l - crop_r;
-    int vis_h = screen_h - crop_t - crop_b;
+    int vis_h = (st->visible_h > 0) ? st->visible_h : screen_h;
     if (vis_w <= 0 || vis_h <= 0) {
         return;
     }
@@ -356,7 +384,7 @@ emu_e9k_spriteOverlayRender(SDL_Renderer *renderer, const SDL_Rect *dst, const e
     }
 
     unsigned sprcount_line[256];
-    int lines = screen_h;
+    int lines = vis_h;
     if (lines > (int)(sizeof(sprcount_line) / sizeof(sprcount_line[0]))) {
         lines = (int)(sizeof(sprcount_line) / sizeof(sprcount_line[0]));
     }
@@ -378,8 +406,8 @@ emu_e9k_spriteOverlayRender(SDL_Renderer *renderer, const SDL_Rect *dst, const e
     }
     if (emu_geo_overlayCache.last_screen_w != screen_w ||
         emu_geo_overlayCache.last_screen_h != screen_h ||
+        emu_geo_overlayCache.last_visible_h != vis_h ||
         emu_geo_overlayCache.last_crop_t != crop_t ||
-        emu_geo_overlayCache.last_crop_b != crop_b ||
         emu_geo_overlayCache.last_crop_l != crop_l ||
         emu_geo_overlayCache.last_crop_r != crop_r ||
         emu_geo_overlayCache.last_sprlimit != sprlimit) {
@@ -481,7 +509,7 @@ emu_e9k_spriteOverlayRender(SDL_Renderer *renderer, const SDL_Rect *dst, const e
                 sprsize = (unsigned)(scb3w & 0x3f);
             }
             hshrink = (unsigned)((scb2w >> 8) & 0x0f);
-            int vline = line + GEO_SPRITE_LINE_OFFSET;
+            int vline = line + e9k_debug_geo_spriteVisibleLineOffset(st);
             unsigned srow = (unsigned)(((vline - (int)(0x200 - (int)ypos))) & 0x1ff);
             if ((sprsize == 0) || (srow >= (sprsize << 4))) {
                 continue;
@@ -503,7 +531,7 @@ emu_e9k_spriteOverlayRender(SDL_Renderer *renderer, const SDL_Rect *dst, const e
         if (bar_len <= 0) {
             continue;
         }
-        int vy = line - crop_t;
+        int vy = line;
         if (vy < 0 || vy >= vis_h) {
             continue;
         }
@@ -587,8 +615,8 @@ emu_e9k_spriteOverlayRender(SDL_Renderer *renderer, const SDL_Rect *dst, const e
     emu_geo_overlayCache.valid = 1;
     emu_geo_overlayCache.last_screen_w = screen_w;
     emu_geo_overlayCache.last_screen_h = screen_h;
+    emu_geo_overlayCache.last_visible_h = vis_h;
     emu_geo_overlayCache.last_crop_t = crop_t;
-    emu_geo_overlayCache.last_crop_b = crop_b;
     emu_geo_overlayCache.last_crop_l = crop_l;
     emu_geo_overlayCache.last_crop_r = crop_r;
     emu_geo_overlayCache.last_sprlimit = sprlimit;
@@ -726,9 +754,9 @@ emu_geo_translateKey(SDL_Keycode key)
 }
 
 void
-emu_geo_render(e9ui_context_t *ctx, SDL_Rect* dst)    
+emu_geo_render(e9ui_context_t *ctx, SDL_Rect* dst, const SDL_Rect *clipRect)    
 {
-  profile_checkpoints_renderScanlineOverlay(ctx, dst, 264u);
+  emu_geo_renderCheckpointOverlay(ctx, dst, clipRect);
 
   if (emu_geo_histogramEnabled && emu_geo_spriteShadowReady) {
     emu_e9k_spriteOverlayRender(ctx->renderer, dst, &emu_geo_spriteShadow);
@@ -736,7 +764,10 @@ emu_geo_render(e9ui_context_t *ctx, SDL_Rect* dst)
   
   if (neogeo_sprite_debug_is_open() && emu_geo_spriteShadowReady) {
     neogeo_sprite_debug_render(&emu_geo_spriteShadow);
-  }  
+  }
+  if (neogeo_sprite_list_isOpen() && emu_geo_spriteShadowReady) {
+    neogeo_sprite_list_render(&emu_geo_spriteShadow);
+  }
   if (neogeo_audio_vis_isOpen() && emu_geo_audioFrameReady) {
     neogeo_audio_vis_render(&emu_geo_audioFrame);
   }
@@ -751,6 +782,3 @@ const emu_system_iface_t emu_geo_iface = {
   .render = emu_geo_render,
   .destroy = NULL,
 };
-
-void
-emu_geo_render(e9ui_context_t *ctx, SDL_Rect* dst);

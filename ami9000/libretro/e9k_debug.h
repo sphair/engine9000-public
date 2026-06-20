@@ -27,6 +27,10 @@
 #define E9K_HACK_AMI_SPRITE_VIS 0
 #endif
 
+#ifndef E9K_HACK_AMI_STATUSBAR_CONTROL
+#define E9K_HACK_AMI_STATUSBAR_CONTROL 0
+#endif
+
 #ifndef E9K_HACK_DET_RTC
 #define E9K_HACK_DET_RTC 0
 #endif
@@ -68,6 +72,12 @@ e9k_debug_step_out(void);
 
 size_t
 e9k_debug_read_callstack(uint32_t *out, size_t cap);
+
+size_t
+e9k_debug_read_counters(e9k_debug_counter_t *out, size_t cap);
+
+void
+e9k_debug_reset_counters(void);
 
 size_t
 e9k_debug_read_regs(uint32_t *out, size_t cap);
@@ -168,6 +178,17 @@ e9k_debug_amiga_set_sprite_vis(int enabled);
 int
 e9k_debug_amiga_get_sprite_vis(void);
 
+#endif
+
+#if E9K_HACK_AMI_STATUSBAR_CONTROL
+void
+e9k_debug_amiga_set_statusbar(int enabled);
+
+int
+e9k_debug_amiga_get_statusbar(void);
+#endif
+
+#if E9K_HACK_AMI_SPRITE_VIS
 size_t
 e9k_debug_amiga_sprite_vis_read_points(e9k_debug_ami_sprite_vis_point_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight);
 #endif
@@ -182,6 +203,9 @@ e9k_debug_amiga_copper_debug_get_frame_view(uint32_t frameSelect);
 
 int
 e9k_debug_amiga_get_video_line_count(void);
+
+int
+e9k_debug_amiga_get_raster_line_count(void);
 
 int
 e9k_debug_amiga_video_line_to_core_line(int videoLine);
@@ -258,6 +282,11 @@ e9k_debug_set_debug_profile_start_callback(void (*cb)(void));
 void
 e9k_debug_set_debug_args(const uint32_t *args, size_t count);
 
+#if E9K_HACK_DEBUGGER_HOST
+void
+e9k_debug_text_write(uae_u8 byte);
+#endif
+
 // Optional host callback used for source location resolution in cores that support source-line stepping.
 void
 e9k_debug_set_source_location_resolver(int (*resolver)(uint32_t pc24, uint64_t *out_location, void *user), void *user);
@@ -274,3 +303,9 @@ e9k_debug_checkpoint_write(uint8_t index);
 void
 e9k_debug_checkpoint_set_name_from_pointer(uint8_t index, uint32_t ptrValue);
 #endif
+
+void
+e9k_debug_counter_write(uint8_t index, uint32_t value);
+
+void
+e9k_debug_counter_set_name_from_pointer(uint8_t index, uint32_t ptrValue);

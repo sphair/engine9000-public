@@ -94,6 +94,12 @@ NOTE: Testing on Linux/Windows builds has been minimal at this stage.
 - `0xFFE00` - checkpoint description array base (`uint32_t[64]`), write `description_ptr` to `0xFFE00 + index*4`
 - These overlay with ROM addresses - other emulators or real neo geo might crash if you use these
 
+### Mega Drive Debug Peripherals
+
+- `0xFFFEC` - write checkpoint slot index (`0-63`) for checkpoint profiling
+- `0xFFE00` - checkpoint description array base (`uint32_t[64]`), write `description_ptr` to `0xFFE00 + index*4`
+- These overlay with ROM addresses - other emulators or real mega drive might crash if you use these
+
 ### Amiga Debug Peripherals
 
 - `0xFC0000` - characters written to this address will be output in the console and terminal
@@ -110,6 +116,8 @@ NOTE: Testing on Linux/Windows builds has been minimal at this stage.
 - `0xB7E900` through `0xB7E924` - read-only 32-bit debug argument registers 0-9, set with `--debug-arg VALUE`
 - `0xB7E928` - read-only 32-bit current processor cycle count divided by 4
 - `0xFC0100` - checkpoint description array base (`uint32_t[64]`), write `description_ptr` to `0xFC0100 + index*4`
+- `0xFC0200` - counter name array base (`uint32_t[64]`), write `name_ptr` to `0xFC0200 + index*4` - counters display in status bar
+- `0xFC0300` - counter value array base (`uint32_t[64]`), write `value` to `0xFC0300 + index*4`
 - `0xFCxxxx` debug registers overlay ROM addresses; the `0xB7E900` argument block is mapped as an e9k-only debug peripheral outside ROM and outside the usual Zorro II fast RAM range. Other emulators or real Amiga might crash if you use these.
 
 ### Profiling Features
@@ -789,7 +797,8 @@ This should create:
 - `e9k-debugger/deps/tree-sitter*/` Copyright © 2018 Max Brunsfeld - MIT license - see https://github.com/tree-sitter/tree-sitter
 - `e9k-debugger/libretro.h` contains the libretro API header Copyright © 2010-2020 The RetroArch team - MIT. See https://github.com/libretro/libretro-common
 - `e9k-debugger/neogeo_sprite_debug.c` contains adapted MAME code Copyright © (Bryan McPhail, Ernesto Corvi, Andrew Prime, Zsolt Vasvari) - BSD 3 Clause (see below) See https://github.com/mamedev/mame
-- `e9k-debugger/romset_crypto.c` contains adapted MAME code Copyright © (S. Smith, David Haywood, Fabio Priuli, Razoola, Mr.K) - BSD-3-Clause (see below). See https://github.com/mamedev/mame
+- `e9k-debugger/romset.c` contains Neo Geo ROM layout information adapted from MAME's Neo Geo driver Copyright © (Bryan McPhail, Ernesto Corvi, Andrew Prime, Zsolt Vasvari) - BSD-3-Clause (see below), and MAME's Neo Geo software list - CC0-1.0. See https://github.com/mamedev/mame
+- `e9k-debugger/romset_crypto.c` contains adapted MAME Neo Geo CMC42, CMC50, PCM2, and SMA protection code Copyright © (S. Smith, David Haywood, Fabio Priuli, Razoola, Mr.K) - BSD-3-Clause (see below). See https://github.com/mamedev/mame
 - `e9k-debugger/tinyfiledialogs.[ch]` Copyright © 2014 - 2024 Guillaume Vareille - Zlib. See http://tinyfiledialogs.sourceforge.net
 - `e9k-lib/e9k-z80-dasm-data.*`, contains code derived from z80dasm 1.1.6 Copyright © 1994-2007 Jan Panteltje and Copyright (C) 2007-2019 Tomaz Solc - GNU General Public License version 2 or later. See https://www.tablix.org/~avian/blog/archives/2019/06/debian_buster_and_z80dasm/
 

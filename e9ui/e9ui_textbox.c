@@ -1096,14 +1096,22 @@ textbox_expandTilde(const char *in, char *out, size_t cap)
         return 0;
     }
     if (in[0] != '~' || (in[1] != '\0' && in[1] != '/' && in[1] != '\\')) {
-        strncpy(out, in, cap - 1);
-        out[cap - 1] = '\0';
+        size_t len = strlen(in);
+        if (len >= cap) {
+            len = cap - 1;
+        }
+        memcpy(out, in, len);
+        out[len] = '\0';
         return 1;
     }
     char home[PATH_MAX];
     if (!platform_getHomeDir(home, sizeof(home))) {
-        strncpy(out, in, cap - 1);
-        out[cap - 1] = '\0';
+        size_t len = strlen(in);
+        if (len >= cap) {
+            len = cap - 1;
+        }
+        memcpy(out, in, len);
+        out[len] = '\0';
         return 1;
     }
     size_t hlen = strlen(home);
@@ -1734,8 +1742,14 @@ textbox_renderComp(e9ui_component_t *self, e9ui_context_t *ctx)
         int th = 0;
         SDL_Texture *tex = e9ui_text_cache_getText(ctx->renderer, font, display, textCol, &tw, &th);
         if (tex) {
-            SDL_Rect dst = { area.x + padPx, area.y + (area.h - th) / 2, tw, th };
-            SDL_RenderCopy(ctx->renderer, tex, NULL, &dst);
+            SDL_Rect src = { 0, 0, viewW, th };
+            if (src.w > tw) {
+                src.w = tw;
+            }
+            SDL_Rect dst = { area.x + padPx, area.y + (area.h - th) / 2, src.w, th };
+            if (src.w > 0) {
+                SDL_RenderCopy(ctx->renderer, tex, &src, &dst);
+            }
         }
     }
     if (e9ui_getFocus(ctx) == self && st->editable) {

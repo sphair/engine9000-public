@@ -1882,6 +1882,51 @@ target_amiga_registersReadExtra(const char **outTitle, e9k_debug_processor_reg_t
     return 1;
 }
 
+static void
+target_amiga_appendText(char *out, size_t cap, size_t *pos, const char *text)
+{
+    if (!out || cap == 0 || !pos || !text) {
+        return;
+    }
+    while (*text && *pos + 1 < cap) {
+        out[*pos] = *text;
+        *pos += 1;
+        text++;
+    }
+    out[*pos] = '\0';
+}
+
+static void
+target_amiga_formatStatusBar(char *out, size_t cap)
+{
+    e9k_debug_counter_t counters[E9K_COUNTER_COUNT];
+    size_t bytes = 0;
+    size_t count = 0;
+    size_t pos = 0;
+
+    if (!out || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+
+    bytes = libretro_host_debugReadCounters(counters, sizeof(counters));
+    count = bytes / sizeof(counters[0]);
+    if (count > E9K_COUNTER_COUNT) {
+        count = E9K_COUNTER_COUNT;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        char value[32];
+        if (counters[i].name[0] == '\0' || counters[i].count == 0) {
+            continue;
+        }
+        snprintf(value, sizeof(value), "%llu", (unsigned long long)counters[i].current);
+        target_amiga_appendText(out, cap, &pos, " ");
+        target_amiga_appendText(out, cap, &pos, counters[i].name);
+        target_amiga_appendText(out, cap, &pos, ": ");
+        target_amiga_appendText(out, cap, &pos, value);
+    }
+}
+
 static target_iface_t _target_amiga = {
     .name = "AMIGA",
     .dasm = &dasm_ami_iface,
@@ -1937,6 +1982,7 @@ static target_iface_t _target_amiga = {
     .coreOptionsSyntheticDefAt = target_amiga_coreOptionsSyntheticDefAt,
     .coreOptionsMapDebuggerInputSpecIndex = target_amiga_coreOptionsMapDebuggerInputSpecIndex,
     .coreOptionsDebuggerInputLabel = target_amiga_coreOptionsDebuggerInputLabel,
+    .formatStatusBar = target_amiga_formatStatusBar,
   };
 
 target_iface_t *target_amiga(void) { return &_target_amiga; }  

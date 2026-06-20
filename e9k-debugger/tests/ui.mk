@@ -85,52 +85,52 @@ remake-test-uihelp: all
 
 test-uibasic: all
 	@printf "UI BASIC EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test tests/results/ui/basic >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test-auto-open-fail --test tests/results/ui/basic >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-uiselect: all
 	@printf "UI SELECT EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test tests/results/ui/select >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test-auto-open-fail --test tests/results/ui/select >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-uihotkeys: all
 	@printf "UI HOTKEYS EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test tests/results/ui/hotkeys >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test-auto-open-fail --test tests/results/ui/hotkeys >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-uishader: all
 	@printf "UI SHADER EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test tests/results/ui/shader >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test-auto-open-fail --test tests/results/ui/shader >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-uitabbing: all
 	@printf "UI TABBING EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/tabbing.neo --test tests/results/ui/tabbing >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/tabbing.neo --test-auto-open-fail --test tests/results/ui/tabbing >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-uiscrollbar: all
 	@printf "UI SCROLLBAR EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test tests/results/ui/scrollbar >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test-auto-open-fail --test tests/results/ui/scrollbar >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-uiasmscroll: all
 	@printf "UI ASMSCROLL EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test tests/results/ui/asmscroll >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test-auto-open-fail --test tests/results/ui/asmscroll >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-uiconsole: all
 	@printf "UI CONSOLE EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test tests/results/ui/console >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test-auto-open-fail --test tests/results/ui/console >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-uimemory: all
 	@printf "UI MEMORY EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test tests/results/ui/memory >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test-auto-open-fail --test tests/results/ui/memory >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-uihelp: all
 	@printf "UI HELP EXAMPLE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test tests/results/ui/help >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --neogeo --source-dir=./tests/neogeo/basic --elf=./tests/neogeo/basic/basic.elf --rom=./tests/neogeo/basic/basic.neo --test-auto-open-fail --test tests/results/ui/help >> test.log 2>&1
 	@echo "PASSED ✅"
 
 endif

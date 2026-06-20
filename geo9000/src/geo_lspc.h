@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "e9k-geo.h"
+
 // HBlank, Back Porch, Active, Front Porch: 28 + 28 + 320 + 8
 #define LSPC_PIXELS     384
 
@@ -92,6 +94,10 @@ void geo_lspc_set_fix(unsigned);
 void geo_lspc_set_sprlimit(unsigned);
 unsigned geo_lspc_get_sprlimit(void);
 void geo_lspc_set_palette(unsigned);
+void geo_lspc_setSpriteGrayscaleSelection(const e9k_debug_sprite_grayscale_selection_t*);
+void geo_lspc_setPaletteGrayscaleMask(const e9k_debug_palette_grayscale_mask_t*);
+size_t geo_lspc_getPaletteGrayscaleMask(e9k_debug_palette_grayscale_mask_t*, size_t);
+void geo_lspc_setFixLayerMode(e9k_debug_geo_fix_layer_mode_t);
 
 void geo_lspc_postload(void);
 
@@ -111,6 +117,10 @@ void geo_lspc_vrammod_wr(int16_t);
 
 uint16_t geo_lspc_mode_rd(void);
 void geo_lspc_mode_wr(uint16_t);
+unsigned
+geo_lspc_getAutoAnimationCounter(void);
+unsigned
+geo_lspc_getAutoAnimationDisabled(void);
 
 void geo_lspc_init(void);
 

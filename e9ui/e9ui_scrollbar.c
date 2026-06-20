@@ -284,6 +284,29 @@ e9ui_scrollbar_renderBar(e9ui_context_t *ctx,
     SDL_RenderFillRect(ctx->renderer, &thumbRect);
 }
 
+int
+e9ui_scrollbar_pointInScrollbarPx(e9ui_context_t *ctx,
+                                  e9ui_rect_t bounds,
+                                  int viewW,
+                                  int viewH,
+                                  int contentW,
+                                  int contentH,
+                                  int mouseX,
+                                  int mouseY)
+{
+    e9ui_scrollbar_bar_rects_t vBar;
+    e9ui_scrollbar_bar_rects_t hBar;
+    e9ui_scrollbar_computeBarRects(ctx, bounds, 1, contentW, contentH, viewW, viewH, 0, 0, &vBar);
+    e9ui_scrollbar_computeBarRects(ctx, bounds, 0, contentW, contentH, viewW, viewH, 0, 0, &hBar);
+    if (vBar.visible && e9ui_scrollbar_pointInRect(vBar.trackRect, mouseX, mouseY)) {
+        return 1;
+    }
+    if (hBar.visible && e9ui_scrollbar_pointInRect(hBar.trackRect, mouseX, mouseY)) {
+        return 1;
+    }
+    return 0;
+}
+
 void
 e9ui_scrollbar_render(void *owner,
                       e9ui_context_t *ctx,

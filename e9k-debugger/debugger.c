@@ -23,6 +23,7 @@
 #include "mega_palette_debug.h"
 #include "neogeo_register_log.h"
 #include "neogeo_sprite_debug.h"
+#include "neogeo_sprite_list.h"
 #include "neogeo_audio_vis.h"
 #include "mega_audio_vis.h"
 #include "machine.h"
@@ -661,6 +662,9 @@ debugger_cleanup(void)
   snapshot_saveOnExit();
   if (neogeo_sprite_debug_is_open()) {
     neogeo_sprite_debug_toggle();
+  }
+  if (neogeo_sprite_list_isOpen()) {
+    neogeo_sprite_list_toggle();
   }
   if (neogeo_audio_vis_isOpen()) {
     neogeo_audio_vis_toggle();

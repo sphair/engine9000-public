@@ -26,6 +26,7 @@
 #include "e9ui_stack.h"
 #include "e9ui_theme.h"
 #include "e9ui_text.h"
+#include "strutil.h"
 #include "ui.h"
 
 #define AMIGA_BLIT_INFO_LABEL_W 168
@@ -210,7 +211,7 @@ amiga_blit_info_formatOverlapLabel(char *out, size_t cap, const e9k_debug_ami_bl
     }
     if (info->sourceAddr != 0u) {
         amiga_blit_info_formatAddr(addr, sizeof(addr), info->sourceAddr);
-        snprintf(out, cap, "%s %s", info->sourceIsCopper ? "CPR" : "CPU", addr);
+        strutil_join3Trunc(out, cap, info->sourceIsCopper ? "CPR" : "CPU", " ", addr);
         return;
     }
     if (info->blitId != 0u) {

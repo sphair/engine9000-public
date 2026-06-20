@@ -76,6 +76,16 @@ libretro_host_megadrive_getVdpBandwidthFrame(e9k_debug_mega_vdp_bandwidth_frame_
 }
 
 bool
+libretro_host_megadrive_getRasterLineCount(int *outLineCount)
+{
+    if (!outLineCount || !libretro_host.debugMegadriveGetRasterLineCount) {
+        return false;
+    }
+    *outLineCount = libretro_host.debugMegadriveGetRasterLineCount();
+    return true;
+}
+
+bool
 libretro_host_megadrive_setAudioVisEnabled(int enabled)
 {
     if (!libretro_host.debugMegadriveSetAudioVisEnabled) {
@@ -114,6 +124,8 @@ libretro_host_megadrive_bindApis(void)
         (e9k_debug_megadrive_set_audio_mute_mask_fn_t)libretro_host_loadSymbol("e9k_debug_megadrive_set_audio_mute_mask");
     libretro_host.debugMegadriveGetVdpBandwidthFrame =
         (e9k_debug_megadrive_get_vdp_bandwidth_frame_fn_t)libretro_host_loadSymbol("e9k_debug_megadrive_get_vdp_bandwidth_frame");
+    libretro_host.debugMegadriveGetRasterLineCount =
+        (e9k_debug_megadrive_get_raster_line_count_fn_t)libretro_host_loadSymbol("e9k_debug_megadrive_get_raster_line_count");
 }
 
 void
@@ -127,4 +139,5 @@ libretro_host_megadrive_unbindApis(void)
     libretro_host.debugMegadriveSetAudioVisEnabled = NULL;
     libretro_host.debugMegadriveSetAudioMuteMask = NULL;
     libretro_host.debugMegadriveGetVdpBandwidthFrame = NULL;
+    libretro_host.debugMegadriveGetRasterLineCount = NULL;
 }

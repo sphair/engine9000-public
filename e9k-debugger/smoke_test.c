@@ -607,10 +607,20 @@ smoke_test_openImage(const char *path)
     if (!path || !*path) {
         return;
     }
+    char absolutePath[PATH_MAX];
+    if (path[0] == '/' || path[0] == '\\' || path[1] == ':') {
+        strutil_strlcpy(absolutePath, sizeof(absolutePath), path);
+    } else {
+        char cwd[PATH_MAX];
+        if (!debugger_platform_getCurrentDir(cwd, sizeof(cwd)) ||
+            !debugger_platform_pathJoin(absolutePath, sizeof(absolutePath), cwd, path)) {
+            strutil_strlcpy(absolutePath, sizeof(absolutePath), path);
+        }
+    }
     char url[PATH_MAX + 16];
-    snprintf(url, sizeof(url), "file://%s", path);
+    strutil_join2Trunc(url, sizeof(url), "file://", absolutePath);
     if (SDL_OpenURL(url) != 0) {
-        SDL_OpenURL(path);
+        SDL_OpenURL(absolutePath);
     }
 }
 

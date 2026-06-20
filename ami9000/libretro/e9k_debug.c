@@ -20,6 +20,7 @@
 #include "drawing.h"
 #include "debug.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #define E9K_DEBUG_CALLSTACK_MAX 256
@@ -28,6 +29,7 @@
 #define E9K_DEBUG_AMI_PROCESSOR_68K 0u
 
 extern bool libretro_frame_end;
+extern bool retro_statusbar;
 
 #define E9K_DEBUG_EXPORT RETRO_API
 
@@ -45,6 +47,9 @@ extern bool libretro_frame_end;
 
 #ifndef E9K_HACK_AMI_SPRITE_VIS
 #define E9K_HACK_AMI_SPRITE_VIS 0
+#endif
+#ifndef E9K_HACK_AMI_STATUSBAR_CONTROL
+#define E9K_HACK_AMI_STATUSBAR_CONTROL 0
 #endif
 #ifndef E9K_HACK_AMI_PALETTE_VIS
 #define E9K_HACK_AMI_PALETTE_VIS 0
@@ -144,6 +149,7 @@ static int e9k_debug_checkpointEnabled = 0;
 static e9k_debug_checkpoint_t e9k_debug_checkpoints[E9K_CHECKPOINT_COUNT];
 static e9k_debug_checkpoint_t e9k_debug_publishedCheckpoints[E9K_CHECKPOINT_COUNT];
 static int e9k_debug_hasPublishedCheckpoints = 0;
+static e9k_debug_counter_t e9k_debug_counters[E9K_COUNTER_COUNT];
 #if E9K_HACK_CHECKPOINTS
 static int e9k_debug_checkpointActive = -1;
 static uint64_t e9k_debug_checkpointLastCycle = 0;
@@ -157,6 +163,68 @@ e9k_debug_publish_checkpoints(void)
 {
 	memcpy(e9k_debug_publishedCheckpoints, e9k_debug_checkpoints, sizeof(e9k_debug_checkpoints));
 	e9k_debug_hasPublishedCheckpoints = 1;
+}
+
+static void
+e9k_debug_recordCheckpointScanline(e9k_debug_checkpoint_t *entry, uint64_t scanline)
+{
+	if (entry->scanlineCount == 0) {
+		entry->scanlineMinimum = scanline;
+		entry->scanlineMaximum = scanline;
+	} else {
+		if (scanline < entry->scanlineMinimum) {
+			entry->scanlineMinimum = scanline;
+		}
+		if (scanline > entry->scanlineMaximum) {
+			entry->scanlineMaximum = scanline;
+		}
+	}
+	entry->scanlineCount += 1;
+	entry->scanlineLast = scanline;
+	entry->scanlineAccumulator += scanline;
+	entry->scanlineAverage = entry->scanlineAccumulator / entry->scanlineCount;
+}
+
+static void
+e9k_debug_recordCheckpointScanlineSpan(e9k_debug_checkpoint_t *entry, uint64_t scanlineSpan)
+{
+	if (entry->scanlineSpanCount == 0) {
+		entry->scanlineSpanMinimum = scanlineSpan;
+		entry->scanlineSpanMaximum = scanlineSpan;
+	} else {
+		if (scanlineSpan < entry->scanlineSpanMinimum) {
+			entry->scanlineSpanMinimum = scanlineSpan;
+		}
+		if (scanlineSpan > entry->scanlineSpanMaximum) {
+			entry->scanlineSpanMaximum = scanlineSpan;
+		}
+	}
+	entry->scanlineSpanCount += 1;
+	entry->scanlineSpanLast = scanlineSpan;
+	entry->scanlineSpanAccumulator += scanlineSpan;
+	entry->scanlineSpanAverage = entry->scanlineSpanAccumulator / entry->scanlineSpanCount;
+}
+
+static uint64_t
+e9k_debug_checkpointScanlineSpan(uint64_t startScanline, uint64_t endScanline, uint64_t scanlineCount)
+{
+	if (scanlineCount == 0) {
+		return 0;
+	}
+	if (endScanline >= startScanline) {
+		return endScanline - startScanline;
+	}
+	return (scanlineCount - startScanline) + endScanline;
+}
+
+static uint64_t
+e9k_debug_checkpointScanlineCount(void)
+{
+	int count = current_maxvpos();
+	if (count <= 0) {
+		return 0;
+	}
+	return (uint64_t)count;
 }
 
 // Minimal PC-sampling profiler used by e9k-debugger. The debugger resolves PCs to symbols/lines.
@@ -1729,6 +1797,23 @@ e9k_debug_amiga_get_sprite_vis(void)
 }
 #endif
 
+#if E9K_HACK_AMI_STATUSBAR_CONTROL
+E9K_DEBUG_EXPORT void
+e9k_debug_amiga_set_statusbar(int enabled)
+{
+	int nextEnabled = enabled ? 1 : 0;
+	if ((retro_statusbar ? 1 : 0) != nextEnabled) {
+		emu_function(EMU_STATUSBAR);
+	}
+}
+
+E9K_DEBUG_EXPORT int
+e9k_debug_amiga_get_statusbar(void)
+{
+	return retro_statusbar ? 1 : 0;
+}
+#endif
+
 E9K_DEBUG_EXPORT size_t
 e9k_debug_amiga_blitter_vis_read_spans(e9k_debug_ami_blitter_vis_span_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight)
 {
@@ -2057,6 +2142,16 @@ e9k_debug_amiga_get_video_line_count(void)
 		return 0;
 	}
 	return (int)retroh_crop;
+}
+
+E9K_DEBUG_EXPORT int
+e9k_debug_amiga_get_raster_line_count(void)
+{
+	uint64_t count = e9k_debug_checkpointScanlineCount();
+	if (count > (uint64_t)INT_MAX) {
+		return INT_MAX;
+	}
+	return (int)count;
 }
 
 E9K_DEBUG_EXPORT int
@@ -2969,6 +3064,36 @@ e9k_debug_reset_checkpoints(void)
 #endif
 }
 
+E9K_DEBUG_EXPORT size_t
+e9k_debug_read_counters(e9k_debug_counter_t *out, size_t cap)
+{
+	size_t count = 0;
+	size_t maxEntries = 0;
+
+	if (!out || cap == 0) {
+		return 0;
+	}
+
+	maxEntries = cap / sizeof(out[0]);
+	if (maxEntries == 0) {
+		return 0;
+	}
+
+	count = E9K_COUNTER_COUNT;
+	if (count > maxEntries) {
+		count = maxEntries;
+	}
+
+	memcpy(out, e9k_debug_counters, count * sizeof(out[0]));
+	return count * sizeof(out[0]);
+}
+
+E9K_DEBUG_EXPORT void
+e9k_debug_reset_counters(void)
+{
+	memset(e9k_debug_counters, 0, sizeof(e9k_debug_counters));
+}
+
 E9K_DEBUG_EXPORT void
 e9k_debug_set_checkpoint_enabled(int enabled)
 {
@@ -2985,6 +3110,7 @@ e9k_debug_get_checkpoint_enabled(void)
 void
 e9k_debug_checkpoint_write(uint8_t index)
 {
+	int previousIndex = e9k_debug_checkpointActive;
 	uint64_t sample = 0;
 	uint64_t now = 0;
 	uint64_t scanline = 0;
@@ -2999,8 +3125,11 @@ e9k_debug_checkpoint_write(uint8_t index)
 	now = e9k_debug_read_cycle_count();
 	scanline = (uint64_t)(vpos & 0xffff);
 
-	if (e9k_debug_checkpointActive >= 0) {
-		e9k_debug_checkpoint_t *prev = &e9k_debug_checkpoints[e9k_debug_checkpointActive];
+	if (previousIndex >= 0 && index != 0) {
+		e9k_debug_checkpoint_t *prev = &e9k_debug_checkpoints[previousIndex];
+		uint64_t scanlineCount = e9k_debug_checkpointScanlineCount();
+		uint64_t span = e9k_debug_checkpointScanlineSpan(prev->scanlineLast, scanline, scanlineCount);
+		e9k_debug_recordCheckpointScanlineSpan(prev, span);
 		if (now >= e9k_debug_checkpointLastCycle) {
 			sample = now - e9k_debug_checkpointLastCycle;
 		}
@@ -3021,27 +3150,13 @@ e9k_debug_checkpoint_write(uint8_t index)
 		prev->average = prev->count ? (prev->accumulator / prev->count) : 0;
 	}
 
-	if (index == 0 && e9k_debug_checkpointActive >= 0) {
+	if (index == 0 && previousIndex >= 0) {
 		e9k_debug_publish_checkpoints();
 	}
 
 	{
 		e9k_debug_checkpoint_t *cur = &e9k_debug_checkpoints[index];
-		if (cur->scanlineCount == 0) {
-			cur->scanlineMinimum = scanline;
-			cur->scanlineMaximum = scanline;
-		} else {
-			if (scanline < cur->scanlineMinimum) {
-				cur->scanlineMinimum = scanline;
-			}
-			if (scanline > cur->scanlineMaximum) {
-				cur->scanlineMaximum = scanline;
-			}
-		}
-		cur->scanlineCount += 1;
-		cur->scanlineLast = scanline;
-		cur->scanlineAccumulator += scanline;
-		cur->scanlineAverage = cur->scanlineAccumulator / cur->scanlineCount;
+		e9k_debug_recordCheckpointScanline(cur, scanline);
 		cur->current = 0;
 	}
 
@@ -3073,6 +3188,45 @@ e9k_debug_checkpoint_set_name_from_pointer(uint8_t index, uint32_t ptrValue)
 	memcpy(e9k_debug_publishedCheckpoints[index].name, name, sizeof(name));
 }
 #endif
+
+void
+e9k_debug_counter_write(uint8_t index, uint32_t value)
+{
+	if (index >= E9K_COUNTER_COUNT) {
+		return;
+	}
+
+	e9k_debug_counter_t *counter = &e9k_debug_counters[index];
+	counter->current = value;
+	counter->count = 1;
+	counter->accumulator = value;
+	counter->average = value;
+	counter->minimum = value;
+	counter->maximum = value;
+}
+
+void
+e9k_debug_counter_set_name_from_pointer(uint8_t index, uint32_t ptrValue)
+{
+	char name[E9K_COUNTER_NAME_MAX];
+	uint32_t ptrAddr = 0;
+
+	if (index >= E9K_COUNTER_COUNT) {
+		return;
+	}
+
+	memset(name, 0, sizeof(name));
+	ptrAddr = ptrValue;
+	if (ptrAddr != 0) {
+		size_t readCount = e9k_debug_read_memory(ptrAddr, (uint8_t *)name, sizeof(name) - 1);
+		if (readCount < sizeof(name)) {
+			name[readCount] = '\0';
+		}
+		name[sizeof(name) - 1] = '\0';
+	}
+
+	memcpy(e9k_debug_counters[index].name, name, sizeof(name));
+}
 
 E9K_DEBUG_EXPORT int *
 e9k_debug_amiga_get_dma_addr(void)

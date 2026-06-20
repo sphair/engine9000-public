@@ -2740,7 +2740,7 @@ e9ui_ctor(const char* configPath, int cliOverrideWindowSize, int cliWinW, int cl
         return 0;
     }
     e9ui->ctx.window = win;
-    e9ui->ctx.renderer = ren;
+    e9ui_context_setRenderer(&e9ui->ctx, ren);
     e9ui->ctx.dpiScale = e9ui_computeDpiScale();
     e9ui->currentDisplayIndex = SDL_GetWindowDisplayIndex(win);
     // Enable alpha blending for proper fade animations
@@ -3161,7 +3161,7 @@ e9ui_shutdown(void)
 
   if (e9ui->ctx.renderer)
     SDL_DestroyRenderer(e9ui->ctx.renderer);
-  e9ui->ctx.renderer = NULL;
+  e9ui_context_setRenderer(&e9ui->ctx, NULL);
   if (e9ui->ctx.window)
     SDL_DestroyWindow(e9ui->ctx.window);
   e9ui->ctx.window = NULL;

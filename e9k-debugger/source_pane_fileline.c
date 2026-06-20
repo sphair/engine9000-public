@@ -21,6 +21,7 @@
 #include "debug.h"
 #include "file.h"
 #include "hunk_fileline_cache.h"
+#include "source_pane_fileline.h"
 
 typedef struct source_pane_fileline_cache_entry {
     char *path;
@@ -39,6 +40,9 @@ typedef struct source_pane_fileline_cache_state {
 } source_pane_fileline_cache_state_t;
 
 static source_pane_fileline_cache_state_t source_pane_fileline_cache_state;
+
+static int
+source_pane_fileline_ensureCache(const char *elf);
 
 static int
 source_pane_fileline_resolveFileLineAll(const char *elf, const char *file, int line_no,
@@ -388,6 +392,36 @@ source_pane_fileline_findAll(const char *file, int line_no, uint32_t **out_addrs
     *out_addrs = matches;
     *out_count = uniqueCount;
     return 1;
+}
+
+int
+source_pane_fileline_resolveAddress(const char *elf, uint32_t addr, char *outFile, size_t fileCap, int *outLine)
+{
+    if (outFile && fileCap > 0) {
+        outFile[0] = '\0';
+    }
+    if (outLine) {
+        *outLine = 0;
+    }
+    if (!elf || !elf[0] || !debugger.elfValid || !outFile || fileCap == 0 || !outLine) {
+        return 0;
+    }
+    if (debugger_toolchainUsesHunkAddr2line()) {
+        return 0;
+    }
+    if (!source_pane_fileline_ensureCache(elf)) {
+        return 0;
+    }
+    for (int i = 0; i < source_pane_fileline_cache_state.entryCount; ++i) {
+        const source_pane_fileline_cache_entry_t *entry = &source_pane_fileline_cache_state.entries[i];
+        if (entry->addr != addr || !entry->path || entry->line <= 0) {
+            continue;
+        }
+        debugger_copyPath(outFile, fileCap, entry->path);
+        *outLine = entry->line;
+        return 1;
+    }
+    return 0;
 }
 
 static int

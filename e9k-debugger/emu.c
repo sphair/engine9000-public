@@ -922,7 +922,8 @@ emu_viewRender(e9ui_component_t *self, e9ui_context_t *ctx)
         SDL_RenderCopy(ctx->renderer, tex, NULL, &dst);
     }
 
-    target->emu->render(ctx, &dst);    
+    SDL_Rect componentClip = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
+    target->emu->render(ctx, &dst, &componentClip);    
 
     if (state && state->rangeBarCount > 0) {
         e9ui_rect_t vidBounds = { dst.x, dst.y, dst.w, dst.h };

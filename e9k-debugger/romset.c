@@ -970,6 +970,20 @@ romset_readNgh253PChunks(uint8_t *dest, size_t destSize, const romset_romchunk_t
 }
 
 static int
+romset_readNgh261PChunks(uint8_t *dest, size_t destSize, const romset_romchunk_t *chunks, size_t chunkCount)
+{
+    if (!dest || destSize != 0x200000u || !chunks || chunkCount != 1u ||
+        chunks[0].index != 1 || chunks[0].size != 0x200000u) {
+        return 0;
+    }
+
+    /* NGH261/Sengoku 3 P-ROM layout follows MAME's ROM_CONTINUE mapping:
+       src/mame/neogeo/neogeo.cpp and hash/neogeo.xml. */
+    return romset_readChunkRangeInto(dest + 0x100000u, 0x100000u, &chunks[0], 0) &&
+           romset_readChunkRangeInto(dest, 0x100000u, &chunks[0], 0x100000u);
+}
+
+static int
 romset_writeBuffer(FILE *output, const uint8_t *data, size_t dataSize)
 {
     if (!output || (!data && dataSize > 0)) {
@@ -1063,6 +1077,53 @@ romset_writeNgh264Neo(FILE *output, const romset_romset_t *set, const uint8_t *h
     }
 
     if (!romset_crypto_applyNgh264Cmc50Pcm2(cBuffer, cSize, sBuffer, sSize, mBuffer, mSize, vBuffer, vSize)) {
+        goto done;
+    }
+
+    ok = romset_writeBuffer(output, header, headerSize) &&
+         romset_writeBuffer(output, pBuffer, pSize) &&
+         romset_writeBuffer(output, sBuffer, sSize) &&
+         romset_writeBuffer(output, mBuffer, mSize) &&
+         romset_writeBuffer(output, vBuffer, vSize) &&
+         romset_writeBuffer(output, cBuffer, cSize);
+
+done:
+    free(pBuffer);
+    free(sBuffer);
+    free(mBuffer);
+    free(vBuffer);
+    free(cBuffer);
+    return ok;
+}
+
+static int
+romset_writeNgh261Neo(FILE *output, const romset_romset_t *set, const uint8_t *header, size_t headerSize,
+                      size_t pSize, size_t sSize, size_t mSize, size_t vSize, size_t cSize)
+{
+    uint8_t *pBuffer = NULL;
+    uint8_t *sBuffer = NULL;
+    uint8_t *mBuffer = NULL;
+    uint8_t *vBuffer = NULL;
+    uint8_t *cBuffer = NULL;
+    int ok = 0;
+
+    pBuffer = pSize ? malloc(pSize) : NULL;
+    sBuffer = sSize ? calloc(1, sSize) : NULL;
+    mBuffer = mSize ? malloc(mSize) : NULL;
+    vBuffer = vSize ? malloc(vSize) : NULL;
+    cBuffer = cSize ? malloc(cSize) : NULL;
+    if ((pSize && !pBuffer) || (sSize && !sBuffer) || (mSize && !mBuffer) || (vSize && !vBuffer) || (cSize && !cBuffer)) {
+        goto done;
+    }
+
+    if (!romset_readNgh261PChunks(pBuffer, pSize, set->pChunks, set->pCount) ||
+        !romset_readChunks(mBuffer, mSize, set->mChunks, set->mCount, 1) ||
+        !romset_readChunks(vBuffer, vSize, set->vChunks, set->vCount, 0) ||
+        !romset_readCChunksInterleaved(cBuffer, cSize, set->cChunks, set->cCount)) {
+        goto done;
+    }
+
+    if (!romset_crypto_applyNgh261Cmc42(cBuffer, cSize, sBuffer, sSize)) {
         goto done;
     }
 
@@ -1197,6 +1258,8 @@ romset_buildNeoFromScannedInput(const char *inputPath, int isZip, char *outPath,
         if (mSize < 0x90000) {
             mSize = 0x90000;
         }
+    } else if (ngh == 0x261) {
+        sSize = 0x20000;
     } else if (ngh == 0x264) {
         sSize = 0x20000;
         if (mSize < 0x90000) {
@@ -1252,6 +1315,17 @@ romset_buildNeoFromScannedInput(const char *inputPath, int isZip, char *outPath,
 
     if (ngh == 0x256) {
         if (!romset_writeNgh256Neo(output, &set, header, sizeof(header), pSize, sSize, mSize, v1Size, cSize)) {
+            fclose(output);
+            romset_romsetFree(&set);
+            return 0;
+        }
+        fclose(output);
+        romset_romsetFree(&set);
+        return 1;
+    }
+
+    if (ngh == 0x261) {
+        if (!romset_writeNgh261Neo(output, &set, header, sizeof(header), pSize, sSize, mSize, v1Size, cSize)) {
             fclose(output);
             romset_romsetFree(&set);
             return 0;

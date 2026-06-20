@@ -37,7 +37,7 @@ typedef struct {
   void (*adjustVideoBounds)(e9ui_rect_t *bounds);
   void (*adjustVideoDst)(SDL_Rect *dst);
   void (*createOverlays)(e9ui_component_t* comp, e9ui_component_t* button_stack);
-  void (*render)(e9ui_context_t *ctx, SDL_Rect* dst);
+  void (*render)(e9ui_context_t *ctx, SDL_Rect* dst, const SDL_Rect *clipRect);
   void (*renderForeground)(e9ui_context_t *ctx, SDL_Rect* dst);
   void (*destroy)(void);
 } emu_system_iface_t;

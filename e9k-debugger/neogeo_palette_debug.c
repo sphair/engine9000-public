@@ -18,6 +18,7 @@
 #include "e9ui.h"
 #include "e9ui_scroll.h"
 #include "libretro_host.h"
+#include "runtime.h"
 
 #define NEOGEO_PALETTE_DEBUG_BANK_COUNT 2
 #define NEOGEO_PALETTE_DEBUG_PALETTES_PER_BANK 256
@@ -51,6 +52,7 @@ typedef struct neogeo_palette_debug_state
     int logicalW;
     int logicalH;
     uint32_t lastHash;
+    e9k_debug_palette_grayscale_mask_t grayscaleMask;
     int cachedValid;
 } neogeo_palette_debug_state_t;
 
@@ -261,7 +263,39 @@ neogeo_palette_debug_hashPaletteState(const e9k_debug_palette_state_t *paletteSt
     }
     hash ^= paletteState->active_bank;
     hash *= 16777619u;
+    for (int i = 0; i < E9K_DEBUG_GEO_PALETTE_GRAYSCALE_MASK_WORDS; ++i) {
+        hash ^= neogeo_palette_debugState.grayscaleMask.words[i];
+        hash *= 16777619u;
+    }
     return hash;
+}
+
+static int
+neogeo_palette_debug_paletteIsGrayscale(unsigned paletteIndex)
+{
+    unsigned wordIndex = paletteIndex >> 5;
+    uint32_t bit = 1u << (paletteIndex & 31u);
+
+    if (wordIndex >= E9K_DEBUG_GEO_PALETTE_GRAYSCALE_MASK_WORDS) {
+        return 0;
+    }
+    return (neogeo_palette_debugState.grayscaleMask.words[wordIndex] & bit) ? 1 : 0;
+}
+
+static void
+neogeo_palette_debug_syncGrayscaleMaskFromCore(void)
+{
+    e9k_debug_palette_grayscale_mask_t mask;
+
+    memset(&mask, 0, sizeof(mask));
+    if (!libretro_host_neogeo_getPaletteGrayscaleMask(&mask)) {
+        return;
+    }
+    if (memcmp(&neogeo_palette_debugState.grayscaleMask, &mask, sizeof(mask)) == 0) {
+        return;
+    }
+    neogeo_palette_debugState.grayscaleMask = mask;
+    neogeo_palette_debugState.cachedValid = 0;
 }
 
 static void
@@ -355,6 +389,151 @@ neogeo_palette_debug_presentTexture(const e9ui_rect_t *bounds, int baseW, int ba
     SDL_RenderCopy(neogeo_palette_debugState.renderer, neogeo_palette_debugState.texture, &src, &dst);
 }
 
+static int
+neogeo_palette_debug_paletteAtPoint(const e9ui_rect_t *bounds, int mx, int my, unsigned *outPaletteIndex, unsigned *outBankIndex)
+{
+    const int paletteCellW =
+        NEOGEO_PALETTE_DEBUG_PALETTE_BORDER * 2 +
+        NEOGEO_PALETTE_DEBUG_SWATCH_COLS * NEOGEO_PALETTE_DEBUG_SWATCH_SIZE +
+        (NEOGEO_PALETTE_DEBUG_SWATCH_COLS - 1) * NEOGEO_PALETTE_DEBUG_SWATCH_GAP;
+    const int paletteCellH =
+        NEOGEO_PALETTE_DEBUG_PALETTE_BORDER * 2 +
+        NEOGEO_PALETTE_DEBUG_SWATCH_ROWS * NEOGEO_PALETTE_DEBUG_SWATCH_SIZE +
+        (NEOGEO_PALETTE_DEBUG_SWATCH_ROWS - 1) * NEOGEO_PALETTE_DEBUG_SWATCH_GAP;
+    const int panelW =
+        NEOGEO_PALETTE_DEBUG_PANEL_PAD * 2 +
+        NEOGEO_PALETTE_DEBUG_GRID_COLS * paletteCellW +
+        (NEOGEO_PALETTE_DEBUG_GRID_COLS - 1) * NEOGEO_PALETTE_DEBUG_PALETTE_GAP;
+    const int panelH =
+        NEOGEO_PALETTE_DEBUG_PANEL_HEADER_H +
+        NEOGEO_PALETTE_DEBUG_PANEL_PAD * 2 +
+        NEOGEO_PALETTE_DEBUG_GRID_ROWS * paletteCellH +
+        (NEOGEO_PALETTE_DEBUG_GRID_ROWS - 1) * NEOGEO_PALETTE_DEBUG_PALETTE_GAP;
+    int baseW = 0;
+    int baseH = 0;
+    float scale = 1.0f;
+    int localX = 0;
+    int localY = 0;
+
+    if (!bounds || !outPaletteIndex || !outBankIndex || bounds->w <= 0 || bounds->h <= 0) {
+        return 0;
+    }
+
+    neogeo_palette_debug_baseSize(&baseW, &baseH);
+    scale = neogeo_palette_debug_scaleForWidth(bounds->w, baseW);
+    if (scale <= 0.0f) {
+        return 0;
+    }
+    localX = (int)(((float)(mx - bounds->x - NEOGEO_PALETTE_DEBUG_OUTER_PAD) / scale) + 0.5f);
+    localY = (int)(((float)(my - bounds->y - NEOGEO_PALETTE_DEBUG_OUTER_PAD) / scale) + 0.5f);
+    if (localX < 0 || localX >= baseW || localY < 0 || localY >= baseH) {
+        return 0;
+    }
+
+    for (unsigned bankIndex = 0; bankIndex < NEOGEO_PALETTE_DEBUG_BANK_COUNT; ++bankIndex) {
+        int panelX = NEOGEO_PALETTE_DEBUG_OUTER_PAD;
+        int panelY = NEOGEO_PALETTE_DEBUG_OUTER_PAD +
+                     (int)bankIndex * (panelH + NEOGEO_PALETTE_DEBUG_PANEL_GAP);
+        int contentX = panelX + NEOGEO_PALETTE_DEBUG_PANEL_PAD;
+        int contentY = panelY + NEOGEO_PALETTE_DEBUG_PANEL_HEADER_H +
+                       NEOGEO_PALETTE_DEBUG_PANEL_PAD;
+
+        if (localX < panelX || localX >= panelX + panelW ||
+            localY < panelY || localY >= panelY + panelH) {
+            continue;
+        }
+
+        for (int paletteRow = 0; paletteRow < NEOGEO_PALETTE_DEBUG_GRID_ROWS; ++paletteRow) {
+            for (int paletteCol = 0; paletteCol < NEOGEO_PALETTE_DEBUG_GRID_COLS; ++paletteCol) {
+                int paletteX = contentX + paletteCol * (paletteCellW + NEOGEO_PALETTE_DEBUG_PALETTE_GAP);
+                int paletteY = contentY + paletteRow * (paletteCellH + NEOGEO_PALETTE_DEBUG_PALETTE_GAP);
+
+                if (localX >= paletteX && localX < paletteX + paletteCellW &&
+                    localY >= paletteY && localY < paletteY + paletteCellH) {
+                    *outPaletteIndex = bankIndex * NEOGEO_PALETTE_DEBUG_PALETTES_PER_BANK +
+                        (unsigned)(paletteRow * NEOGEO_PALETTE_DEBUG_GRID_COLS + paletteCol);
+                    *outBankIndex = bankIndex;
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+static void
+neogeo_palette_debug_setGrayscaleMask(const e9k_debug_palette_grayscale_mask_t *mask)
+{
+    if (mask) {
+        neogeo_palette_debugState.grayscaleMask = *mask;
+    } else {
+        memset(&neogeo_palette_debugState.grayscaleMask, 0, sizeof(neogeo_palette_debugState.grayscaleMask));
+    }
+    neogeo_palette_debugState.cachedValid = 0;
+    (void)libretro_host_neogeo_setPaletteGrayscaleMask(&neogeo_palette_debugState.grayscaleMask);
+    (void)runtime_refreshCurrentFrameFromPrevious();
+}
+
+static void
+neogeo_palette_debug_togglePaletteGrayscale(unsigned paletteIndex)
+{
+    e9k_debug_palette_grayscale_mask_t mask = neogeo_palette_debugState.grayscaleMask;
+    unsigned wordIndex = paletteIndex >> 5;
+    uint32_t bit = 1u << (paletteIndex & 31u);
+
+    if (wordIndex >= E9K_DEBUG_GEO_PALETTE_GRAYSCALE_MASK_WORDS) {
+        return;
+    }
+    mask.words[wordIndex] ^= bit;
+    neogeo_palette_debug_setGrayscaleMask(&mask);
+}
+
+static void
+neogeo_palette_debug_setBankGrayscale(unsigned bankIndex, int enabled)
+{
+    e9k_debug_palette_grayscale_mask_t mask = neogeo_palette_debugState.grayscaleMask;
+    unsigned firstPalette = bankIndex * NEOGEO_PALETTE_DEBUG_PALETTES_PER_BANK;
+
+    if (bankIndex >= NEOGEO_PALETTE_DEBUG_BANK_COUNT) {
+        return;
+    }
+    for (unsigned i = 0; i < NEOGEO_PALETTE_DEBUG_PALETTES_PER_BANK; ++i) {
+        unsigned paletteIndex = firstPalette + i;
+        unsigned wordIndex = paletteIndex >> 5;
+        uint32_t bit = 1u << (paletteIndex & 31u);
+        if (enabled) {
+            mask.words[wordIndex] |= bit;
+        } else {
+            mask.words[wordIndex] &= ~bit;
+        }
+    }
+    neogeo_palette_debug_setGrayscaleMask(&mask);
+}
+
+static void
+neogeo_palette_debug_overlayBodyClick(e9ui_component_t *self,
+                                      e9ui_context_t *ctx,
+                                      const e9ui_mouse_event_t *mouseEv)
+{
+    unsigned paletteIndex = 0;
+    unsigned bankIndex = 0;
+
+    (void)ctx;
+
+    if (!self || !mouseEv || mouseEv->button != E9UI_MOUSE_BUTTON_LEFT) {
+        return;
+    }
+    if (!neogeo_palette_debug_paletteAtPoint(&self->bounds, mouseEv->x, mouseEv->y, &paletteIndex, &bankIndex)) {
+        return;
+    }
+    if (mouseEv->clicks >= 2) {
+        neogeo_palette_debug_setBankGrayscale(bankIndex,
+                                              neogeo_palette_debug_paletteIsGrayscale(paletteIndex));
+        return;
+    }
+    neogeo_palette_debug_togglePaletteGrayscale(paletteIndex);
+}
+
 static void
 neogeo_palette_debug_renderBank(uint32_t *pixels,
                                 int pitch,
@@ -389,6 +568,7 @@ neogeo_palette_debug_renderBank(uint32_t *pixels,
         neogeo_palette_debug_argb(255, 255, 196, 64) :
         neogeo_palette_debug_argb(255, 80, 84, 92);
     const uint32_t paletteBorder = neogeo_palette_debug_argb(255, 14, 16, 20);
+    const uint32_t grayscaleBorder = neogeo_palette_debug_argb(255, 236, 236, 236);
     const uint32_t transparentColor = neogeo_palette_debug_argb(255, 8, 8, 8);
     size_t bankBase = (size_t)bankIndex * 4096u;
 
@@ -416,6 +596,8 @@ neogeo_palette_debug_renderBank(uint32_t *pixels,
     for (int paletteRow = 0; paletteRow < NEOGEO_PALETTE_DEBUG_GRID_ROWS; ++paletteRow) {
         for (int paletteCol = 0; paletteCol < NEOGEO_PALETTE_DEBUG_GRID_COLS; ++paletteCol) {
             int paletteIndex = paletteRow * NEOGEO_PALETTE_DEBUG_GRID_COLS + paletteCol;
+            unsigned globalPaletteIndex = bankIndex * NEOGEO_PALETTE_DEBUG_PALETTES_PER_BANK +
+                (unsigned)paletteIndex;
             int paletteX = contentX + paletteCol * (paletteCellW + NEOGEO_PALETTE_DEBUG_PALETTE_GAP);
             int paletteY = contentY + NEOGEO_PALETTE_DEBUG_PANEL_PAD +
                            paletteRow * (paletteCellH + NEOGEO_PALETTE_DEBUG_PALETTE_GAP);
@@ -428,7 +610,8 @@ neogeo_palette_debug_renderBank(uint32_t *pixels,
                                           paletteY,
                                           paletteCellW,
                                           paletteCellH,
-                                          paletteBorder);
+                                          neogeo_palette_debug_paletteIsGrayscale(globalPaletteIndex) ?
+                                              grayscaleBorder : paletteBorder);
 
             for (int colorIndex = 0; colorIndex < NEOGEO_PALETTE_DEBUG_COLORS_PER_PALETTE; ++colorIndex) {
                 int swatchCol = colorIndex % NEOGEO_PALETTE_DEBUG_SWATCH_COLS;
@@ -488,6 +671,7 @@ neogeo_palette_debug_renderFrameInternal(const e9ui_rect_t *bounds)
 
     neogeo_palette_debug_baseSize(&baseW, &baseH);
     memset(&paletteState, 0, sizeof(paletteState));
+    neogeo_palette_debug_syncGrayscaleMaskFromCore();
     if (!libretro_host_neogeo_getPaletteState(&paletteState)) {
         return;
     }
@@ -628,6 +812,7 @@ neogeo_palette_debug_makeOverlayBodyHost(void)
     host->preferredHeight = neogeo_palette_debug_overlayBodyPreferredHeight;
     host->layout = neogeo_palette_debug_overlayBodyLayout;
     host->render = neogeo_palette_debug_overlayBodyRender;
+    host->onClick = neogeo_palette_debug_overlayBodyClick;
     host->dtor = neogeo_palette_debug_overlayBodyDtor;
     return host;
 }

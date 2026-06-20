@@ -33,6 +33,7 @@
 #include "e9ui_window.h"
 #include "libretro_host.h"
 #include "neogeo_memview_internal.h"
+#include "neogeo_sprite_decode.h"
 
 typedef struct neogeo_memview_overlay_body_state {
     neogeo_memview_state_t *ui;
@@ -1096,8 +1097,9 @@ neogeo_memview_buildVisibleTilePaletteMap(const uint32_t *visibleTileNums,
                                        ((vram[oddWordOffset] & NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_MASK) <<
                                         NEOGEO_MEMVIEW_SPRITE_TILE_HIGH_SHIFT));
             spriteTileNum %= cromTiles;
-            paletteBank = (uint8_t)((vram[oddWordOffset] >> NEOGEO_MEMVIEW_SPRITE_PALETTE_SHIFT) &
-                                    NEOGEO_MEMVIEW_SPRITE_PALETTE_MASK);
+            paletteBank = (uint8_t)((vram[oddWordOffset] >>
+                                      NEOGEO_SPRITE_DECODE_SPRITE_PALETTE_SHIFT) &
+                                     NEOGEO_SPRITE_DECODE_SPRITE_PALETTE_MASK);
 
             if (!wraps) {
                 if (spriteTileNum >= visibleBaseTile && spriteTileNum < visibleBaseTile + (uint32_t)visibleTileCount) {

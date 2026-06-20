@@ -107,49 +107,49 @@ remake-test-amigasavestate: all tests/amiga/smoke/smoke.adf
 test-amigaconfig: all
 	@printf "AMIGA CONFIG ($@) ..."
 	@-rm -f blank.uae
-	@./e9k-debugger $(HEADLESS) --amiga --test tests/results/amiga/config >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --amiga --test-auto-open-fail --test tests/results/amiga/config >> test.log 2>&1
 	@-rm -f blank.uae
 	@echo " PASSED ✅"
 
 
 test-amigalocals: all tests/amiga/locals/locals.adf
 	@printf "AMIGA LOCALS ($@) ..."
-	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/locals/ --uae=./tests/amiga/locals/locals.uae --hunk=./tests/amiga/locals/locals --test tests/results/amiga/locals >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/locals/ --uae=./tests/amiga/locals/locals.uae --hunk=./tests/amiga/locals/locals --test-auto-open-fail --test tests/results/amiga/locals >> test.log 2>&1
 	@echo " PASSED ✅"
 
 test-amigamemview: all tests/amiga/smoke/smoke.adf
 	@printf "AMIGA MEMVIEW ($@) ..."
-	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --uae=./tests/amiga/smoke/smoke.uae --test tests/results/amiga/memview >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --uae=./tests/amiga/smoke/smoke.uae --test-auto-open-fail --test tests/results/amiga/memview >> test.log 2>&1
 	@echo " PASSED ✅"
 
 test-amigavasm: all tests/amiga/vasm/vasm.adf
 	@printf "AMIGA VASM ($@) ..."
-	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/vasm/ --uae=./tests/amiga/vasm/vasm.uae --hunk=./tests/amiga/vasm/vasm --test tests/results/amiga/vasm >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/vasm/ --uae=./tests/amiga/vasm/vasm.uae --hunk=./tests/amiga/vasm/vasm --test-auto-open-fail --test tests/results/amiga/vasm >> test.log 2>&1
 	@echo " PASSED ✅"
 
 test-amigacustomui: all tests/amiga/custom/custom.adf
 	@printf "AMIGA CUSTOMUI ($@) ..."
-	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test tests/results/amiga/custom >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test-auto-open-fail --test tests/results/amiga/custom >> test.log 2>&1
 	@echo " PASSED ✅"
 
 test-amigablitvis: all tests/amiga/custom/custom.adf
 	@printf "AMIGA BLITVIS ($@) ..."
-	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test tests/results/amiga/blitvis >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test-auto-open-fail --test tests/results/amiga/blitvis >> test.log 2>&1
 	@echo " PASSED ✅"
 
 test-amigacustom: all tests/amiga/custom/custom.adf
 	@printf "AMIGA CUSTOM ($@) ..."
-	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test tests/results/amiga/custom2 >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test-auto-open-fail --test tests/results/amiga/custom2 >> test.log 2>&1
 	@echo " PASSED ✅"
 
 test-amigalog: all tests/amiga/custom/custom.adf
 	@printf "AMIGA LOG ($@) ..."
-	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test tests/results/amiga/log >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --source-dir=./tests/amiga/custom/ --uae=./tests/amiga/custom/custom.uae --test-auto-open-fail --test tests/results/amiga/log >> test.log 2>&1
 	@echo " PASSED ✅"
 
 test-amigacoreoptions: all tests/amiga/example/example.adf
 	@printf "AMIGA CORE OPTIONS ($@) ..."
-	@./e9k-debugger $(HEADLESS) --amiga --source-dir=./tests/amiga/example/ --uae=./tests/amiga/example/example.uae --hunk=./tests/amiga/example/example --test tests/results/amiga/amigacoreoptions  >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --amiga --source-dir=./tests/amiga/example/ --uae=./tests/amiga/example/example.uae --hunk=./tests/amiga/example/example --test-auto-open-fail --test tests/results/amiga/amigacoreoptions  >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-amigasmoke: all tests/amiga/smoke/smoke.adf
@@ -159,7 +159,7 @@ test-amigasmoke: all tests/amiga/smoke/smoke.adf
 
 test-amigasavestate: all tests/amiga/smoke/smoke.adf
 	@printf "AMIGA SAVESTATE ($@) ..."
-	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --uae=./tests/amiga/smoke/smoke.uae --test tests/results/amiga/savestate  >> test.log 2>&1
+	@./e9k-debugger $(HEADLESS) --volume=0 --amiga --uae=./tests/amiga/smoke/smoke.uae --test-auto-open-fail --test tests/results/amiga/savestate  >> test.log 2>&1
 	@echo "PASSED ✅"
 
 # assets

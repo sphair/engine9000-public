@@ -2550,6 +2550,19 @@ emu_ami_toggleMemview(e9ui_context_t *ctx, void *user)
 }
 
 static void
+emu_ami_toggleCoreStatusbar(e9ui_context_t *ctx, void *user)
+{
+    int enabled = 0;
+
+    (void)ctx;
+    (void)user;
+    if (!libretro_host_amiga_getStatusbar(&enabled)) {
+        return;
+    }
+    (void)libretro_host_amiga_setStatusbar(!enabled);
+}
+
+static void
 emu_ami_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
 {
     emu_ami_tryBindCustomLogFrameCallback();
@@ -2560,6 +2573,14 @@ emu_ami_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
         e9ui_setFocusTarget(btn, comp);
         void* dmaDebugBtnMeta = alloc_strdup("dma_debug");
         e9ui_child_add(button_stack, btn, dmaDebugBtnMeta);
+    }
+
+    e9ui_component_t *btnStatusbar = e9ui_button_make("Status", emu_ami_toggleCoreStatusbar, comp);
+    if (btnStatusbar) {
+        e9ui_button_setMini(btnStatusbar, 1);
+        e9ui_setFocusTarget(btnStatusbar, comp);
+        void *statusbarBtnMeta = alloc_strdup("statusbar");
+        e9ui_child_add(button_stack, btnStatusbar, statusbarBtnMeta);
     }
 
     e9ui_component_t *btnCustom = e9ui_button_make("Visualisers", emu_ami_toggleCustom, comp);
@@ -2596,10 +2617,18 @@ emu_ami_createOverlays(e9ui_component_t* comp, e9ui_component_t* button_stack)
 }
 
 static void
-emu_ami_render(e9ui_context_t *ctx, SDL_Rect* dst)
+emu_ami_render(e9ui_context_t *ctx, SDL_Rect* dst, const SDL_Rect *clipRect)
 {
+    int rasterLineCount = 0;
     emu_ami_tryBindCustomLogFrameCallback();
-    profile_checkpoints_renderScanlineOverlay(ctx, dst, 313u);
+    if (libretro_host_amiga_getRasterLineCount(&rasterLineCount)) {
+        profile_checkpoints_renderScanlineOverlay(ctx,
+                                                  dst,
+                                                  clipRect,
+                                                  (uint64_t)rasterLineCount,
+                                                  0,
+                                                  (uint64_t)rasterLineCount);
+    }
     emu_ami_renderDmaDebugOverlay(ctx, dst);
     emu_ami_renderCopperDebugOverlay(ctx, dst);
     amiga_blittervis_renderOverlay(ctx, dst);

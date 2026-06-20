@@ -74,37 +74,37 @@ remake-test-megasmoke: all $(MEGA_TEST_ASSETS)
 
 test-megasprite: all $(MEGA_TEST_ASSETS)
 	@printf "MEGA SPRITE DEBUG ($@) ..."
-	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test tests/results/mega/sprite >> test.log 2>&1
+	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test-auto-open-fail --test tests/results/mega/sprite >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-megamemview: all $(MEGA_TEST_ASSETS)
 	@printf "MEGA MEMORY VIEW ($@) ..."
-	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test tests/results/mega/memview >> test.log 2>&1
+	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test-auto-open-fail --test tests/results/mega/memview >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-megapalette: all $(MEGA_TEST_ASSETS)
 	@printf "MEGA PALETTE DEBUG ($@) ..."
-	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test tests/results/mega/palette >> test.log 2>&1
+	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test-auto-open-fail --test tests/results/mega/palette >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-megastepping: all $(MEGA_TEST_ASSETS)
 	@printf "MEGA STEPPING ($@) ..."
-	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test tests/results/mega/stepping  >> test.log 2>&1
+	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test-auto-open-fail --test tests/results/mega/stepping  >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-megasavestate: all $(MEGA_TEST_ASSETS)
 	@printf "MEGA SAVE STATE ($@) ..."
-	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test tests/results/mega/savestate >> test.log 2>&1
+	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test-auto-open-fail --test tests/results/mega/savestate >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-megaz80: all $(MEGA_TEST_ASSETS)
 	@printf "MEGA Z80 DEBUG ($@) ..."
-	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test tests/results/mega/z80 >> test.log 2>&1
+	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test-auto-open-fail --test tests/results/mega/z80 >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-megaaudiovis: all $(MEGA_TEST_ASSETS)
 	@printf "MEGA AUDIOVIS ($@) ..."
-	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test tests/results/mega/audiovis >> test.log 2>&1
+	@./e9k-debugger --volume=0 $(HEADLESS)  $(MEGA_TEST_ARGS) --test-auto-open-fail --test tests/results/mega/audiovis >> test.log 2>&1
 	@echo "PASSED ✅"
 
 test-megasmoke: all $(MEGA_TEST_ASSETS)

@@ -468,7 +468,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     index_path = out_dir / "index.html"
     index_path.write_text(html, encoding="utf-8")
-    print(f"✅ Wrote single-file viewer to {index_path}")
+    print(f"Wrote single-file viewer to {index_path}")
     try_open(index_path, no_open=args.no_open)
 
 

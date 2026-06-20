@@ -18,6 +18,7 @@
 #include "e9ui_step_buttons.h"
 #include "machine.h"
 #include "source_pane.h"
+#include "source_pane_fileline.h"
 
 typedef struct source_pane_line_metrics {
     int maxLines;
@@ -329,17 +330,3 @@ source_pane_symbols_refreshSourceFunctions(e9ui_component_t *comp, source_pane_s
 
 void
 source_pane_symbols_refreshSourceFiles(e9ui_component_t *comp, source_pane_state_t *st);
-
-int
-source_pane_fileline_resolveFileLine(const char *elf, const char *file, int line_no, uint32_t *out_addr);
-
-machine_breakpoint_t *
-source_pane_fileline_findBreakpointForLine(const char *path, int line,
-                                           const machine_breakpoint_t *bps, int count);
-
-int
-source_pane_fileline_removeBreakpointsForLine(const char *path, int line,
-                                              const machine_breakpoint_t *bps, int count);
-
-int
-source_pane_fileline_addBreakpointsForLine(const char *path, int lineNo);

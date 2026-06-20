@@ -1798,6 +1798,10 @@ libretro_host_start(const char *corePath, const char *romPath,
     libretro_host.debugNeogeoGetRoms = NULL;
     libretro_host.debugNeogeoGetPaletteState = NULL;
     libretro_host.debugNeogeoGetAudioFrame = NULL;
+    libretro_host.debugNeogeoSetSpriteGrayscaleSelection = NULL;
+    libretro_host.debugNeogeoSetPaletteGrayscaleMask = NULL;
+    libretro_host.debugNeogeoGetPaletteGrayscaleMask = NULL;
+    libretro_host.debugNeogeoSetFixLayerMode = NULL;
     libretro_host.debugNeogeoSetAudioVisEnabled = NULL;
     libretro_host.debugNeogeoSetAudioMuteMask = NULL;
     libretro_host.debugNeogeoSetRegisterLogFrameCallback = NULL;
@@ -1809,6 +1813,7 @@ libretro_host_start(const char *corePath, const char *romPath,
     libretro_host.debugMegadriveSetAudioVisEnabled = NULL;
     libretro_host.debugMegadriveSetAudioMuteMask = NULL;
     libretro_host.debugMegadriveGetVdpBandwidthFrame = NULL;
+    libretro_host.debugMegadriveGetRasterLineCount = NULL;
     libretro_host.debugDisassembleQuick = (e9k_debug_disassemble_quick_fn_t)libretro_host_loadSymbol("e9k_debug_disassemble_quick");
     libretro_host.debugReadKnownPcs = (e9k_debug_read_known_pcs_fn_t)libretro_host_loadSymbol("e9k_debug_read_known_pcs");
     libretro_host.debugResetKnownPcs = (e9k_debug_reset_known_pcs_fn_t)libretro_host_loadSymbol("e9k_debug_reset_known_pcs");
@@ -1816,6 +1821,8 @@ libretro_host_start(const char *corePath, const char *romPath,
     libretro_host.debugResetCheckpoints = (e9k_debug_reset_checkpoints_fn_t)libretro_host_loadSymbol("e9k_debug_reset_checkpoints");
     libretro_host.debugSetCheckpointEnabled = (e9k_debug_set_checkpoint_enabled_fn_t)libretro_host_loadSymbol("e9k_debug_set_checkpoint_enabled");
     libretro_host.debugGetCheckpointEnabled = (e9k_debug_get_checkpoint_enabled_fn_t)libretro_host_loadSymbol("e9k_debug_get_checkpoint_enabled");
+    libretro_host.debugReadCounters = (e9k_debug_read_counters_fn_t)libretro_host_loadSymbol("e9k_debug_read_counters");
+    libretro_host.debugResetCounters = (e9k_debug_reset_counters_fn_t)libretro_host_loadSymbol("e9k_debug_reset_counters");
     libretro_host.debugReadCycleCount = (e9k_debug_read_cycle_count_fn_t)libretro_host_loadSymbol("e9k_debug_read_cycle_count");
     libretro_host.setVblankCallback = (e9k_debug_set_vblank_callback_fn_t)libretro_host_loadSymbol("e9k_debug_set_vblank_callback");
     if (!libretro_host.setEnvironment || !libretro_host.setVideoRefresh ||
@@ -2663,6 +2670,25 @@ libretro_host_debugResetCheckpoints(void)
         return false;
     }
     libretro_host.debugResetCheckpoints();
+    return true;
+}
+
+size_t
+libretro_host_debugReadCounters(e9k_debug_counter_t *out, size_t cap)
+{
+    if (!out || cap == 0 || !libretro_host.debugReadCounters) {
+        return 0;
+    }
+    return libretro_host.debugReadCounters(out, cap);
+}
+
+bool
+libretro_host_debugResetCounters(void)
+{
+    if (!libretro_host.debugResetCounters) {
+        return false;
+    }
+    libretro_host.debugResetCounters();
     return true;
 }
 

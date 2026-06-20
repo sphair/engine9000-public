@@ -227,6 +227,11 @@ e9ui_event_processChildren(e9ui_component_t *comp, e9ui_context_t *ctx, const e9
     if (comp->collapsed) {
         return 0;
     }
+    if (ev &&
+        ev->type == SDL_MOUSEBUTTONDOWN &&
+        !e9ui_event_pointerIsInsideComponent(comp, ev)) {
+        return 0;
+    }
     int allow_multiple = 0;
     if (ev && (ev->type == SDL_MOUSEMOTION || ev->type == SDL_MOUSEBUTTONUP)) {
         allow_multiple = 1;

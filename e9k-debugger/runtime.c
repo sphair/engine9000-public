@@ -29,6 +29,9 @@
 #include "settings.h"
 #include "debugger.h"
 
+static void
+runtime_executeNextFrame(void);
+
 static const char *
 runtime_watchAccessSourceName(uint32_t accessSource)
 {
@@ -106,6 +109,29 @@ runtime_executeFrame(debugger_run_mode_t mode, int restoreFrame)
     _libretro_host_runOnce();
 }
 
+int
+runtime_refreshCurrentFrameFromPrevious(void)
+{
+    uint64_t currentFrame = debugger.frameCounter;
+    uint64_t restoreFrame;
+
+    if (machine_getRunning(debugger.machine) && !debugger.frameStepMode) {
+        return 0;
+    }
+    if (currentFrame < 2 || state_buffer_isRollingPaused()) {
+        return 0;
+    }
+    restoreFrame = currentFrame - 2;
+    if (!state_buffer_hasFrameNo(restoreFrame)) {
+        return 0;
+    }
+    runtime_executeFrame(DEBUGGER_RUNMODE_RESTORE, (int)restoreFrame);
+    debugger.frameCounter -= 2;
+    runtime_executeNextFrame();
+    ui_refreshOnPause();
+    return 1;
+}
+
 static void
 runtime_restoreSuppressedBreakpoint(void)
 {
@@ -145,6 +171,13 @@ runtime_isBreakpointHit(void)
         return 0;
     }
     return bp->enabled ? 1 : 0;
+}
+
+void
+runtime_resetFrameTiming(void)
+{
+    debugger.frameTimeCounter = SDL_GetPerformanceCounter();
+    debugger.frameTimeAccum = 0.0;
 }
 
 static void
@@ -294,6 +327,10 @@ runtime_runLoop(void)
                         } else {
                             double fps = libretro_host_getTimingFps();
                             double frameTime = (fps > 1e-3) ? (1.0 / fps) : (1.0 / 60.0);
+                            if (dt > frameTime * 4.0) {
+                                debugger.frameTimeAccum = 0.0;
+                                dt = 0.0;
+                            }
                             debugger.frameTimeAccum += dt;
                             if (debugger.frameTimeAccum >= frameTime) {
                                 runtime_executeNextFrame();

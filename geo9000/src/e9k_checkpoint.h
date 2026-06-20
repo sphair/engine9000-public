@@ -23,7 +23,7 @@ void
 e9k_checkpoint_stateLoad(uint8_t *st);
 
 void
-e9k_checkpoint_write(uint8_t index, uint32_t scanline);
+e9k_checkpoint_write(uint8_t index, uint32_t scanline, uint32_t scanlineCount);
 
 void
 e9k_checkpoint_setName(uint8_t index, const char *name);

@@ -42,6 +42,7 @@
 #define MEMORY_DEFAULT_VIEW_ROWS 32
 #define MEMORY_ROW_HEX_START_COL 10
 #define MEMORY_ROW_ASCII_START_COL (MEMORY_ROW_HEX_START_COL + ((int)MEMORY_BYTES_PER_ROW * 3) + 1)
+#define MEMORY_RENDER_CACHE_CAP 512
 
 typedef struct memory_search_pattern {
     uint8_t ascii[MEMORY_SEARCH_MAX_PATTERN];
@@ -55,6 +56,38 @@ typedef enum memory_inline_edit_mode {
     memory_inline_edit_mode_hex,
     memory_inline_edit_mode_ascii
 } memory_inline_edit_mode_t;
+
+typedef struct memory_row_address_cache {
+    int      valid;
+    uint32_t rowAddr;
+    char     text[9];
+    SDL_Texture *texture;
+    SDL_Renderer *renderer;
+    TTF_Font *font;
+    int columnWidth;
+    int lineHeight;
+    int textureW;
+    int textureH;
+    int textureValid;
+    unsigned long long lastUsed;
+} memory_row_address_cache_t;
+
+typedef struct memory_row_content_cache {
+    int     valid;
+    uint8_t bytes[MEMORY_BYTES_PER_ROW];
+    char    hexText[MEMORY_BYTES_PER_ROW * 3u + 1u];
+    char    asciiText[MEMORY_BYTES_PER_ROW + 1u];
+    SDL_Texture *texture;
+    SDL_Renderer *renderer;
+    TTF_Font *font;
+    int columnWidth;
+    int lineHeight;
+    int colorEnabled;
+    int textureW;
+    int textureH;
+    int textureValid;
+    unsigned long long lastUsed;
+} memory_row_content_cache_t;
 
 typedef struct memory_view_state {
     unsigned int   base;
@@ -81,6 +114,11 @@ typedef struct memory_view_state {
     uint8_t        inlineEditOriginalBytes[MEMORY_BYTES_PER_ROW];
     SDL_Rect       inlineEditRect;
     char           spaceValue[16];
+    memory_row_address_cache_t *addressCache;
+    int            addressCacheCount;
+    memory_row_content_cache_t *contentCache;
+    int            contentCacheCount;
+    unsigned long long cacheTick;
 } memory_view_state_t;
 
 typedef struct memory_step_buttons_action_ctx {
@@ -1675,72 +1713,480 @@ memory_fontColumnWidth(TTF_Font *font)
     return w;
 }
 
-static int
-memory_drawRowLine(e9ui_context_t *ctx,
-                   TTF_Font *font,
-                   const char *line,
-                   int baseX,
-                   int y)
+static void
+memory_formatAddressText(char *dst, size_t cap, uint32_t rowAddr)
 {
-    SDL_Color baseColor = {200, 220, 200, 255};
-    SDL_Color addressColor = {160, 160, 200, 255};
-    char addressText[9];
-    int lineW = 0;
-    int lineH = 0;
-    int addressW = 0;
-    int addressH = 0;
+    if (!dst || cap == 0) {
+        return;
+    }
+    int n = snprintf(dst, cap, "%08X", rowAddr);
+    if (n < 0 || (size_t)n >= cap) {
+        dst[cap - 1] = '\0';
+    }
+}
 
-    if (!ctx || !ctx->renderer || !font || !line) {
+static int
+memory_ensureRenderCaches(memory_view_state_t *st)
+{
+    if (!st) {
         return 0;
     }
-
-    SDL_Texture *lineTexture = e9ui_text_cache_getText(ctx->renderer, font, line, baseColor, &lineW, &lineH);
-    if (lineTexture) {
-        SDL_Rect dst = { baseX, y, lineW, lineH };
-        SDL_RenderCopy(ctx->renderer, lineTexture, NULL, &dst);
+    if (!st->addressCache) {
+        st->addressCache = (memory_row_address_cache_t*)alloc_calloc(
+            MEMORY_RENDER_CACHE_CAP, sizeof(*st->addressCache));
+        if (!st->addressCache) {
+            return 0;
+        }
     }
-
-    memcpy(addressText, line, 8);
-    addressText[8] = '\0';
-    SDL_Texture *addressTexture = e9ui_text_cache_getText(ctx->renderer,
-                                                          font,
-                                                          addressText,
-                                                          addressColor,
-                                                          &addressW,
-                                                          &addressH);
-    if (addressTexture) {
-        SDL_Rect dst = { baseX, y, addressW, addressH };
-        SDL_RenderCopy(ctx->renderer, addressTexture, NULL, &dst);
+    if (!st->contentCache) {
+        st->contentCache = (memory_row_content_cache_t*)alloc_calloc(
+            MEMORY_RENDER_CACHE_CAP, sizeof(*st->contentCache));
+        if (!st->contentCache) {
+            return 0;
+        }
     }
-
-    return lineW;
+    return 1;
 }
 
 static void
-memory_drawHexColorRow(e9ui_context_t *ctx,
-                       TTF_Font *font,
-                       const uint8_t *rowData,
-                       int baseX,
-                       int y,
-                       int columnWidth)
+memory_addressCacheDestroyTexture(memory_row_address_cache_t *cache)
 {
-    if (!hex_byte_color_isEnabled() || !rowData || columnWidth <= 0) {
+    if (!cache) {
+        return;
+    }
+    if (cache->texture) {
+        SDL_DestroyTexture(cache->texture);
+        cache->texture = NULL;
+    }
+    cache->renderer = NULL;
+    cache->font = NULL;
+    cache->columnWidth = 0;
+    cache->lineHeight = 0;
+    cache->textureW = 0;
+    cache->textureH = 0;
+    cache->textureValid = 0;
+}
+
+static void
+memory_addressCacheClear(memory_row_address_cache_t *cache)
+{
+    if (!cache) {
+        return;
+    }
+    memory_addressCacheDestroyTexture(cache);
+    memset(cache, 0, sizeof(*cache));
+}
+
+static void
+memory_contentCacheDestroyTexture(memory_row_content_cache_t *cache)
+{
+    if (!cache) {
+        return;
+    }
+    if (cache->texture) {
+        SDL_DestroyTexture(cache->texture);
+        cache->texture = NULL;
+    }
+    cache->renderer = NULL;
+    cache->font = NULL;
+    cache->columnWidth = 0;
+    cache->lineHeight = 0;
+    cache->colorEnabled = 0;
+    cache->textureW = 0;
+    cache->textureH = 0;
+    cache->textureValid = 0;
+}
+
+static void
+memory_contentCacheClear(memory_row_content_cache_t *cache)
+{
+    if (!cache) {
+        return;
+    }
+    memory_contentCacheDestroyTexture(cache);
+    memset(cache, 0, sizeof(*cache));
+}
+
+static void
+memory_formatContentText(memory_row_content_cache_t *cache, const uint8_t *rowData)
+{
+    static const char hexChars[] = "0123456789ABCDEF";
+
+    if (!cache) {
+        return;
+    }
+    for (unsigned int i = 0; i < MEMORY_BYTES_PER_ROW; ++i) {
+        unsigned char byte = rowData ? rowData[i] : 0;
+        unsigned int hexPos = i * 3u;
+        cache->hexText[hexPos] = hexChars[(byte >> 4) & 0x0fu];
+        cache->hexText[hexPos + 1u] = hexChars[byte & 0x0fu];
+        cache->hexText[hexPos + 2u] = ' ';
+        cache->asciiText[i] = (byte >= 32 && byte <= 126) ? (char)byte : '.';
+    }
+    cache->hexText[MEMORY_BYTES_PER_ROW * 3u] = '\0';
+    cache->asciiText[MEMORY_BYTES_PER_ROW] = '\0';
+}
+
+static memory_row_address_cache_t *
+memory_getAddressCache(memory_view_state_t *st, uint32_t rowAddr)
+{
+    if (!st || !memory_ensureRenderCaches(st)) {
+        return NULL;
+    }
+    unsigned long long tick = ++st->cacheTick;
+    for (int i = 0; i < st->addressCacheCount; ++i) {
+        memory_row_address_cache_t *entry = &st->addressCache[i];
+        if (entry->valid && entry->rowAddr == rowAddr) {
+            entry->lastUsed = tick;
+            return entry;
+        }
+    }
+
+    memory_row_address_cache_t *entry = NULL;
+    if (st->addressCacheCount < MEMORY_RENDER_CACHE_CAP) {
+        entry = &st->addressCache[st->addressCacheCount++];
+    } else {
+        int evict = 0;
+        unsigned long long oldest = st->addressCache[0].lastUsed;
+        for (int i = 1; i < MEMORY_RENDER_CACHE_CAP; ++i) {
+            if (st->addressCache[i].lastUsed < oldest) {
+                oldest = st->addressCache[i].lastUsed;
+                evict = i;
+            }
+        }
+        entry = &st->addressCache[evict];
+        memory_addressCacheClear(entry);
+    }
+
+    entry->valid = 1;
+    entry->rowAddr = rowAddr;
+    entry->lastUsed = tick;
+    memory_formatAddressText(entry->text, sizeof(entry->text), rowAddr);
+    return entry;
+}
+
+static memory_row_content_cache_t *
+memory_getContentCache(memory_view_state_t *st, const uint8_t *rowData)
+{
+    static const uint8_t zeroBytes[MEMORY_BYTES_PER_ROW] = {0};
+    const uint8_t *bytes = rowData ? rowData : zeroBytes;
+
+    if (!st || !memory_ensureRenderCaches(st)) {
+        return NULL;
+    }
+    unsigned long long tick = ++st->cacheTick;
+    for (int i = 0; i < st->contentCacheCount; ++i) {
+        memory_row_content_cache_t *entry = &st->contentCache[i];
+        if (entry->valid && memcmp(entry->bytes, bytes, sizeof(entry->bytes)) == 0) {
+            entry->lastUsed = tick;
+            return entry;
+        }
+    }
+
+    memory_row_content_cache_t *entry = NULL;
+    if (st->contentCacheCount < MEMORY_RENDER_CACHE_CAP) {
+        entry = &st->contentCache[st->contentCacheCount++];
+    } else {
+        int evict = 0;
+        unsigned long long oldest = st->contentCache[0].lastUsed;
+        for (int i = 1; i < MEMORY_RENDER_CACHE_CAP; ++i) {
+            if (st->contentCache[i].lastUsed < oldest) {
+                oldest = st->contentCache[i].lastUsed;
+                evict = i;
+            }
+        }
+        entry = &st->contentCache[evict];
+        memory_contentCacheClear(entry);
+    }
+
+    entry->valid = 1;
+    entry->lastUsed = tick;
+    memcpy(entry->bytes, bytes, sizeof(entry->bytes));
+    memory_formatContentText(entry, bytes);
+    return entry;
+}
+
+static void
+memory_drawColumnCharMode(e9ui_context_t *ctx,
+                          TTF_Font *font,
+                          char c,
+                          SDL_Color color,
+                          int x,
+                          int y,
+                          int rawAlpha)
+{
+    char text[2];
+    int w = 0;
+    int h = 0;
+
+    text[0] = c;
+    text[1] = '\0';
+    SDL_Texture *texture = e9ui_text_cache_getText(ctx->renderer, font, text, color, &w, &h);
+    if (!texture) {
         return;
     }
 
-    int hexX = baseX + MEMORY_ROW_HEX_START_COL * columnWidth;
-    if (!hex_byte_color_drawHexByteRow(ctx->renderer,
-                                       font,
-                                       rowData,
-                                       (int)MEMORY_BYTES_PER_ROW,
-                                       hexX,
-                                       y,
-                                       columnWidth)) {
+    SDL_Rect dst = { x, y, w, h };
+    SDL_BlendMode oldBlend = SDL_BLENDMODE_BLEND;
+    if (rawAlpha && SDL_GetTextureBlendMode(texture, &oldBlend) == 0) {
+        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+    }
+    SDL_RenderCopy(ctx->renderer, texture, NULL, &dst);
+    if (rawAlpha) {
+        SDL_SetTextureBlendMode(texture, oldBlend);
+    }
+}
+
+static void
+memory_drawColumnChar(e9ui_context_t *ctx,
+                      TTF_Font *font,
+                      char c,
+                      SDL_Color color,
+                      int x,
+                      int y)
+{
+    memory_drawColumnCharMode(ctx, font, c, color, x, y, 0);
+}
+
+static int
+memory_drawAddressColumns(e9ui_context_t *ctx,
+                          TTF_Font *font,
+                          const memory_row_address_cache_t *cache,
+                          int baseX,
+                          int y,
+                          int columnWidth,
+                          int rawAlpha)
+{
+    SDL_Color addressColor = {160, 160, 200, 255};
+
+    for (int i = 0; i < 8; ++i) {
+        memory_drawColumnCharMode(ctx, font, cache->text[i], addressColor, baseX + i * columnWidth, y, rawAlpha);
+    }
+
+    return 8 * columnWidth;
+}
+
+static int
+memory_drawContentColumns(e9ui_context_t *ctx,
+                          TTF_Font *font,
+                          const memory_row_content_cache_t *cache,
+                          int baseX,
+                          int y,
+                          int columnWidth,
+                          int rawAlpha)
+{
+    SDL_Color baseColor = {200, 220, 200, 255};
+
+    for (unsigned int i = 0; i < MEMORY_BYTES_PER_ROW * 3u; ++i) {
+        int hexCol = (int)i;
+        if (hex_byte_color_isEnabled() && (i % 3u) < 2u) {
+            continue;
+        }
+        memory_drawColumnCharMode(ctx,
+                                  font,
+                                  cache->hexText[i],
+                                  baseColor,
+                                  baseX + hexCol * columnWidth,
+                                  y,
+                                  rawAlpha);
+    }
+
+    if (hex_byte_color_isEnabled()) {
+        static const char hexChars[] = "0123456789ABCDEF";
         for (unsigned int i = 0; i < MEMORY_BYTES_PER_ROW; ++i) {
-            int hexCol = MEMORY_ROW_HEX_START_COL + (int)i * 3;
-            hex_byte_color_drawHexByte(ctx->renderer, font, rowData[i], baseX + hexCol * columnWidth, y);
+            int hexCol = (int)i * 3;
+            uint8_t byte = cache->bytes[i];
+            SDL_Color color = hex_byte_color_get(byte);
+            memory_drawColumnCharMode(ctx,
+                                      font,
+                                      hexChars[(byte >> 4) & 0x0fu],
+                                      color,
+                                      baseX + hexCol * columnWidth,
+                                      y,
+                                      rawAlpha);
+            memory_drawColumnCharMode(ctx,
+                                      font,
+                                      hexChars[byte & 0x0fu],
+                                      color,
+                                      baseX + (hexCol + 1) * columnWidth,
+                                      y,
+                                      rawAlpha);
         }
     }
+
+    memory_drawColumnCharMode(ctx,
+                              font,
+                              ' ',
+                              baseColor,
+                              baseX + (MEMORY_ROW_ASCII_START_COL - MEMORY_ROW_HEX_START_COL - 1) * columnWidth,
+                              y,
+                              rawAlpha);
+    for (unsigned int i = 0; i < MEMORY_BYTES_PER_ROW; ++i) {
+        memory_drawColumnCharMode(ctx,
+                                  font,
+                                  cache->asciiText[i],
+                                  baseColor,
+                                  baseX + (MEMORY_ROW_ASCII_START_COL - MEMORY_ROW_HEX_START_COL + (int)i) * columnWidth,
+                                  y,
+                                  rawAlpha);
+    }
+
+    return (MEMORY_ROW_ASCII_START_COL - MEMORY_ROW_HEX_START_COL + (int)MEMORY_BYTES_PER_ROW) * columnWidth;
+}
+
+static int
+memory_drawCachedAddress(e9ui_context_t *ctx,
+                         TTF_Font *font,
+                         memory_row_address_cache_t *cache,
+                         int baseX,
+                         int y,
+                         int columnWidth,
+                         int lineHeight)
+{
+    int addressW = 8 * columnWidth;
+
+    if (cache->textureValid &&
+        cache->texture &&
+        cache->renderer == ctx->renderer &&
+        cache->font == font &&
+        cache->columnWidth == columnWidth &&
+        cache->lineHeight == lineHeight &&
+        cache->textureW == addressW) {
+        SDL_Rect dst = { baseX, y, cache->textureW, cache->textureH };
+        SDL_RenderCopy(ctx->renderer, cache->texture, NULL, &dst);
+        return addressW;
+    }
+
+    memory_addressCacheDestroyTexture(cache);
+
+    cache->texture = SDL_CreateTexture(ctx->renderer,
+                                       SDL_PIXELFORMAT_RGBA8888,
+                                       SDL_TEXTUREACCESS_TARGET,
+                                       addressW,
+                                       lineHeight);
+    if (!cache->texture) {
+        return memory_drawAddressColumns(ctx, font, cache, baseX, y, columnWidth, 0);
+    }
+    SDL_SetTextureBlendMode(cache->texture, SDL_BLENDMODE_BLEND);
+
+    SDL_Texture *oldTarget = SDL_GetRenderTarget(ctx->renderer);
+    SDL_BlendMode oldBlend = SDL_BLENDMODE_BLEND;
+    SDL_bool hadClip = SDL_RenderIsClipEnabled(ctx->renderer);
+    SDL_Rect oldClip = {0};
+    if (hadClip) {
+        SDL_RenderGetClipRect(ctx->renderer, &oldClip);
+    }
+    SDL_GetRenderDrawBlendMode(ctx->renderer, &oldBlend);
+
+    if (SDL_SetRenderTarget(ctx->renderer, cache->texture) != 0) {
+        memory_addressCacheDestroyTexture(cache);
+        return memory_drawAddressColumns(ctx, font, cache, baseX, y, columnWidth, 0);
+    }
+    SDL_RenderSetClipRect(ctx->renderer, NULL);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(ctx->renderer, 0, 0, 0, 0);
+    SDL_RenderClear(ctx->renderer);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_BLEND);
+    memory_drawAddressColumns(ctx, font, cache, 0, 0, columnWidth, 1);
+
+    SDL_SetRenderTarget(ctx->renderer, oldTarget);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, oldBlend);
+    if (hadClip) {
+        SDL_RenderSetClipRect(ctx->renderer, &oldClip);
+    } else {
+        SDL_RenderSetClipRect(ctx->renderer, NULL);
+    }
+
+    cache->renderer = ctx->renderer;
+    cache->font = font;
+    cache->columnWidth = columnWidth;
+    cache->lineHeight = lineHeight;
+    cache->textureW = addressW;
+    cache->textureH = lineHeight;
+    cache->textureValid = 1;
+
+    SDL_Rect dst = { baseX, y, cache->textureW, cache->textureH };
+    SDL_RenderCopy(ctx->renderer, cache->texture, NULL, &dst);
+    return addressW;
+}
+
+static int
+memory_drawCachedContent(e9ui_context_t *ctx,
+                         TTF_Font *font,
+                         memory_row_content_cache_t *cache,
+                         int baseX,
+                         int y,
+                         int columnWidth,
+                         int lineHeight)
+{
+    int contentW = (MEMORY_ROW_ASCII_START_COL - MEMORY_ROW_HEX_START_COL + (int)MEMORY_BYTES_PER_ROW) * columnWidth;
+    int colorEnabled = hex_byte_color_isEnabled() ? 1 : 0;
+
+    if (cache->textureValid &&
+        cache->texture &&
+        cache->renderer == ctx->renderer &&
+        cache->font == font &&
+        cache->columnWidth == columnWidth &&
+        cache->lineHeight == lineHeight &&
+        cache->colorEnabled == colorEnabled &&
+        cache->textureW == contentW) {
+        SDL_Rect dst = { baseX, y, cache->textureW, cache->textureH };
+        SDL_RenderCopy(ctx->renderer, cache->texture, NULL, &dst);
+        return contentW;
+    }
+
+    memory_contentCacheDestroyTexture(cache);
+
+    cache->texture = SDL_CreateTexture(ctx->renderer,
+                                       SDL_PIXELFORMAT_RGBA8888,
+                                       SDL_TEXTUREACCESS_TARGET,
+                                       contentW,
+                                       lineHeight);
+    if (!cache->texture) {
+        return memory_drawContentColumns(ctx, font, cache, baseX, y, columnWidth, 0);
+    }
+    SDL_SetTextureBlendMode(cache->texture, SDL_BLENDMODE_BLEND);
+
+    SDL_Texture *oldTarget = SDL_GetRenderTarget(ctx->renderer);
+    SDL_BlendMode oldBlend = SDL_BLENDMODE_BLEND;
+    SDL_bool hadClip = SDL_RenderIsClipEnabled(ctx->renderer);
+    SDL_Rect oldClip = {0};
+    if (hadClip) {
+        SDL_RenderGetClipRect(ctx->renderer, &oldClip);
+    }
+    SDL_GetRenderDrawBlendMode(ctx->renderer, &oldBlend);
+
+    if (SDL_SetRenderTarget(ctx->renderer, cache->texture) != 0) {
+        memory_contentCacheDestroyTexture(cache);
+        return memory_drawContentColumns(ctx, font, cache, baseX, y, columnWidth, 0);
+    }
+    SDL_RenderSetClipRect(ctx->renderer, NULL);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(ctx->renderer, 0, 0, 0, 0);
+    SDL_RenderClear(ctx->renderer);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_BLEND);
+    memory_drawContentColumns(ctx, font, cache, 0, 0, columnWidth, 1);
+
+    SDL_SetRenderTarget(ctx->renderer, oldTarget);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, oldBlend);
+    if (hadClip) {
+        SDL_RenderSetClipRect(ctx->renderer, &oldClip);
+    } else {
+        SDL_RenderSetClipRect(ctx->renderer, NULL);
+    }
+
+    cache->renderer = ctx->renderer;
+    cache->font = font;
+    cache->columnWidth = columnWidth;
+    cache->lineHeight = lineHeight;
+    cache->colorEnabled = colorEnabled;
+    cache->textureW = contentW;
+    cache->textureH = lineHeight;
+    cache->textureValid = 1;
+
+    SDL_Rect dst = { baseX, y, cache->textureW, cache->textureH };
+    SDL_RenderCopy(ctx->renderer, cache->texture, NULL, &dst);
+    return contentW;
 }
 
 static int
@@ -2175,8 +2621,12 @@ memory_render(e9ui_component_t *self, e9ui_context_t *ctx)
                                memory_stepButtonsOnAction);
     }
     SDL_Rect r = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
+    SDL_BlendMode prevBlend = SDL_BLENDMODE_BLEND;
+    SDL_GetRenderDrawBlendMode(ctx->renderer, &prevBlend);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(ctx->renderer, 20, 22, 20, 255);
     SDL_RenderFillRect(ctx->renderer, &r);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, prevBlend);
     TTF_Font *font = e9ui->theme.text.source ? e9ui->theme.text.source : ctx->font;
     if (!font) {
         return;
@@ -2266,6 +2716,7 @@ memory_render(e9ui_component_t *self, e9ui_context_t *ctx)
         memory_markVisibleMatches(st, &pattern, viewData, viewByteCount, allMask, currentMask);
     }
     int columnWidth = memory_fontColumnWidth(font);
+    int haveRenderCache = e9ui_context_supportsTargetTexture(ctx) && memory_ensureRenderCaches(st);
     y = r.y + pad;
     if (st->error[0]) {
         SDL_Color err = {220, 80, 80, 255};
@@ -2281,12 +2732,10 @@ memory_render(e9ui_component_t *self, e9ui_context_t *ctx)
         }
         y += lh;
     }
-    char line[256];
     for (int row = 0; row < availableRows; ++row) {
         unsigned int off = (unsigned int)row * MEMORY_BYTES_PER_ROW;
         uint32_t rowAddr = st->base + off;
         const uint8_t *rowData = viewData ? viewData + off : NULL;
-        memory_formatRowLine(line, sizeof(line), rowAddr, rowData);
         int baseX = r.x + pad - st->scrollX;
         for (unsigned int i = 0; i < MEMORY_BYTES_PER_ROW; ++i) {
             unsigned int idx = off + i;
@@ -2295,10 +2744,10 @@ memory_render(e9ui_component_t *self, e9ui_context_t *ctx)
             }
             int hexCol = MEMORY_ROW_HEX_START_COL + (int)i * 3;
             int asciiCol = MEMORY_ROW_ASCII_START_COL + (int)i;
-            int hexX = baseX + memory_measureSegment(font, line, 0, hexCol);
-            int asciiX = baseX + memory_measureSegment(font, line, 0, asciiCol);
-            int hexW = memory_measureSegment(font, line, hexCol, 2);
-            int asciiW = memory_measureSegment(font, line, asciiCol, 1);
+            int hexX = baseX + hexCol * columnWidth;
+            int asciiX = baseX + asciiCol * columnWidth;
+            int hexW = columnWidth * 2;
+            int asciiW = columnWidth;
             SDL_Color hl = currentMask[idx] ? (SDL_Color){64, 112, 188, 220}
                                             : (SDL_Color){120, 100, 48, 170};
             SDL_SetRenderDrawColor(ctx->renderer, hl.r, hl.g, hl.b, hl.a);
@@ -2307,8 +2756,67 @@ memory_render(e9ui_component_t *self, e9ui_context_t *ctx)
             SDL_RenderFillRect(ctx->renderer, &hexRect);
             SDL_RenderFillRect(ctx->renderer, &asciiRect);
         }
-        int lineW = memory_drawRowLine(ctx, font, line, r.x + pad - st->scrollX, y);
-        memory_drawHexColorRow(ctx, font, rowData, r.x + pad - st->scrollX, y, columnWidth);
+        int lineW = 0;
+        if (haveRenderCache) {
+            memory_row_address_cache_t *addressCache = memory_getAddressCache(st, rowAddr);
+            memory_row_content_cache_t *contentCache = memory_getContentCache(st, rowData);
+            if (addressCache) {
+                (void)memory_drawCachedAddress(ctx, font, addressCache, baseX, y, columnWidth, lh);
+            }
+            if (contentCache) {
+                (void)memory_drawCachedContent(ctx,
+                                               font,
+                                               contentCache,
+                                               baseX + MEMORY_ROW_HEX_START_COL * columnWidth,
+                                               y,
+                                               columnWidth,
+                                               lh);
+            }
+            lineW = (MEMORY_ROW_ASCII_START_COL + (int)MEMORY_BYTES_PER_ROW) * columnWidth;
+        } else {
+            char line[256];
+            memory_formatRowLine(line, sizeof(line), rowAddr, rowData);
+            SDL_Color baseColor = {200, 220, 200, 255};
+            SDL_Color addressColor = {160, 160, 200, 255};
+            int lineLen = (int)strlen(line);
+            for (int col = 0; col < lineLen; ++col) {
+                if (hex_byte_color_isEnabled() &&
+                    col >= MEMORY_ROW_HEX_START_COL &&
+                    col < MEMORY_ROW_HEX_START_COL + (int)MEMORY_BYTES_PER_ROW * 3) {
+                    int rel = col - MEMORY_ROW_HEX_START_COL;
+                    if ((rel % 3) < 2) {
+                        continue;
+                    }
+                }
+                memory_drawColumnChar(ctx,
+                                      font,
+                                      line[col],
+                                      col < 8 ? addressColor : baseColor,
+                                      baseX + col * columnWidth,
+                                      y);
+            }
+            if (hex_byte_color_isEnabled() && rowData) {
+                static const char hexChars[] = "0123456789ABCDEF";
+                for (unsigned int i = 0; i < MEMORY_BYTES_PER_ROW; ++i) {
+                    int hexCol = MEMORY_ROW_HEX_START_COL + (int)i * 3;
+                    uint8_t byte = rowData[i];
+                    SDL_Color color = hex_byte_color_get(byte);
+                    memory_drawColumnChar(ctx,
+                                          font,
+                                          hexChars[(byte >> 4) & 0x0fu],
+                                          color,
+                                          baseX + hexCol * columnWidth,
+                                          y);
+                    memory_drawColumnChar(ctx,
+                                          font,
+                                          hexChars[byte & 0x0fu],
+                                          color,
+                                          baseX + (hexCol + 1) * columnWidth,
+                                          y);
+                }
+            }
+            lineW = (int)strlen(line) * columnWidth;
+        }
         if (lineW + pad * 2 > st->contentPixelWidth) {
             st->contentPixelWidth = lineW + pad * 2;
         }
@@ -2373,6 +2881,33 @@ memory_render(e9ui_component_t *self, e9ui_context_t *ctx)
     }
 }
 
+static void
+memory_dtor(e9ui_component_t *self, e9ui_context_t *ctx)
+{
+    (void)ctx;
+    if (!self || !self->state) {
+        return;
+    }
+    memory_view_state_t *st = (memory_view_state_t*)self->state;
+    if (st->addressCache) {
+        for (int i = 0; i < st->addressCacheCount; ++i) {
+            memory_addressCacheDestroyTexture(&st->addressCache[i]);
+        }
+        alloc_free(st->addressCache);
+        st->addressCache = NULL;
+    }
+    st->addressCacheCount = 0;
+    if (st->contentCache) {
+        for (int i = 0; i < st->contentCacheCount; ++i) {
+            memory_contentCacheDestroyTexture(&st->contentCache[i]);
+        }
+        alloc_free(st->contentCache);
+        st->contentCache = NULL;
+    }
+    st->contentCacheCount = 0;
+    st->cacheTick = 0;
+}
+
 e9ui_component_t *
 memory_makeComponent(void)
 {
@@ -2393,6 +2928,7 @@ memory_makeComponent(void)
     c->layout = memory_layout;
     c->render = memory_render;
     c->handleEvent = memory_handleEvent;
+    c->dtor = memory_dtor;
     c->focusable = 1;
     st->ownerView = c;
     memory_activeState = st;

@@ -21,7 +21,11 @@ profile_list_makeComponent(void);
 void
 profile_list_notifyUpdate(void);
 
+int
+profile_list_toggleMetricMode(void);
+
+int
+profile_list_showSamples(void);
+
 void
 profile_list_freeChildMeta(e9ui_component_t *self);
-
-

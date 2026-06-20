@@ -31,8 +31,10 @@ const char *
 e9ui_labeled_textbox_getText(const e9ui_component_t *comp);
 
 void
+e9ui_labeled_textbox_measure(e9ui_component_t *comp, e9ui_context_t *ctx, int *outW, int *outH);
+
+void
 e9ui_labeled_textbox_setOnChange(e9ui_component_t *comp, e9ui_labeled_textbox_change_cb_t cb, void *user);
 
 e9ui_component_t *
 e9ui_labeled_textbox_getTextbox(const e9ui_component_t *comp);
-

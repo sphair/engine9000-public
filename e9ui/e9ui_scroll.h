@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <stdio.h>
+
 #include "e9ui.h"
 
 e9ui_component_t *
@@ -24,3 +26,20 @@ e9ui_scroll_getScrollPx(e9ui_component_t *scroll, int *outScrollX, int *outScrol
 
 void
 e9ui_scroll_setScrollPx(e9ui_component_t *scroll, int scrollX, int scrollY);
+
+void
+e9ui_scroll_setPersistKey(e9ui_component_t *scroll, const char *persistKey);
+
+void
+e9ui_scroll_loadPersistedPx(e9ui_component_t *scroll, int scrollX, int scrollY);
+
+void
+e9ui_scroll_persistConfig(FILE *file, e9ui_component_t *scroll);
+
+int
+e9ui_scroll_pointInContentPx(e9ui_component_t *scroll,
+                             e9ui_context_t *ctx,
+                             int contentW,
+                             int contentH,
+                             int mouseX,
+                             int mouseY);

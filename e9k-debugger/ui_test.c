@@ -23,6 +23,7 @@
 #include "config.h"
 #include "input_record.h"
 #include "libretro_host.h"
+#include "strutil.h"
 
 typedef struct ui_test_raw_frame_header_v2 {
     char magic[8];
@@ -39,6 +40,7 @@ static char ui_test_folder[PATH_MAX];
 static int ui_test_enabled = 0;
 static ui_test_mode_t ui_test_mode = UI_TEST_MODE_NONE;
 static int ui_test_failed = 0;
+static int ui_test_openOnFail = 0;
 static int ui_test_exitCode = -1;
 static uint8_t *ui_test_prevFrame = NULL;
 static size_t ui_test_prevStride = 0;
@@ -111,18 +113,75 @@ ui_test_formatFrameRawName(char *out, size_t cap, uint64_t frame)
 }
 
 static void
-ui_test_formatMismatchName(char *out, size_t cap, uint64_t frame, const char *suffix)
+ui_test_copySanitizedPathPart(char *out, size_t cap, const char *path, size_t start, size_t end, const char *fallback)
 {
     if (!out || cap == 0) {
         return;
     }
+    size_t pos = 0;
+    for (size_t i = start; i < end && pos < cap - 1; ++i) {
+        unsigned char c = (unsigned char)path[i];
+        if (isalnum(c) || c == '-' || c == '_' || c == '.') {
+            out[pos++] = (char)c;
+        } else {
+            out[pos++] = '-';
+        }
+    }
+    out[pos] = '\0';
+    if (!out[0]) {
+        strutil_strlcpy(out, cap, fallback);
+    }
+}
+
+static void
+ui_test_formatArtifactIdentity(char *out, size_t cap)
+{
+    if (!out || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    const char *path = ui_test_folder;
+    size_t pathEnd = path ? strlen(path) : 0;
+    while (pathEnd > 0 && (path[pathEnd - 1] == '/' || path[pathEnd - 1] == '\\')) {
+        pathEnd--;
+    }
+    size_t testStart = pathEnd;
+    while (testStart > 0 && path[testStart - 1] != '/' && path[testStart - 1] != '\\') {
+        testStart--;
+    }
+    size_t parentEnd = testStart;
+    while (parentEnd > 0 && (path[parentEnd - 1] == '/' || path[parentEnd - 1] == '\\')) {
+        parentEnd--;
+    }
+    size_t parentStart = parentEnd;
+    while (parentStart > 0 && path[parentStart - 1] != '/' && path[parentStart - 1] != '\\') {
+        parentStart--;
+    }
+
+    char parentName[64];
+    char testName[96];
+    ui_test_copySanitizedPathPart(parentName, sizeof(parentName), path, parentStart, parentEnd, "test");
+    ui_test_copySanitizedPathPart(testName, sizeof(testName), path, testStart, pathEnd, "case");
+    strutil_join3Trunc(out, cap, parentName, "-", testName);
+}
+
+static void
+ui_test_formatArtifactName(char *out, size_t cap, uint64_t frame, const char *suffix)
+{
+    if (!out || cap == 0) {
+        return;
+    }
+    char identity[192];
+    ui_test_formatArtifactIdentity(identity, sizeof(identity));
     char prefix[32];
     ui_test_prefix(prefix, sizeof(prefix));
-    if (prefix[0]) {
-        snprintf(out, cap, "%smismatch-%llu%s", prefix, (unsigned long long)frame, suffix ? suffix : "");
-    } else {
-        snprintf(out, cap, "mismatch-%llu%s", (unsigned long long)frame, suffix ? suffix : "");
-    }
+    char framePart[64];
+    snprintf(framePart, sizeof(framePart), "%llu", (unsigned long long)frame);
+    char prefixedFrame[96];
+    strutil_join2Trunc(prefixedFrame, sizeof(prefixedFrame), prefix, framePart);
+    char artifactBase[256];
+    strutil_join3Trunc(artifactBase, sizeof(artifactBase), identity, "-", prefixedFrame);
+    strutil_join2Trunc(out, cap, artifactBase, suffix ? suffix : "");
 }
 
 void
@@ -147,6 +206,12 @@ ui_test_mode_t
 ui_test_getMode(void)
 {
     return ui_test_mode;
+}
+
+void
+ui_test_setOpenOnFail(int enable)
+{
+    ui_test_openOnFail = enable ? 1 : 0;
 }
 
 void
@@ -271,7 +336,12 @@ ui_test_clearMismatchEntry(const char *path, void *user)
     (void)user;
     const char *name = NULL;
     ui_test_basename(path, &name);
-    if (strstr(name, "mismatch-")) {
+    char identity[192];
+    ui_test_formatArtifactIdentity(identity, sizeof(identity));
+    char identityPrefix[256];
+    strutil_join2Trunc(identityPrefix, sizeof(identityPrefix), identity, "-");
+    if (strstr(name, "mismatch-") ||
+        strncmp(name, identityPrefix, strlen(identityPrefix)) == 0) {
         remove(path);
     }
     return 1;
@@ -587,7 +657,7 @@ ui_test_getRecordPath(char *out, size_t cap)
     if (!out || cap == 0 || !ui_test_folder[0]) {
         return 0;
     }
-    char name[128];
+    char name[256];
     char prefix[32];
     ui_test_prefix(prefix, sizeof(prefix));
     if (prefix[0]) {
@@ -604,7 +674,7 @@ ui_test_getUiEventPath(char *out, size_t cap)
     if (!out || cap == 0 || !ui_test_folder[0]) {
         return 0;
     }
-    char name[128];
+    char name[256];
     char prefix[32];
     ui_test_prefix(prefix, sizeof(prefix));
     if (prefix[0]) {
@@ -828,7 +898,7 @@ ui_test_writeMismatchImage(uint64_t frame, const uint8_t *data, int width, int h
                             char *outPath, size_t cap)
 {
     char name[128];
-    ui_test_formatMismatchName(name, sizeof(name), frame, ".png");
+    ui_test_formatArtifactName(name, sizeof(name), frame, "-actual.png");
     char path[PATH_MAX];
     if (!debugger_platform_pathJoin(path, sizeof(path), ui_test_folder, name)) {
         return 0;
@@ -838,6 +908,42 @@ ui_test_writeMismatchImage(uint64_t frame, const uint8_t *data, int width, int h
         outPath[cap - 1] = '\0';
     }
     return 1;
+}
+
+static void
+ui_test_openImage(const char *path)
+{
+    if (!path || !*path) {
+        return;
+    }
+    char absolutePath[PATH_MAX];
+    if (path[0] == '/' || path[0] == '\\' || path[1] == ':') {
+        strutil_strlcpy(absolutePath, sizeof(absolutePath), path);
+    } else {
+        char cwd[PATH_MAX];
+        if (!debugger_platform_getCurrentDir(cwd, sizeof(cwd)) ||
+            !debugger_platform_pathJoin(absolutePath, sizeof(absolutePath), cwd, path)) {
+            strutil_strlcpy(absolutePath, sizeof(absolutePath), path);
+        }
+    }
+    char url[PATH_MAX + 16];
+    strutil_join2Trunc(url, sizeof(url), "file://", absolutePath);
+    if (SDL_OpenURL(url) != 0) {
+        SDL_OpenURL(absolutePath);
+    }
+}
+
+static void
+ui_test_openFailureImage(const char *montagePath, const char *diffPath)
+{
+    if (!ui_test_openOnFail) {
+        return;
+    }
+    if (montagePath && *montagePath) {
+        ui_test_openImage(montagePath);
+    } else if (diffPath && *diffPath) {
+        ui_test_openImage(diffPath);
+    }
 }
 
 static int
@@ -851,22 +957,22 @@ ui_test_writeDiffScript(uint64_t frame, const char *refPath, const char *testPat
         return 0;
     }
 
-    char compareName[128];
-    ui_test_formatMismatchName(compareName, sizeof(compareName), frame, "-compare.png");
+    char compareName[256];
+    ui_test_formatArtifactName(compareName, sizeof(compareName), frame, "-compare.png");
     char comparePath[PATH_MAX];
     if (!debugger_platform_pathJoin(comparePath, sizeof(comparePath), ui_test_folder, compareName)) {
         return 0;
     }
 
-    char montageName[128];
-    ui_test_formatMismatchName(montageName, sizeof(montageName), frame, "-triple.png");
+    char montageName[256];
+    ui_test_formatArtifactName(montageName, sizeof(montageName), frame, ".png");
     char montagePath[PATH_MAX];
     if (!debugger_platform_pathJoin(montagePath, sizeof(montagePath), ui_test_folder, montageName)) {
         return 0;
     }
 
-    char scriptName[128];
-    ui_test_formatMismatchName(scriptName, sizeof(scriptName), frame, ".cmd");
+    char scriptName[256];
+    ui_test_formatArtifactName(scriptName, sizeof(scriptName), frame, ".cmd");
     char scriptPath[PATH_MAX];
     if (!debugger_platform_pathJoin(scriptPath, sizeof(scriptPath), ui_test_folder, scriptName)) {
         return 0;
@@ -1000,8 +1106,8 @@ ui_test_getReferencePathForFailure(uint64_t frame,
         return 1;
     }
 
-    char name[128];
-    ui_test_formatMismatchName(name, sizeof(name), frame, "-ref.png");
+    char name[256];
+    ui_test_formatArtifactName(name, sizeof(name), frame, "-ref.png");
     char path[PATH_MAX];
     if (!debugger_platform_pathJoin(path, sizeof(path), ui_test_folder, name)) {
         return 0;
@@ -1064,6 +1170,7 @@ ui_test_compareFrame(uint64_t frame, const uint8_t *data, int width, int height,
         if (refPath[0] && diffPath[0]) {
             (void)ui_test_writeDiffScript(frame, refPath, diffPath, montagePath, sizeof(montagePath));
         }
+        ui_test_openFailureImage(montagePath, diffPath);
         debug_error("ui-test: mismatch at frame #%llu (%s)",
                     (unsigned long long)frame,
                     montagePath[0] ? montagePath : (diffPath[0] ? diffPath : "diff unavailable"));
@@ -1088,6 +1195,7 @@ ui_test_compareFrame(uint64_t frame, const uint8_t *data, int width, int height,
         montagePath[0] = '\0';
         (void)ui_test_writeMismatchImage(frame, data, width, height, pitch, diffPath, sizeof(diffPath));
         (void)ui_test_writeDiffScript(frame, framePngPath, diffPath, montagePath, sizeof(montagePath));
+        ui_test_openFailureImage(montagePath, diffPath);
         debug_error("ui-test: SDL_ConvertSurfaceFormat failed: %s (%s)", SDL_GetError(),
                     montagePath[0] ? montagePath : (diffPath[0] ? diffPath : "diff unavailable"));
         return 1;
@@ -1100,6 +1208,7 @@ ui_test_compareFrame(uint64_t frame, const uint8_t *data, int width, int height,
             montagePath[0] = '\0';
             (void)ui_test_writeMismatchImage(frame, data, width, height, pitch, diffPath, sizeof(diffPath));
             (void)ui_test_writeDiffScript(frame, framePngPath, diffPath, montagePath, sizeof(montagePath));
+            ui_test_openFailureImage(montagePath, diffPath);
             debug_error("ui-test: SDL_LockSurface failed: %s (%s)", SDL_GetError(),
                         montagePath[0] ? montagePath : (diffPath[0] ? diffPath : "diff unavailable"));
             SDL_FreeSurface(converted);
@@ -1123,6 +1232,7 @@ ui_test_compareFrame(uint64_t frame, const uint8_t *data, int width, int height,
         montagePath[0] = '\0';
         (void)ui_test_writeMismatchImage(frame, data, width, height, pitch, diffPath, sizeof(diffPath));
         (void)ui_test_writeDiffScript(frame, framePngPath, diffPath, montagePath, sizeof(montagePath));
+        ui_test_openFailureImage(montagePath, diffPath);
         debug_error("ui-test: mismatch at frame #%llu (%s)",
                     (unsigned long long)frame,
                     montagePath[0] ? montagePath : (diffPath[0] ? diffPath : "diff unavailable"));

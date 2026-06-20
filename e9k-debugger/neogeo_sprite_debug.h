@@ -22,6 +22,9 @@ void
 neogeo_sprite_debug_render(const e9k_debug_sprite_state_t *st);
 
 void
+neogeo_sprite_debug_setSelection(int spriteIndex, int chainRootIndex, int highlightChain);
+
+void
 neogeo_sprite_debug_persistConfig(FILE *file);
 
 int

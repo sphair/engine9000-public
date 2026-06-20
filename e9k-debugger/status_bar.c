@@ -69,7 +69,7 @@ status_bar_render(e9ui_component_t *self, e9ui_context_t *ctx)
     SDL_RenderFillRect(ctx->renderer, &r);
 
     const char *stateLabel = machine_getRunning(debugger.machine) ? "RUNNING" : "STOPPED";
-    char label[192];
+    char label[512];
     status_bar_state_t *st = (status_bar_state_t*)self->state;
     if (st) {
         uint32_t now = SDL_GetTicks();
@@ -119,9 +119,13 @@ status_bar_render(e9ui_component_t *self, e9ui_context_t *ctx)
     const char *glLabel = gl_composite_isActive() ? " OPENGL" : "";
     char fpsLabel[32] = "";
     const char *fpsText = "";
+    char targetStatus[256] = "";
     snprintf(fpsLabel, sizeof(fpsLabel), " FPS:%d/%d", fps, core_fps);
     fpsText = fpsLabel;    
-    snprintf(label, sizeof(label), " %s FRAME:%llu%s%s CYCLES:%llu%s%s %s",
+    if (target && target->formatStatusBar) {
+        target->formatStatusBar(targetStatus, sizeof(targetStatus));
+    }
+    snprintf(label, sizeof(label), " %s FRAME:%llu%s%s CYCLES:%llu%s%s %s%s",
              stateLabel,
              (unsigned long long)frame,
              record,
@@ -129,7 +133,8 @@ status_bar_render(e9ui_component_t *self, e9ui_context_t *ctx)
              (unsigned long long)cycles,
              profile,
              glLabel,
-	     target->name
+	     target->name,
+             targetStatus
 	     );
     TTF_Font *font = ctx->font;
     if (font) {

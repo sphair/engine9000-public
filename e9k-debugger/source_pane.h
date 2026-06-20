@@ -46,5 +46,8 @@ source_pane_centerOnAddress(e9ui_component_t *comp, e9ui_context_t *ctx, uint32_
 void
 source_pane_submitAddress(e9ui_component_t *comp, e9ui_context_t *ctx, uint32_t addr);
 
+void
+source_pane_openSourceLocation(e9ui_component_t *comp, e9ui_context_t *ctx, const char *file, int line);
+
 int
 source_pane_getCurrentFile(e9ui_component_t *comp, char *out, size_t cap);

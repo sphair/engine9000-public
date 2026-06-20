@@ -7,6 +7,7 @@
  */
 
 #include "hex_byte_color.h"
+#include "e9ui.h"
 
 static int hex_byte_color_enabled = 1;
 
@@ -129,7 +130,10 @@ hex_byte_color_getAtlas(SDL_Renderer *renderer, TTF_Font *font)
     int cellW = 0;
     int cellH = 0;
 
-    if (!renderer || !font) {
+    if (!renderer || !font ||
+        !e9ui ||
+        e9ui->ctx.renderer != renderer ||
+        !e9ui_context_supportsTargetTexture(&e9ui->ctx)) {
         return NULL;
     }
     if (hex_byte_color_atlas.texture &&
@@ -158,7 +162,11 @@ hex_byte_color_getAtlas(SDL_Renderer *renderer, TTF_Font *font)
     SDL_Texture *oldTarget = SDL_GetRenderTarget(renderer);
     SDL_BlendMode oldBlend = SDL_BLENDMODE_BLEND;
     SDL_GetRenderDrawBlendMode(renderer, &oldBlend);
-    SDL_SetRenderTarget(renderer, atlas);
+    if (SDL_SetRenderTarget(renderer, atlas) != 0) {
+        SDL_SetRenderDrawBlendMode(renderer, oldBlend);
+        SDL_DestroyTexture(atlas);
+        return NULL;
+    }
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
     SDL_RenderClear(renderer);

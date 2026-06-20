@@ -102,6 +102,11 @@ struct neogeo_register_log_state {
     e9k_debug_geo_register_log_entry_t *entries;
     size_t entryCount;
     size_t entryCap;
+    uint32_t *filteredIndexes;
+    size_t filteredIndexCount;
+    size_t filteredIndexCap;
+    int filterCacheDirty;
+    int filtersActive;
     uint32_t dropped;
     uint64_t frameNo;
     uint64_t framesCaptured;
@@ -145,6 +150,15 @@ neogeo_register_log_overlayBodyDtor(e9ui_component_t *self, e9ui_context_t *ctx)
 static int
 neogeo_register_log_entryMatchesFilters(const neogeo_register_log_state_t *ui, const e9k_debug_geo_register_log_entry_t *entry);
 
+static int
+neogeo_register_log_filteredCount(neogeo_register_log_state_t *ui);
+
+static void
+neogeo_register_log_invalidateFilterCache(neogeo_register_log_state_t *ui);
+
+static int
+neogeo_register_log_rebuildFilterCache(neogeo_register_log_state_t *ui);
+
 static void
 neogeo_register_log_onFrame(const e9k_debug_geo_register_log_entry_t *entries,
                             size_t count,
@@ -160,6 +174,9 @@ neogeo_register_log_normalizeAddress(uint32_t addr);
 
 static int
 neogeo_register_log_ensureRowHitCapacity(neogeo_register_log_state_t *ui, size_t needed);
+
+static int
+neogeo_register_log_ensureFilteredIndexCapacity(neogeo_register_log_state_t *ui, size_t needed);
 
 static int
 neogeo_register_log_findAddressHit(const neogeo_register_log_state_t *ui, int x, int y, neogeo_register_log_row_hit_t *outHit);
@@ -283,26 +300,24 @@ neogeo_register_log_hasActiveFilters(const neogeo_register_log_state_t *ui)
 }
 
 static int
-neogeo_register_log_filteredCount(const neogeo_register_log_state_t *ui)
+neogeo_register_log_filteredCount(neogeo_register_log_state_t *ui)
 {
     if (!ui || ui->entryCount == 0) {
         return 0;
     }
-    if (!neogeo_register_log_hasActiveFilters(ui)) {
+    if (!neogeo_register_log_rebuildFilterCache(ui)) {
+        return 0;
+    }
+    if (!ui->filtersActive) {
         if (ui->entryCount > (size_t)INT_MAX) {
             return INT_MAX;
         }
         return (int)ui->entryCount;
     }
-    int count = 0;
-    for (size_t i = 0; i < ui->entryCount; ++i) {
-        if (neogeo_register_log_entryMatchesFilters(ui, &ui->entries[i])) {
-            if (count < INT_MAX) {
-                count++;
-            }
-        }
+    if (ui->filteredIndexCount > (size_t)INT_MAX) {
+        return INT_MAX;
     }
-    return count;
+    return (int)ui->filteredIndexCount;
 }
 
 static const char *
@@ -358,7 +373,10 @@ neogeo_register_log_filterTextboxChanged(e9ui_context_t *ctx, void *user)
     if (!text) {
         text = "";
     }
-    snprintf(cb->ui->filters[cb->filterIndex], NEOGEO_REGISTER_LOG_FILTER_TEXT_MAX, "%s", text);
+    if (strncmp(cb->ui->filters[cb->filterIndex], text, NEOGEO_REGISTER_LOG_FILTER_TEXT_MAX) != 0) {
+        snprintf(cb->ui->filters[cb->filterIndex], NEOGEO_REGISTER_LOG_FILTER_TEXT_MAX, "%s", text);
+        neogeo_register_log_invalidateFilterCache(cb->ui);
+    }
 }
 
 static void
@@ -534,45 +552,51 @@ neogeo_register_log_canvasRender(e9ui_component_t *self, e9ui_context_t *ctx)
         return;
     }
 
-    SDL_SetRenderDrawColor(ctx->renderer, 12, 12, 12, 255);
-    SDL_Rect bgRect = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
-    SDL_RenderFillRect(ctx->renderer, &bgRect);
+    SDL_Rect viewRect = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
+    if (SDL_RenderIsClipEnabled(ctx->renderer)) {
+        SDL_Rect clipRect;
+        SDL_RenderGetClipRect(ctx->renderer, &clipRect);
+        if (!SDL_IntersectRect(&viewRect, &clipRect, &viewRect)) {
+            return;
+        }
+    }
 
-    int scrollY = 0;
-    if (ui->listScroll) {
-        e9ui_scroll_getScrollPx(ui->listScroll, NULL, &scrollY);
-    }
+    SDL_SetRenderDrawColor(ctx->renderer, 12, 12, 12, 255);
+    SDL_RenderFillRect(ctx->renderer, &viewRect);
+
     int topFilteredRow = 0;
-    if (layout.lineHeight > 0 && scrollY > 0) {
-        topFilteredRow = scrollY / layout.lineHeight;
+    if (layout.lineHeight > 0 && viewRect.y > self->bounds.y) {
+        topFilteredRow = (viewRect.y - self->bounds.y) / layout.lineHeight;
     }
-    int visibleRows = self->bounds.h / layout.lineHeight + 2;
+    int visibleRows = viewRect.h / layout.lineHeight + 2;
     if (visibleRows < 1) {
         visibleRows = 1;
+    }
+    if (!neogeo_register_log_rebuildFilterCache(ui)) {
+        return;
     }
 
     ui->rowHitCount = 0;
     (void)neogeo_register_log_ensureRowHitCapacity(ui, (size_t)visibleRows);
 
     SDL_Color rowColor = { 220, 220, 224, 255 };
-    int filteredIndex = 0;
     int drawnRows = 0;
-    for (size_t entryIndex = 0; entryIndex < ui->entryCount; ++entryIndex) {
-        const e9k_debug_geo_register_log_entry_t *entry = &ui->entries[entryIndex];
-        if (!neogeo_register_log_entryMatchesFilters(ui, entry)) {
-            continue;
-        }
-        if (filteredIndex < topFilteredRow) {
-            filteredIndex++;
-            continue;
-        }
-
-        int y = self->bounds.y + filteredIndex * layout.lineHeight;
-        if (y >= self->bounds.y + self->bounds.h) {
+    size_t filteredCount = ui->filtersActive ? ui->filteredIndexCount : ui->entryCount;
+    if (topFilteredRow < 0) {
+        topFilteredRow = 0;
+    }
+    for (size_t filteredIndex = (size_t)topFilteredRow; filteredIndex < filteredCount; ++filteredIndex) {
+        size_t entryIndex = ui->filtersActive ? (size_t)ui->filteredIndexes[filteredIndex] : filteredIndex;
+        if (entryIndex >= ui->entryCount) {
             break;
         }
-        if (y + layout.lineHeight <= self->bounds.y) {
-            filteredIndex++;
+        const e9k_debug_geo_register_log_entry_t *entry = &ui->entries[entryIndex];
+
+        int y = self->bounds.y + (int)filteredIndex * layout.lineHeight;
+        if (y >= viewRect.y + viewRect.h) {
+            break;
+        }
+        if (y + layout.lineHeight <= viewRect.y) {
             continue;
         }
 
@@ -643,7 +667,6 @@ neogeo_register_log_canvasRender(e9ui_component_t *self, e9ui_context_t *ctx)
             hit->sourceKind = entry->sourceKind;
         }
 
-        filteredIndex++;
         drawnRows++;
         if (drawnRows >= visibleRows) {
             break;
@@ -761,6 +784,74 @@ neogeo_register_log_normalizeAddress(uint32_t addr)
     return addr & 0x00ffffffu;
 }
 
+static void
+neogeo_register_log_invalidateFilterCache(neogeo_register_log_state_t *ui)
+{
+    if (!ui) {
+        return;
+    }
+    ui->filterCacheDirty = 1;
+}
+
+static int
+neogeo_register_log_ensureFilteredIndexCapacity(neogeo_register_log_state_t *ui, size_t needed)
+{
+    if (!ui) {
+        return 0;
+    }
+    if (needed <= ui->filteredIndexCap) {
+        return 1;
+    }
+    size_t nextCap = ui->filteredIndexCap ? ui->filteredIndexCap : 256u;
+    while (nextCap < needed) {
+        if (nextCap > (SIZE_MAX / 2u)) {
+            nextCap = needed;
+            break;
+        }
+        nextCap *= 2u;
+    }
+    uint32_t *next = (uint32_t *)alloc_realloc(ui->filteredIndexes, nextCap * sizeof(*next));
+    if (!next) {
+        ui->allocFailures++;
+        return 0;
+    }
+    ui->filteredIndexes = next;
+    ui->filteredIndexCap = nextCap;
+    return 1;
+}
+
+static int
+neogeo_register_log_rebuildFilterCache(neogeo_register_log_state_t *ui)
+{
+    if (!ui) {
+        return 0;
+    }
+    if (!ui->filterCacheDirty) {
+        return 1;
+    }
+
+    ui->filtersActive = neogeo_register_log_hasActiveFilters(ui);
+    ui->filteredIndexCount = 0;
+    if (!ui->filtersActive) {
+        ui->filterCacheDirty = 0;
+        return 1;
+    }
+    if (ui->entryCount > (size_t)UINT32_MAX) {
+        ui->allocFailures++;
+        return 0;
+    }
+    if (!neogeo_register_log_ensureFilteredIndexCapacity(ui, ui->entryCount)) {
+        return 0;
+    }
+    for (size_t i = 0; i < ui->entryCount; ++i) {
+        if (neogeo_register_log_entryMatchesFilters(ui, &ui->entries[i])) {
+            ui->filteredIndexes[ui->filteredIndexCount++] = (uint32_t)i;
+        }
+    }
+    ui->filterCacheDirty = 0;
+    return 1;
+}
+
 static int
 neogeo_register_log_entryMatchesFilters(const neogeo_register_log_state_t *ui, const e9k_debug_geo_register_log_entry_t *entry)
 {
@@ -768,39 +859,51 @@ neogeo_register_log_entryMatchesFilters(const neogeo_register_log_state_t *ui, c
         return 0;
     }
 
-    const char *name = neogeo_register_log_regs_nameForReg(entry->reg, entry->sourceKind);
-    const char *desc = neogeo_register_log_regs_descriptionForReg(entry->reg, entry->sourceKind);
-    const char *src = neogeo_register_log_regs_sourceLabel(entry->sourceKind);
-    if (!name) {
-        name = "";
-    }
-    if (!desc) {
-        desc = "";
-    }
     char lineBuf[16];
     char addrBuf[16];
     char valueBuf[16];
-    snprintf(lineBuf, sizeof(lineBuf), "%03u", (unsigned)entry->line);
-    snprintf(addrBuf, sizeof(addrBuf), "%06x", (unsigned)neogeo_register_log_normalizeAddress(entry->sourceAddr));
-    snprintf(valueBuf, sizeof(valueBuf), "%04x", (unsigned)(entry->value & 0xffffu));
 
-    if (!neogeo_register_log_containsInsensitive(lineBuf, ui->filters[neogeo_register_log_filter_line])) {
-        return 0;
+    if (ui->filters[neogeo_register_log_filter_line][0] != '\0') {
+        snprintf(lineBuf, sizeof(lineBuf), "%03u", (unsigned)entry->line);
+        if (!neogeo_register_log_containsInsensitive(lineBuf, ui->filters[neogeo_register_log_filter_line])) {
+            return 0;
+        }
     }
-    if (!neogeo_register_log_containsInsensitive(name, ui->filters[neogeo_register_log_filter_name])) {
-        return 0;
+    if (ui->filters[neogeo_register_log_filter_name][0] != '\0') {
+        const char *name = neogeo_register_log_regs_nameForReg(entry->reg, entry->sourceKind);
+        if (!name) {
+            name = "";
+        }
+        if (!neogeo_register_log_containsInsensitive(name, ui->filters[neogeo_register_log_filter_name])) {
+            return 0;
+        }
     }
-    if (!neogeo_register_log_containsInsensitive(src, ui->filters[neogeo_register_log_filter_src])) {
-        return 0;
+    if (ui->filters[neogeo_register_log_filter_src][0] != '\0') {
+        const char *src = neogeo_register_log_regs_sourceLabel(entry->sourceKind);
+        if (!neogeo_register_log_containsInsensitive(src, ui->filters[neogeo_register_log_filter_src])) {
+            return 0;
+        }
     }
-    if (!neogeo_register_log_containsInsensitive(addrBuf, ui->filters[neogeo_register_log_filter_addr])) {
-        return 0;
+    if (ui->filters[neogeo_register_log_filter_addr][0] != '\0') {
+        snprintf(addrBuf, sizeof(addrBuf), "%06x", (unsigned)neogeo_register_log_normalizeAddress(entry->sourceAddr));
+        if (!neogeo_register_log_containsInsensitive(addrBuf, ui->filters[neogeo_register_log_filter_addr])) {
+            return 0;
+        }
     }
-    if (!neogeo_register_log_containsInsensitive(valueBuf, ui->filters[neogeo_register_log_filter_value])) {
-        return 0;
+    if (ui->filters[neogeo_register_log_filter_value][0] != '\0') {
+        snprintf(valueBuf, sizeof(valueBuf), "%04x", (unsigned)(entry->value & 0xffffu));
+        if (!neogeo_register_log_containsInsensitive(valueBuf, ui->filters[neogeo_register_log_filter_value])) {
+            return 0;
+        }
     }
-    if (!neogeo_register_log_containsInsensitive(desc, ui->filters[neogeo_register_log_filter_desc])) {
-        return 0;
+    if (ui->filters[neogeo_register_log_filter_desc][0] != '\0') {
+        const char *desc = neogeo_register_log_regs_descriptionForReg(entry->reg, entry->sourceKind);
+        if (!desc) {
+            desc = "";
+        }
+        if (!neogeo_register_log_containsInsensitive(desc, ui->filters[neogeo_register_log_filter_desc])) {
+            return 0;
+        }
     }
     return 1;
 }
@@ -1118,6 +1221,7 @@ neogeo_register_log_clearEntries(neogeo_register_log_state_t *ui)
         return;
     }
     ui->entryCount = 0;
+    neogeo_register_log_invalidateFilterCache(ui);
     if (ui->listScroll) {
         e9ui_scroll_setScrollPx(ui->listScroll, 0, 0);
     }
@@ -1230,11 +1334,19 @@ neogeo_register_log_shutdown(void)
         free(ui->rowHits);
         ui->rowHits = NULL;
     }
+    if (ui->filteredIndexes) {
+        alloc_free(ui->filteredIndexes);
+        ui->filteredIndexes = NULL;
+    }
 
     ui->windowState.open = 0;
     ui->callbackBound = 0;
     ui->entryCount = 0;
     ui->entryCap = 0;
+    ui->filteredIndexCount = 0;
+    ui->filteredIndexCap = 0;
+    ui->filterCacheDirty = 1;
+    ui->filtersActive = 0;
     ui->rowHitCount = 0;
     ui->rowHitCap = 0;
     ui->dropped = 0;
@@ -1489,6 +1601,7 @@ neogeo_register_log_captureFrame(const e9k_debug_geo_register_log_entry_t *entri
         }
         memcpy(ui->entries, entries, count * sizeof(*entries));
         ui->entryCount = count;
+        neogeo_register_log_invalidateFilterCache(ui);
         return;
     }
 
@@ -1519,4 +1632,5 @@ neogeo_register_log_captureFrame(const e9k_debug_geo_register_log_entry_t *entri
 
     memcpy(ui->entries + ui->entryCount, entries, count * sizeof(*entries));
     ui->entryCount = nextCount;
+    neogeo_register_log_invalidateFilterCache(ui);
 }

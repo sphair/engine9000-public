@@ -5936,7 +5936,7 @@ static void m68k_run_mmu040 (void)
 				mmu_restart = true;
 				regs.instruction_pc = m68k_getpc ();
 
-				do_cycles (cpu_cycles);
+				x_do_cycles(cpu_cycles);
 
 				mmu_opcode = -1;
 				mmu_opcode = regs.opcode = x_prefetch (0);

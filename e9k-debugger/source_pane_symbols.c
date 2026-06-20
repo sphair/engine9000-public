@@ -1251,11 +1251,9 @@ source_pane_symbols_refreshAsmSymbols(e9ui_component_t *comp, source_pane_state_
     (void)source_pane_symbols_collectAsmSymbols(st, elf);
     st->asmSymbolsLoaded = 1;
     st->asmSymbolsTextMapRevision = textMapRevision;
-    strncpy(st->asmSymbolsElf, elf, sizeof(st->asmSymbolsElf) - 1);
-    st->asmSymbolsElf[sizeof(st->asmSymbolsElf) - 1] = '\0';
+    strutil_strlcpy(st->asmSymbolsElf, sizeof(st->asmSymbolsElf), elf);
     if (toolchain && toolchain[0]) {
-        strncpy(st->asmSymbolsToolchain, toolchain, sizeof(st->asmSymbolsToolchain) - 1);
-        st->asmSymbolsToolchain[sizeof(st->asmSymbolsToolchain) - 1] = '\0';
+        strutil_strlcpy(st->asmSymbolsToolchain, sizeof(st->asmSymbolsToolchain), toolchain);
     } else {
         st->asmSymbolsToolchain[0] = '\0';
     }
@@ -1805,17 +1803,14 @@ source_pane_symbols_refreshSourceFunctions(e9ui_component_t *comp, source_pane_s
         }
     }
     st->sourceFunctionsLoaded = 1;
-    strncpy(st->sourceFunctionsElf, elf, sizeof(st->sourceFunctionsElf) - 1);
-    st->sourceFunctionsElf[sizeof(st->sourceFunctionsElf) - 1] = '\0';
+    strutil_strlcpy(st->sourceFunctionsElf, sizeof(st->sourceFunctionsElf), elf);
     if (toolchain) {
-        strncpy(st->sourceFunctionsToolchain, toolchain, sizeof(st->sourceFunctionsToolchain) - 1);
-        st->sourceFunctionsToolchain[sizeof(st->sourceFunctionsToolchain) - 1] = '\0';
+        strutil_strlcpy(st->sourceFunctionsToolchain, sizeof(st->sourceFunctionsToolchain), toolchain);
     } else {
         st->sourceFunctionsToolchain[0] = '\0';
     }
     if (resolvedSourceFile[0]) {
-        strncpy(st->sourceFunctionsFile, resolvedSourceFile, sizeof(st->sourceFunctionsFile) - 1);
-        st->sourceFunctionsFile[sizeof(st->sourceFunctionsFile) - 1] = '\0';
+        strutil_strlcpy(st->sourceFunctionsFile, sizeof(st->sourceFunctionsFile), resolvedSourceFile);
     } else {
         st->sourceFunctionsFile[0] = '\0';
     }
@@ -1880,11 +1875,9 @@ source_pane_symbols_refreshSourceFiles(e9ui_component_t *comp, source_pane_state
     }
     source_pane_symbols_prependBlankSourceOption(st);
     st->sourceFilesLoaded = 1;
-    strncpy(st->sourceFilesElf, elf, sizeof(st->sourceFilesElf) - 1);
-    st->sourceFilesElf[sizeof(st->sourceFilesElf) - 1] = '\0';
+    strutil_strlcpy(st->sourceFilesElf, sizeof(st->sourceFilesElf), elf);
     if (toolchain) {
-        strncpy(st->sourceFilesToolchain, toolchain, sizeof(st->sourceFilesToolchain) - 1);
-        st->sourceFilesToolchain[sizeof(st->sourceFilesToolchain) - 1] = '\0';
+        strutil_strlcpy(st->sourceFilesToolchain, sizeof(st->sourceFilesToolchain), toolchain);
     } else {
         st->sourceFilesToolchain[0] = '\0';
     }

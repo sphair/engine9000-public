@@ -28,6 +28,10 @@
 #ifdef RETROPLATFORM
 #include "rp.h"
 #endif
+#if defined(__LIBRETRO__) && E9K_HACK_DEBUGGER_HOST
+#include "e9k_debug.h"
+extern int libretro_serial_console;
+#endif
 
 #include "parser.h"
 
@@ -616,6 +620,12 @@ static void checksend(void)
 		rp_writemodem((uae_u8)serdatshift_masked);
 	}
 #endif
+#if defined(__LIBRETRO__) && E9K_HACK_DEBUGGER_HOST
+	if (libretro_serial_console) {
+		e9k_debug_text_write((uae_u8)serdatshift_masked);
+		goto serialSent;
+	}
+#endif
 	if (serempty_enabled && !serxdevice_enabled) {
 		return;
 	}
@@ -654,6 +664,9 @@ static void checksend(void)
 		writeser(serdatshift_masked);
 		serial_send_previous = serdatshift_masked;
 	}
+#endif
+#if defined(__LIBRETRO__) && E9K_HACK_DEBUGGER_HOST
+serialSent:
 #endif
 	if (serial_period_hsyncs <= 1 || data_in_sershift == 2) {
 		data_in_sershift = 0;

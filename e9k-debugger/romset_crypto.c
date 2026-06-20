@@ -7,7 +7,7 @@
  */
 
 /*
- * Neo Geo CMC50 and PCM2 ROM decryption helpers.
+ * Neo Geo CMC42, CMC50, PCM2, and SMA ROM decryption helpers.
  *
  * This file contains C99 adaptations of MAME's Neo Geo protection helpers:
  *   src/devices/bus/neogeo/prot_cmc.cpp
@@ -28,6 +28,7 @@
 #define ROMSET_NGH264_CMC50_GFX_KEY 0x3f
 #define ROMSET_NGH256_CMC42_GFX_KEY 0xad
 #define ROMSET_NGH253_CMC42_GFX_KEY 0x06
+#define ROMSET_NGH261_CMC42_GFX_KEY 0xfe
 
 static const uint8_t romset_crypto_cmc42Type0T03[256] =
 {
@@ -846,6 +847,19 @@ romset_crypto_applyNgh256SmaCmc42(uint8_t *prom,
         return 0;
     }
     if (!romset_crypto_cmc42GfxDecrypt(crom, cromSize, ROMSET_NGH256_CMC42_GFX_KEY)) {
+        return 0;
+    }
+    romset_crypto_sfixDecrypt(crom, cromSize, srom, sromSize);
+    return 1;
+}
+
+int
+romset_crypto_applyNgh261Cmc42(uint8_t *crom,
+                               size_t cromSize,
+                               uint8_t *srom,
+                               size_t sromSize)
+{
+    if (!romset_crypto_cmc42GfxDecrypt(crom, cromSize, ROMSET_NGH261_CMC42_GFX_KEY)) {
         return 0;
     }
     romset_crypto_sfixDecrypt(crom, cromSize, srom, sromSize);

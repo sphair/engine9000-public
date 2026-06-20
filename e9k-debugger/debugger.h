@@ -199,6 +199,12 @@ int
 debugger_platform_pathJoin(char *out, size_t cap, const char *dir, const char *name);
 
 int
+debugger_platform_pathIsAbsolute(const char *path);
+
+int
+debugger_platform_expandHomePath(char *out, size_t cap, const char *path);
+
+int
 debugger_platform_scanFolder(const char *folder, int (*cb)(const char *path, void *user), void *user);
 
 int
@@ -206,6 +212,9 @@ debugger_platform_caseInsensitivePaths(void);
 
 char
 debugger_platform_preferredPathSeparator(void);
+
+void
+debugger_platform_normalizePathSeparators(char *path);
 
 int
 debugger_platform_getExeDir(char *out, size_t cap);

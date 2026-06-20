@@ -981,10 +981,12 @@ neogeo_audio_vis_buildSpectrumStaticTexture(SDL_Renderer *renderer, int w, int h
 }
 
 static int
-neogeo_audio_vis_ensureSpectrumStaticTexture(SDL_Renderer *renderer, int w, int h)
+neogeo_audio_vis_ensureSpectrumStaticTexture(e9ui_context_t *ctx, int w, int h)
 {
+    SDL_Renderer *renderer = ctx ? ctx->renderer : NULL;
     SDL_Texture *prevTarget;
-    if (!renderer || w <= 0 || h <= 0) {
+    SDL_BlendMode prevBlend = SDL_BLENDMODE_BLEND;
+    if (!renderer || !e9ui_context_supportsTargetTexture(ctx) || w <= 0 || h <= 0) {
         return 0;
     }
 
@@ -1010,8 +1012,10 @@ neogeo_audio_vis_ensureSpectrumStaticTexture(SDL_Renderer *renderer, int w, int 
         neogeo_audio_vis_state.spectrumStaticTextureH = h;
 
         prevTarget = SDL_GetRenderTarget(renderer);
+        SDL_GetRenderDrawBlendMode(renderer, &prevBlend);
         if (SDL_SetRenderTarget(renderer, neogeo_audio_vis_state.spectrumStaticTexture) != 0) {
             SDL_SetRenderTarget(renderer, prevTarget);
+            SDL_SetRenderDrawBlendMode(renderer, prevBlend);
             neogeo_audio_vis_destroySpectrumStaticTexture();
             return 0;
         }
@@ -1021,6 +1025,7 @@ neogeo_audio_vis_ensureSpectrumStaticTexture(SDL_Renderer *renderer, int w, int 
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         neogeo_audio_vis_buildSpectrumStaticTexture(renderer, w, h);
         SDL_SetRenderTarget(renderer, prevTarget);
+        SDL_SetRenderDrawBlendMode(renderer, prevBlend);
     }
 
     return 1;
@@ -1260,7 +1265,7 @@ neogeo_audio_vis_drawSpectrum(e9ui_context_t *ctx, TTF_Font *font, int x, int y,
                                      "EQ",
                                      e9ui->theme.button.text);
 
-    if (neogeo_audio_vis_ensureSpectrumStaticTexture(ctx->renderer, meterW, h)) {
+    if (neogeo_audio_vis_ensureSpectrumStaticTexture(ctx, meterW, h)) {
         SDL_Rect dst = { meterX, y, meterW, h };
         SDL_RenderCopy(ctx->renderer, neogeo_audio_vis_state.spectrumStaticTexture, NULL, &dst);
 

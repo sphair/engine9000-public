@@ -711,6 +711,10 @@ endif
 
 CFLAGS += $(FLAGS)
 
+ifeq (,$(findstring msvc,$(platform)))
+CFLAGS += -MMD -MP
+endif
+
 ifneq (,$(findstring msvc,$(platform)))
 	OBJOUT = -Fo
 	LINKOUT = -out:
@@ -739,6 +743,11 @@ else
 all: $(TARGET)
 	@mkdir -p ../../e9k-debugger/system
 	cp $(TARGET) ../../e9k-debugger/system/geo9000$(suffix $(TARGET))
+
+ifeq (,$(findstring msvc,$(platform)))
+-include $(OBJECTS:.o=.d)
+endif
+
 $(TARGET): $(OBJECTS)
 	@mkdir -p $(dir $@)
 ifeq ($(STATIC_LINKING), 1)

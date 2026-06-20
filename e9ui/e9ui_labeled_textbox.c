@@ -108,7 +108,7 @@ e9ui_labeled_textbox_layout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_re
 static void
 e9ui_labeled_textbox_render(e9ui_component_t *self, e9ui_context_t *ctx)
 {
-    if (!self || !ctx) {
+    if (!self) {
         return;
     }
     e9ui_labeled_textbox_state_t *st = (e9ui_labeled_textbox_state_t*)self->state;
@@ -230,6 +230,47 @@ e9ui_labeled_textbox_getText(const e9ui_component_t *comp)
         return NULL;
     }
     return e9ui_textbox_getText(st->textbox);
+}
+
+void
+e9ui_labeled_textbox_measure(e9ui_component_t *comp, e9ui_context_t *ctx, int *outW, int *outH)
+{
+    if (outW) {
+        *outW = 0;
+    }
+    if (outH) {
+        *outH = 0;
+    }
+    if (!comp || !comp->state || !ctx) {
+        return;
+    }
+    e9ui_labeled_textbox_state_t *st = (e9ui_labeled_textbox_state_t*)comp->state;
+    int labelW = st->labelWidth_px > 0 ? e9ui_scale_px(ctx, st->labelWidth_px) : 0;
+    int gap = e9ui_scale_px(ctx, 8);
+    int totalW = st->totalWidth_px > 0 ? e9ui_scale_px(ctx, st->totalWidth_px) : 100;
+    if (labelW == 0 && st->label && *st->label) {
+        TTF_Font *font = e9ui->theme.text.prompt ? e9ui->theme.text.prompt : ctx->font;
+        if (font) {
+            int textW = 0;
+            TTF_SizeText(font, st->label, &textW, NULL);
+            labelW = textW + gap;
+        }
+    }
+
+    int textboxW = totalW - labelW - gap;
+    if (textboxW < 0) {
+        textboxW = 0;
+    }
+    int textboxH = 0;
+    if (st->textbox && st->textbox->preferredHeight) {
+        textboxH = st->textbox->preferredHeight(st->textbox, ctx, textboxW);
+    }
+    if (outW) {
+        *outW = totalW;
+    }
+    if (outH) {
+        *outH = textboxH;
+    }
 }
 
 void

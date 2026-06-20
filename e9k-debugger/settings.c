@@ -20,12 +20,14 @@
 #include "core_options.h"
 #include "debugger.h"
 #include "config.h"
+#include "cli.h"
 #include "hotkeys.h"
 #include "list.h"
 #include "system_badge.h"
 #include "rom_config.h"
 #include "e9ui_flow.h"
 #include "e9ui_scroll.h"
+#include "strutil.h"
 
 #define SETTINGS_ROM_RECENTS_MAX 16
 
@@ -500,8 +502,7 @@ settings_config_setPath(char *dest, size_t capacity, const char *value)
         dest[0] = '\0';
         return;
     }
-    strncpy(dest, value, capacity - 1);
-    dest[capacity - 1] = '\0';
+    strutil_strlcpy(dest, capacity, value);
 }
 
 
@@ -754,6 +755,7 @@ settings_save(void)
     settings_applyToolbarMode();
     settings_romRecentsAddFromSettingsSave(selectedTarget);
     config_saveConfig();
+    cli_resetConfigOverrides();
     if (needsRestart) {
         debugger.restartRequested = 1;
     }

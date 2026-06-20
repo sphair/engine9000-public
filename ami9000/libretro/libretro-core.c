@@ -104,6 +104,9 @@ char opt_model_fd[10] = {0};
 char opt_model_hd[10] = {0};
 char opt_model_cd[10] = {0};
 char opt_kickstart[64] = {0};
+#if E9K_HACK_DEBUGGER_HOST
+int libretro_serial_console = 0;
+#endif
 
 struct preset_options
 {
@@ -977,6 +980,22 @@ static void retro_set_core_options()
          },
          "auto"
       },
+#if E9K_HACK_DEBUGGER_HOST
+      {
+         "puae_serial",
+         "System > Serial",
+         "Serial",
+         "Route Amiga serial output.",
+         NULL,
+         "system",
+         {
+            { "none", "None" },
+            { "console", "Console" },
+            { NULL, NULL },
+         },
+         "none"
+      },
+#endif
       {
          "puae_chipmem_size",
          "System > Chip RAM",
@@ -3475,6 +3494,9 @@ static void update_variables(void)
 
    uae_model_config[0] = '\0';
    uae_config[0]       = '\0';
+#if E9K_HACK_DEBUGGER_HOST
+   libretro_serial_console = 0;
+#endif
 #if E9K_HACK_LIBRETRO_WINUAE_WINDOW_POSITIONING
    opt_video_winuae_window_positioning = false;
 #endif
@@ -3528,6 +3550,13 @@ static void update_variables(void)
             strcpy(changed_prefs.romfile, uae_kickstart);
       }
    }
+
+#if E9K_HACK_DEBUGGER_HOST
+   GET_VAR("serial")
+   {
+      libretro_serial_console = !strcmp(var.value, "console");
+   }
+#endif
 
    GET_VAR("cart_file")
    {

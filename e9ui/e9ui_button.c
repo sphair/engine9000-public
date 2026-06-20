@@ -455,7 +455,7 @@ e9ui_button_render(e9ui_component_t *self, e9ui_context_t *ctx)
     };
     int radius = theme->borderRadius > 0 ? theme->borderRadius : 6;
     int drew_cached = 0;
-    if (allow_cache && SDL_RenderTargetSupported(ctx->renderer)) {
+    if (allow_cache && e9ui_context_supportsTargetTexture(ctx)) {
         SDL_Rect cache_rect = { 0, 0, r.w, r.h };
         uint64_t key = e9ui_button_backgroundKey(&cache_rect, fillColor, hi, sh, ed, radius);
         if (!st->bgCache || st->bgCacheW != r.w || st->bgCacheH != r.h || st->bgCacheKey != key) {

@@ -21,7 +21,23 @@
 #include "libretro_host.h"
 #include "profile_list.h"
 #include "profile_view.h"
+#include "runtime.h"
 
+
+static e9ui_component_t *s_profile_metricButton = NULL;
+
+static void
+profile_metricButtonRefresh(void)
+{
+    if (!s_profile_metricButton) {
+        return;
+    }
+    if (profile_list_showSamples()) {
+        e9ui_button_setLabel(s_profile_metricButton, "Samples");
+    } else {
+        e9ui_button_setLabel(s_profile_metricButton, "Cycles");
+    }
+}
 
 static void
 profile_analyseRefresh(void)
@@ -99,31 +115,58 @@ profile_defaultJsonPath(char *out, size_t cap)
     return debugger_platform_makeTempFilePath(out, cap, "e9k-profile", ".json");
 }
 
+static void
+profile_drainStreamBudget(unsigned int maxMillis, size_t maxPackets)
+{
+    if (!debugger.libretro.enabled) {
+        return;
+    }
+    enum { kBufSize = 262144 };
+    static char buf[kBufSize];
+    size_t len = 0;
+    size_t packetCount = 0;
+    unsigned int startTicks = SDL_GetTicks();
+    while (libretro_host_profilerStreamNext(buf, sizeof(buf) - 1, &len) && len > 0) {
+        buf[len] = '\0';
+        profile_handleStreamLine(buf);
+        len = 0;
+        packetCount++;
+        if (maxPackets > 0 && packetCount >= maxPackets) {
+            break;
+        }
+        if (maxMillis > 0 && SDL_GetTicks() - startTicks >= maxMillis) {
+            break;
+        }
+    }
+}
 
 void
 profile_uiAnalyse(e9ui_context_t *ctx, void *user)
 {
     (void)ctx; (void)user;
     char jsonPath[PATH_MAX];
-    const char *envJson = getenv("E9K_PROFILE_JSON");
-    if (envJson && *envJson) {
-        strncpy(jsonPath, envJson, sizeof(jsonPath));
-    } else {
-        if (!profile_defaultJsonPath(jsonPath, sizeof(jsonPath))) {
-            debug_error("profile: unable to create temporary json output path");
-            return;
-        }
+    if (!profile_defaultJsonPath(jsonPath, sizeof(jsonPath))) {
+        debug_error("profile: unable to create temporary json output path");
+        return;
     }
     jsonPath[sizeof(jsonPath) - 1] = '\0';
     unsigned int start_ticks = SDL_GetTicks();
     debug_printf("Profile analysis started (output=%s)\n", jsonPath);
+    profile_drainStreamBudget(0, 0);
     if (!analyse_writeFinalJson(jsonPath)) {
         unsigned int elapsed = SDL_GetTicks() - start_ticks;
+        runtime_resetFrameTiming();
         debug_error("profile: analysis failed after %u ms; see earlier logs", elapsed);
         return;
     }
-    profile_viewer_run(jsonPath);
+    if (!profile_viewer_run(jsonPath)) {
+        unsigned int elapsed = SDL_GetTicks() - start_ticks;
+        runtime_resetFrameTiming();
+        debug_error("profile: viewer generation failed after %u ms; see earlier logs", elapsed);
+        return;
+    }
     unsigned int elapsed = SDL_GetTicks() - start_ticks;
+    runtime_resetFrameTiming();
     debug_printf("Profile analysis completed (%s) in %.3fs\n", jsonPath, elapsed / 1000.0f);
 }
 
@@ -176,6 +219,58 @@ profile_uiToggle(e9ui_context_t *ctx, void *user)
 }
 
 void
+profile_uiReset(e9ui_context_t *ctx, void *user)
+{
+    (void)ctx;
+    (void)user;
+
+    int wasEnabled = debugger.geo.profilerEnabled ? 1 : 0;
+    if (wasEnabled && debugger.libretro.enabled) {
+        if (!libretro_host_profilerStop()) {
+            debug_error("profile: failed to stop profiler for reset");
+            return;
+        }
+        profile_drainStreamBudget(0, 0);
+        profile_streamStop();
+        profile_updateEnabled(0);
+    }
+
+    if (!analyse_reset()) {
+        debug_error("profile: aggregator reset failed");
+        return;
+    }
+    debugger.geo.streamPacketCount = 0;
+    profile_list_notifyUpdate();
+    profile_analyseRefresh();
+
+    if (wasEnabled && debugger.libretro.enabled) {
+        if (!libretro_host_profilerStart(1)) {
+            debug_error("profile: failed to restart profiler after reset");
+            return;
+        }
+        profile_streamStart();
+        profile_updateEnabled(1);
+    }
+}
+
+void
+profile_uiMetricToggle(e9ui_context_t *ctx, void *user)
+{
+    (void)ctx;
+    (void)user;
+
+    profile_list_toggleMetricMode();
+    profile_metricButtonRefresh();
+}
+
+void
+profile_metricButtonRegister(e9ui_component_t *btn)
+{
+    s_profile_metricButton = btn;
+    profile_metricButtonRefresh();
+}
+
+void
 profile_startFromDebugWrite(void)
 {
     if (!debugger.profileStartOnWrite || !debugger.libretro.enabled || debugger.geo.profilerEnabled) {
@@ -193,15 +288,8 @@ profile_startFromDebugWrite(void)
 void
 profile_drainStream(void)
 {
-    if (!debugger.libretro.enabled) {
+    if (!debugger.geo.profilerEnabled) {
         return;
     }
-    enum { kBufSize = 262144 };
-    static char buf[kBufSize];
-    size_t len = 0;
-    while (libretro_host_profilerStreamNext(buf, sizeof(buf), &len) && len > 0) {
-        buf[len] = '\0';
-        profile_handleStreamLine(buf);
-        len = 0;
-    }
+    profile_drainStreamBudget(2, 8);
 }

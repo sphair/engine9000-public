@@ -239,6 +239,9 @@ int geo_neo_load(void *data, size_t size) {
             }
             break;
         }
+        case 0x261: { // Sengoku 3
+            break;
+        }
         case 0x257: { // KOF 2000
             geo_lspc_set_fix_banksw(FIX_BANKSW_TILE);
 

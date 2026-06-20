@@ -50,6 +50,8 @@ flow_measure_children(e9ui_component_t* self, e9ui_context_t *ctx)
       e9ui_button_measure(child, ctx, &w, &h);
     } else if (child->name && strcmp(child->name, "e9ui_checkbox") == 0) {
       e9ui_checkbox_measure(child, ctx, &w, &h);
+    } else if (child->name && strcmp(child->name, "e9ui_labeledTextbox") == 0) {
+      e9ui_labeled_textbox_measure(child, ctx, &w, &h);
     } else if (child->name && strcmp(child->name, "e9ui_separator") == 0) {
       e9ui_separator_measure(child, ctx, &w, &h);
     } else if (child->preferredHeight) {
@@ -76,7 +78,7 @@ e9ui_flow_measure(e9ui_component_t *flow, e9ui_context_t *ctx, int *outW, int *o
   if (outH) {
     *outH = 0;
   }
-  if (!flow || !ctx || !flow->state) {
+  if (!flow || !flow->state) {
     return;
   }
   e9ui_flow_state_t *st = (e9ui_flow_state_t*)flow->state;
@@ -296,7 +298,7 @@ e9ui_flow_layout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_rect_t bounds
 static void
 e9ui_flow_render(e9ui_component_t *self, e9ui_context_t *ctx)
 {
-  if (ctx && ctx->renderer && e9ui->transition.inTransition <= 0) {
+  if (e9ui->transition.inTransition <= 0) {
     SDL_Rect bg = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
     SDL_SetRenderDrawColor(ctx->renderer, 0, 0, 0, 255);
     SDL_RenderFillRect(ctx->renderer, &bg);

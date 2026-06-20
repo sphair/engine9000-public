@@ -29,6 +29,9 @@ ui_test_mode_t
 ui_test_getMode(void);
 
 void
+ui_test_setOpenOnFail(int enable);
+
+void
 ui_test_registerRequestedMode(const char *folder, ui_test_mode_t mode);
 
 const char *

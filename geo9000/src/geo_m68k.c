@@ -140,7 +140,7 @@ static inline void geo_debug_print_byte(uint8_t byte) {
 }
 
 static inline void geo_debug_checkpoint_write(uint8_t index) {
-    e9k_checkpoint_write(index, (uint32_t)geo_lspc_getScanline());
+    e9k_checkpoint_write(index, (uint32_t)geo_lspc_getScanline(), LSPC_SCANLINES);
 }
 
 static inline int
@@ -187,7 +187,7 @@ geo_debug_checkpoint_setNameFromPointer(uint8_t index, uint32_t ptrValue)
 
 #ifdef E9K_HACK_REGISTER_LOG
 static inline void geo_m68k_logRegisterWrite(uint32_t reg, uint16_t value) {
-    uint32_t pc = (uint32_t)m68k_get_reg(NULL, M68K_REG_PC);
+    uint32_t pc = (uint32_t)m68k_get_reg(NULL, M68K_REG_PPC);
     e9k_debugger_writeRegisterLog((uint16_t)(geo_lspc_getScanline() & 0xffffu),
         reg,
         value,
@@ -1060,8 +1060,10 @@ uint8_t geo_m68k_debug_peek_8(uint32_t address) {
 unsigned m68k_read_memory_16(unsigned address) {
     unsigned result = 0xffff;
     uint32_t addr24 = (uint32_t)(address & 0x00ffffffu);
-    if (address & 0x01)
-        geo_log(GEO_LOG_WRN, "Unaligned 16-bit Read: %06x\n", address);
+    if (address & 0x01) {
+        geo_log(GEO_LOG_WRN, "Unaligned 16-bit Read: %06x PC: %06x\n",
+            address, m68k_get_reg(NULL, M68K_REG_PPC) & 0x00ffffffu);
+    }
 
     if (address < 0x000080) { // Vector Table
         m68k_modify_timeslice(1);

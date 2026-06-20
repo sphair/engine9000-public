@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include "geo.h"
 #include "geo_m68k.h"
 #include "geo_lspc.h"
@@ -51,13 +52,32 @@ static uint32_t *vbuf = NULL;
 static unsigned sprlimit = 96; // Sprites-per-line limit
 
 static unsigned linebuf[2][LSPC_WIDTH]; // Line buffers for sprite pixels
+static uint8_t geo_lspc_linebufGrayscale[2][LSPC_WIDTH]; // Debug grayscale tags
 static unsigned lbactive = 0; // Active line buffer
+static int geo_lspc_spriteGrayscaleEnabled = 0;
+static int geo_lspc_spriteGrayscaleHighlightChain = 0;
+static int geo_lspc_spriteGrayscaleInvert = 0;
+static int geo_lspc_spriteHideEnabled = 0;
+static uint32_t geo_lspc_spriteSelectionMask[E9K_DEBUG_GEO_SPRITE_SELECTION_MASK_WORDS];
+static e9k_debug_palette_grayscale_mask_t geo_lspc_paletteGrayscaleMask;
+static int geo_lspc_paletteGrayscaleEnabled = 0;
+static e9k_debug_geo_fix_layer_mode_t geo_lspc_fixLayerMode = e9k_debug_geo_fix_layer_mode_normal;
 
 static uint8_t *fixdata = NULL;
 static size_t fixdatasz = 0;
 
 static unsigned fixbanksw = 0;
 static uint32_t crommask = 0;
+
+static inline void geo_lspc_bdsprline(void);
+static inline void geo_lspc_bdsprlineGray(void);
+static inline uint32_t geo_lspc_grayscaleColor(uint32_t color);
+static inline uint32_t geo_lspc_spriteHideBackdrop(unsigned x, unsigned y);
+static inline uint32_t geo_lspc_fixLayerColor(unsigned paletteIndex);
+static int geo_lspc_spriteSelectionMaskHasBits(const uint32_t *mask);
+static int geo_lspc_spriteSelectionMaskHasSprite(unsigned spriteIndex);
+
+static void (*geo_lspc_bdsprlineCurrent)(void) = geo_lspc_bdsprline;
 
 // Dynamic output palette with values converted from palette RAM
 static uint32_t palette_normal[SIZE_8K];
@@ -300,11 +320,25 @@ static inline void geo_lspc_palconv(uint16_t addr, uint16_t data) {
     unsigned b = (((data << 2) & 0x3c) | ((data >> 11) & 0x02) |
         ((data >> 15) & 0x01));
 
-    palette_normal[addr] = 0xff000000 |
+    uint32_t normalColor = 0xff000000 |
         (lut_normal[r] << 16) | (lut_normal[g] << 8) | lut_normal[b];
 
-    palette_shadow[addr] = 0xff000000 |
+    uint32_t shadowColor = 0xff000000 |
         (lut_shadow[r] << 16) | (lut_shadow[g] << 8) | lut_shadow[b];
+
+    if (geo_lspc_paletteGrayscaleEnabled) {
+        unsigned paletteIndex = (unsigned)(addr >> 4);
+        unsigned wordIndex = paletteIndex >> 5;
+        uint32_t bit = 1u << (paletteIndex & 31u);
+        if (wordIndex < E9K_DEBUG_GEO_PALETTE_GRAYSCALE_MASK_WORDS &&
+            (geo_lspc_paletteGrayscaleMask.words[wordIndex] & bit)) {
+            normalColor = geo_lspc_grayscaleColor(normalColor);
+            shadowColor = geo_lspc_grayscaleColor(shadowColor);
+        }
+    }
+
+    palette_normal[addr] = normalColor;
+    palette_shadow[addr] = shadowColor;
 }
 
 // Set the pointer to the video buffer
@@ -319,6 +353,79 @@ void geo_lspc_set_sprlimit(unsigned limit) {
 
 unsigned geo_lspc_get_sprlimit(void) {
     return sprlimit;
+}
+
+static int
+geo_lspc_paletteGrayscaleMaskHasBits(const e9k_debug_palette_grayscale_mask_t *mask)
+{
+    if (!mask) {
+        return 0;
+    }
+    for (int i = 0; i < E9K_DEBUG_GEO_PALETTE_GRAYSCALE_MASK_WORDS; ++i) {
+        if (mask->words[i]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void
+geo_lspc_setSpriteGrayscaleSelection(const e9k_debug_sprite_grayscale_selection_t *selection)
+{
+    if (!selection || !selection->enabled ||
+        !geo_lspc_spriteSelectionMaskHasBits(selection->spriteMask)) {
+        geo_lspc_spriteGrayscaleEnabled = 0;
+        geo_lspc_spriteGrayscaleHighlightChain = 0;
+        geo_lspc_spriteGrayscaleInvert = 0;
+        geo_lspc_spriteHideEnabled = 0;
+        memset(geo_lspc_spriteSelectionMask, 0, sizeof(geo_lspc_spriteSelectionMask));
+        geo_lspc_bdsprlineCurrent = geo_lspc_bdsprline;
+        memset(geo_lspc_linebufGrayscale, 0, sizeof(geo_lspc_linebufGrayscale));
+        return;
+    }
+
+    geo_lspc_spriteGrayscaleEnabled = 1;
+    geo_lspc_spriteGrayscaleHighlightChain = selection->highlightChain ? 1 : 0;
+    geo_lspc_spriteGrayscaleInvert = selection->invert ? 1 : 0;
+    geo_lspc_spriteHideEnabled = selection->hide ? 1 : 0;
+    memcpy(geo_lspc_spriteSelectionMask, selection->spriteMask, sizeof(geo_lspc_spriteSelectionMask));
+    geo_lspc_bdsprlineCurrent = geo_lspc_bdsprlineGray;
+    memset(geo_lspc_linebufGrayscale, 0, sizeof(geo_lspc_linebufGrayscale));
+}
+
+void
+geo_lspc_setPaletteGrayscaleMask(const e9k_debug_palette_grayscale_mask_t *mask)
+{
+    if (mask) {
+        geo_lspc_paletteGrayscaleMask = *mask;
+    } else {
+        memset(&geo_lspc_paletteGrayscaleMask, 0, sizeof(geo_lspc_paletteGrayscaleMask));
+    }
+    geo_lspc_paletteGrayscaleEnabled =
+        geo_lspc_paletteGrayscaleMaskHasBits(&geo_lspc_paletteGrayscaleMask);
+    for (unsigned i = 0; i < (SIZE_16K >> 1); ++i) {
+        geo_lspc_palconv(i, lspc.palram[i]);
+    }
+}
+
+size_t
+geo_lspc_getPaletteGrayscaleMask(e9k_debug_palette_grayscale_mask_t *out, size_t cap)
+{
+    if (!out || cap < sizeof(*out)) {
+        return 0u;
+    }
+    *out = geo_lspc_paletteGrayscaleMask;
+    return sizeof(*out);
+}
+
+void
+geo_lspc_setFixLayerMode(e9k_debug_geo_fix_layer_mode_t mode)
+{
+    if (mode < e9k_debug_geo_fix_layer_mode_normal ||
+        mode > e9k_debug_geo_fix_layer_mode_hidden) {
+        mode = e9k_debug_geo_fix_layer_mode_normal;
+    }
+    geo_lspc_fixLayerMode = mode;
 }
 
 void geo_lspc_set_palette(unsigned p) {
@@ -375,6 +482,54 @@ static inline void geo_lspc_bdsprline(void) {
     for (unsigned p = 0; p < LSPC_WIDTH; ++p) {
         ptr[p] = lb[p] ? palette[lb[p]] : bdcol;
         lb[p] = 0;
+    }
+}
+
+static inline uint32_t
+geo_lspc_grayscaleColor(uint32_t color)
+{
+    unsigned red = (color >> 16) & 0xffu;
+    unsigned green = (color >> 8) & 0xffu;
+    unsigned blue = color & 0xffu;
+    unsigned gray = (red * 77u + green * 150u + blue * 29u) >> 8;
+    return (color & 0xff000000u) | (gray << 16) | (gray << 8) | gray;
+}
+
+static inline uint32_t
+geo_lspc_spriteHideBackdrop(unsigned x, unsigned y)
+{
+    return (((x >> 3) ^ (y >> 3)) & 1u) ? 0xffeeeeeeu : 0xffffffffu;
+}
+
+static inline uint32_t
+geo_lspc_fixLayerColor(unsigned paletteIndex)
+{
+    uint32_t color = palette[paletteIndex];
+
+    if (geo_lspc_fixLayerMode == e9k_debug_geo_fix_layer_mode_grayscale) {
+        return geo_lspc_grayscaleColor(color);
+    }
+    return color;
+}
+
+static inline void
+geo_lspc_bdsprlineGray(void)
+{
+    uint32_t bdcol = geo_lspc_backdrop();
+    uint32_t *ptr = vbuf + (lspc.scanline * LSPC_WIDTH);
+    unsigned *lb = linebuf[lbactive];
+    uint8_t *gray = geo_lspc_linebufGrayscale[lbactive];
+
+    for (unsigned p = 0; p < LSPC_WIDTH; ++p) {
+        if (lb[p]) {
+            uint32_t color = palette[lb[p]];
+            ptr[p] = gray[p] ? geo_lspc_grayscaleColor(color) : color;
+        } else {
+            ptr[p] = geo_lspc_spriteHideEnabled ?
+                geo_lspc_spriteHideBackdrop(p, lspc.scanline) : bdcol;
+        }
+        lb[p] = 0;
+        gray[p] = 0;
     }
 }
 
@@ -486,6 +641,18 @@ void geo_lspc_mode_wr(uint16_t data) {
     lspc.aa_disable = data & 0x08;
 }
 
+unsigned
+geo_lspc_getAutoAnimationCounter(void)
+{
+    return (unsigned)(lspc.aa_counter & 0x07u);
+}
+
+unsigned
+geo_lspc_getAutoAnimationDisabled(void)
+{
+    return lspc.aa_disable ? 1u : 0u;
+}
+
 // Write to REG_SHADOW
 void geo_lspc_shadow_wr(unsigned s) {
     lspc.shadow = s;
@@ -570,10 +737,10 @@ static void geo_lspc_fixline_default(void) {
         uint32_t pentry = 0;
         for (unsigned p = 0, f = 0x10; p < 4; ++p, f = (f + 0x08) & 0x18) {
             pentry = tdata[f + row] & 0x0f;
-            if (pentry) voffset[p << 1] = palette[poffset + pentry];
+            if (pentry) voffset[p << 1] = geo_lspc_fixLayerColor(poffset + pentry);
 
             pentry = (tdata[f + row] >> 4) & 0x0f;
-            if (pentry) voffset[(p << 1) + 1] = palette[poffset + pentry];
+            if (pentry) voffset[(p << 1) + 1] = geo_lspc_fixLayerColor(poffset + pentry);
         }
     }
 }
@@ -622,10 +789,10 @@ static void geo_lspc_fixline_line(void) {
         uint32_t pentry = 0;
         for (unsigned p = 0, f = 0x10; p < 4; ++p, f = (f + 0x08) & 0x18) {
             pentry = tdata[f + row] & 0x0f;
-            if (pentry) voffset[p << 1] = palette[poffset + pentry];
+            if (pentry) voffset[p << 1] = geo_lspc_fixLayerColor(poffset + pentry);
 
             pentry = (tdata[f + row] >> 4) & 0x0f;
-            if (pentry) voffset[(p << 1) + 1] = palette[poffset + pentry];
+            if (pentry) voffset[(p << 1) + 1] = geo_lspc_fixLayerColor(poffset + pentry);
         }
     }
 }
@@ -661,10 +828,10 @@ static void geo_lspc_fixline_tile(void) {
         uint32_t pentry = 0;
         for (unsigned p = 0, f = 0x10; p < 4; ++p, f = (f + 0x08) & 0x18) {
             pentry = tdata[f + row] & 0x0f;
-            if (pentry) voffset[p << 1] = palette[poffset + pentry];
+            if (pentry) voffset[p << 1] = geo_lspc_fixLayerColor(poffset + pentry);
 
             pentry = (tdata[f + row] >> 4) & 0x0f;
-            if (pentry) voffset[(p << 1) + 1] = palette[poffset + pentry];
+            if (pentry) voffset[(p << 1) + 1] = geo_lspc_fixLayerColor(poffset + pentry);
         }
     }
 }
@@ -736,6 +903,32 @@ static inline unsigned geo_lspc_tpix(unsigned tbase, unsigned x, unsigned y) {
     return (v0 & 0x01) | (v1 & 0x01) << 1 | (v2 & 0x01) << 2 | (v3 & 0x01) << 3;
 }
 
+static int
+geo_lspc_spriteSelectionMaskHasBits(const uint32_t *mask)
+{
+    if (!mask) {
+        return 0;
+    }
+    for (int i = 0; i < E9K_DEBUG_GEO_SPRITE_SELECTION_MASK_WORDS; ++i) {
+        if (mask[i]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int
+geo_lspc_spriteSelectionMaskHasSprite(unsigned spriteIndex)
+{
+    unsigned wordIndex = spriteIndex >> 5;
+    unsigned bitIndex = spriteIndex & 31u;
+
+    if (wordIndex >= E9K_DEBUG_GEO_SPRITE_SELECTION_MASK_WORDS) {
+        return 0;
+    }
+    return (geo_lspc_spriteSelectionMask[wordIndex] & (1u << bitIndex)) ? 1 : 0;
+}
+
 // Calculate a line of sprite data 2 lines in advance
 static inline void geo_lspc_sprcalc(void) {
     unsigned line = lspc.scanline - LSPC_LINE_BUFSTART;
@@ -746,6 +939,7 @@ static inline void geo_lspc_sprcalc(void) {
     unsigned sprsize = 0;
     unsigned hshrink = 0x0f; // Start at full width (no shrinking)
     unsigned vshrink = 0xff; // Start at full height (no shrinking)
+    unsigned chainRootIndex = 0;
 
     /*
      * Original code (ENGINE9000 change):
@@ -768,6 +962,7 @@ static inline void geo_lspc_sprcalc(void) {
             xpos += (hshrink + 1);
         }
         else {
+            chainRootIndex = i;
             xpos = (lspc.vram[0x8400 + i] >> 7) & 0x1ff;
             ypos = (lspc.vram[0x8200 + i] >> 7) & 0x1ff; // 512-Y
             sprsize = lspc.vram[0x8200 + i] & 0x3f; // Height in tiles
@@ -916,14 +1111,38 @@ static inline void geo_lspc_sprcalc(void) {
         // X coordinates in the line buffer
         unsigned xcoord = 0;
 
+        int selectedSprite = 0;
+        int grayscaleSprite = 0;
+        int hideSprite = 0;
+        if (geo_lspc_spriteGrayscaleEnabled) {
+            if (geo_lspc_spriteGrayscaleHighlightChain) {
+                selectedSprite = geo_lspc_spriteSelectionMaskHasSprite(chainRootIndex);
+            } else {
+                selectedSprite = geo_lspc_spriteSelectionMaskHasSprite(i);
+            }
+            grayscaleSprite = selectedSprite;
+            hideSprite = selectedSprite;
+            if (geo_lspc_spriteGrayscaleInvert) {
+                grayscaleSprite = grayscaleSprite ? 0 : 1;
+                hideSprite = hideSprite ? 0 : 1;
+            }
+        }
+
         for (unsigned p = 0; p < 16; ++p) {
             if (lut_hshrink[hshrink][p]) {
                 pentry = geo_lspc_tpix(toffset + (((0x08 & p) ^ ftile) << 3),
                     (p & 0x07) ^ fpix, y);
 
                 xcoord = (xpos + drawpos) & 0x1ff;
-                if (pentry && (xcoord < LSPC_WIDTH))
-                    linebuf[lbactive][xcoord] = poffset + pentry;
+                if (pentry && (xcoord < LSPC_WIDTH)) {
+                    if (!geo_lspc_spriteHideEnabled || !hideSprite) {
+                        linebuf[lbactive][xcoord] = poffset + pentry;
+                        if (geo_lspc_spriteGrayscaleEnabled) {
+                            geo_lspc_linebufGrayscale[lbactive][xcoord] =
+                                grayscaleSprite ? 1u : 0u;
+                        }
+                    }
+                }
 
                 ++drawpos; // Increment for coloured and transparent pixels
             }
@@ -949,9 +1168,11 @@ static inline void geo_lspc_aa(void) {
 static void geo_lspc_scanline(void) {
     if (lspc.scanline >= LSPC_LINE_BORDER_TOP &&
         lspc.scanline < LSPC_LINE_BORDER_BOTTOM) {
-        geo_lspc_bdsprline();
+        geo_lspc_bdsprlineCurrent();
         geo_lspc_sprcalc();
-        geo_lspc_fixline();
+        if (geo_lspc_fixLayerMode != e9k_debug_geo_fix_layer_mode_hidden) {
+            geo_lspc_fixline();
+        }
     }
     else if (lspc.scanline == LSPC_LINE_BUFSTART ||
         lspc.scanline == LSPC_LINE_BUFSTART + 1) {

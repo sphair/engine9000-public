@@ -564,11 +564,38 @@ E9K_DEBUG_EXPORT size_t e9k_debug_neogeo_get_sprite_state(e9k_debug_sprite_state
     out->sprlimit = geo_lspc_get_sprlimit();
     out->screen_w = LSPC_WIDTH;
     out->screen_h = LSPC_HEIGHT_VISIBLE;
+    out->visible_h = video_height_visible;
     out->crop_t = video_crop_t;
     out->crop_b = video_crop_b;
     out->crop_l = video_crop_l;
     out->crop_r = video_crop_r;
+    out->autoAnimationCounter = geo_lspc_getAutoAnimationCounter();
+    out->autoAnimationDisabled = geo_lspc_getAutoAnimationDisabled();
     return sizeof(*out);
+}
+
+E9K_DEBUG_EXPORT void
+e9k_debug_neogeo_set_sprite_grayscale_selection(const e9k_debug_sprite_grayscale_selection_t *selection)
+{
+    geo_lspc_setSpriteGrayscaleSelection(selection);
+}
+
+E9K_DEBUG_EXPORT void
+e9k_debug_neogeo_set_palette_grayscale_mask(const e9k_debug_palette_grayscale_mask_t *mask)
+{
+    geo_lspc_setPaletteGrayscaleMask(mask);
+}
+
+E9K_DEBUG_EXPORT size_t
+e9k_debug_neogeo_get_palette_grayscale_mask(e9k_debug_palette_grayscale_mask_t *out, size_t cap)
+{
+    return geo_lspc_getPaletteGrayscaleMask(out, cap);
+}
+
+E9K_DEBUG_EXPORT void
+e9k_debug_neogeo_set_fix_layer_mode(int mode)
+{
+    geo_lspc_setFixLayerMode((e9k_debug_geo_fix_layer_mode_t)mode);
 }
 
 E9K_DEBUG_EXPORT size_t e9k_debug_neogeo_get_palette_state(e9k_debug_palette_state_t *out, size_t cap) {

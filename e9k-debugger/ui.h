@@ -31,6 +31,9 @@ void
 ui_centerSourceOnAddress(uint32_t addr);
 
 void
+ui_openSourceLocation(const char *file, int line, uint32_t fallbackAddr);
+
+void
 ui_centerCprSourceOnAddress(uint32_t addr);
 
 void

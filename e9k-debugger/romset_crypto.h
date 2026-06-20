@@ -48,6 +48,12 @@ romset_crypto_applyNgh256SmaCmc42(uint8_t *prom,
                                   size_t sromSize);
 
 int
+romset_crypto_applyNgh261Cmc42(uint8_t *crom,
+                               size_t cromSize,
+                               uint8_t *srom,
+                               size_t sromSize);
+
+int
 romset_crypto_applyNgh253SmaCmc42(uint8_t *prom,
                                   size_t promSize,
                                   uint8_t *crom,

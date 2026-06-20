@@ -886,14 +886,6 @@ mega_memview_readRange(const mega_memview_state_t *ui, uint32_t addr, void *out,
         size_t readableBytes = sizeBytes;
 
         memset(out, 0, sizeBytes);
-        if (readAddr < MEGA_MEMVIEW_ZRAM_BASE_MIN) {
-            dstOffset = (size_t)(MEGA_MEMVIEW_ZRAM_BASE_MIN - readAddr);
-            if (dstOffset >= sizeBytes) {
-                return 0;
-            }
-            readAddr = MEGA_MEMVIEW_ZRAM_BASE_MIN;
-            readableBytes = sizeBytes - dstOffset;
-        }
         if (readAddr > MEGA_MEMVIEW_ZRAM_BASE_MAX) {
             return 0;
         }

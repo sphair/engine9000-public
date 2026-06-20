@@ -1246,6 +1246,12 @@ uae_u16 kickstart_version;
 #define AMI_DBG_CHECKPOINT_NAME_BASE_ADDR 0x00FC0100u // Fake checkpoint-name register base (index*4)
 #define AMI_DBG_CHECKPOINT_NAME_COUNT 64u
 #define AMI_DBG_CHECKPOINT_NAME_SIZE (AMI_DBG_CHECKPOINT_NAME_COUNT * 4u)
+#define AMI_DBG_COUNTER_NAME_BASE_ADDR 0x00FC0200u // Fake counter-name register base (index*4)
+#define AMI_DBG_COUNTER_NAME_COUNT 64u
+#define AMI_DBG_COUNTER_NAME_SIZE (AMI_DBG_COUNTER_NAME_COUNT * 4u)
+#define AMI_DBG_COUNTER_VALUE_BASE_ADDR 0x00FC0300u // Fake counter-value register base (index*4)
+#define AMI_DBG_COUNTER_VALUE_COUNT 64u
+#define AMI_DBG_COUNTER_VALUE_SIZE (AMI_DBG_COUNTER_VALUE_COUNT * 4u)
 void e9k_debug_text_write(uae_u8 byte);
 void e9k_debug_set_debug_base(uae_u32 section, uae_u32 base);
 void e9k_debug_push_debug_base(uae_u32 section, uae_u32 base, uae_u32 size);
@@ -1257,6 +1263,8 @@ void e9k_debug_profile_start_fromPeripheral(void);
 void e9k_debug_checkpoint_write(uae_u8 index);
 void e9k_debug_checkpoint_set_name_from_pointer(uae_u8 index, uae_u32 ptrValue);
 #endif
+void e9k_debug_counter_write(uae_u8 index, uae_u32 value);
+void e9k_debug_counter_set_name_from_pointer(uae_u8 index, uae_u32 ptrValue);
 static uae_u8 ami_dbg_setbase_bytes[12];
 static uae_u16 ami_dbg_setbase_mask;
 static uae_u8 ami_dbg_pushbase_bytes[12];
@@ -1270,6 +1278,10 @@ static uae_u8 ami_dbg_setbreak_mask;
 static uae_u8 ami_dbg_checkpoint_name_bytes[AMI_DBG_CHECKPOINT_NAME_SIZE];
 static uae_u8 ami_dbg_checkpoint_name_mask[AMI_DBG_CHECKPOINT_NAME_COUNT];
 #endif
+static uae_u8 ami_dbg_counter_name_bytes[AMI_DBG_COUNTER_NAME_SIZE];
+static uae_u8 ami_dbg_counter_name_mask[AMI_DBG_COUNTER_NAME_COUNT];
+static uae_u8 ami_dbg_counter_value_bytes[AMI_DBG_COUNTER_VALUE_SIZE];
+static uae_u8 ami_dbg_counter_value_mask[AMI_DBG_COUNTER_VALUE_COUNT];
 
 static void
 ami_dbg_setbase_write_byte(uaecptr addr24, uae_u8 byte)
@@ -1434,6 +1446,114 @@ ami_dbg_checkpoint_name_write_byte(uaecptr addr24, uae_u8 byte)
 	ami_dbg_checkpoint_name_mask[reg] = 0u;
 }
 #endif
+
+static int
+ami_dbg_counter_nameAddressToIndex(uaecptr addr24, uae_u8 *indexOut)
+{
+	uaecptr offset = 0;
+
+	if (addr24 < AMI_DBG_COUNTER_NAME_BASE_ADDR) {
+		return 0;
+	}
+	offset = addr24 - AMI_DBG_COUNTER_NAME_BASE_ADDR;
+	if (offset >= AMI_DBG_COUNTER_NAME_SIZE) {
+		return 0;
+	}
+	if ((offset & 3u) != 0u) {
+		return 0;
+	}
+	if (!indexOut) {
+		return 0;
+	}
+	*indexOut = (uae_u8)(offset >> 2);
+	return 1;
+}
+
+static void
+ami_dbg_counter_name_write_byte(uaecptr addr24, uae_u8 byte)
+{
+	uaecptr offset = 0;
+	uaecptr reg = 0;
+	uaecptr regOffset = 0;
+	uae_u32 ptrValue = 0;
+
+	if (addr24 < AMI_DBG_COUNTER_NAME_BASE_ADDR) {
+		return;
+	}
+	offset = addr24 - AMI_DBG_COUNTER_NAME_BASE_ADDR;
+	if (offset >= AMI_DBG_COUNTER_NAME_SIZE) {
+		return;
+	}
+
+	reg = offset / 4u;
+	regOffset = reg * 4u;
+	ami_dbg_counter_name_bytes[offset] = byte;
+	ami_dbg_counter_name_mask[reg] |= (uae_u8)(1u << (offset & 3u));
+	if (ami_dbg_counter_name_mask[reg] != 0x0Fu) {
+		return;
+	}
+
+	ptrValue = ((uae_u32)ami_dbg_counter_name_bytes[regOffset] << 24) |
+	           ((uae_u32)ami_dbg_counter_name_bytes[regOffset + 1u] << 16) |
+	           ((uae_u32)ami_dbg_counter_name_bytes[regOffset + 2u] << 8) |
+	           (uae_u32)ami_dbg_counter_name_bytes[regOffset + 3u];
+	e9k_debug_counter_set_name_from_pointer((uae_u8)reg, ptrValue);
+	ami_dbg_counter_name_mask[reg] = 0u;
+}
+
+static int
+ami_dbg_counter_valueAddressToIndex(uaecptr addr24, uae_u8 *indexOut)
+{
+	uaecptr offset = 0;
+
+	if (addr24 < AMI_DBG_COUNTER_VALUE_BASE_ADDR) {
+		return 0;
+	}
+	offset = addr24 - AMI_DBG_COUNTER_VALUE_BASE_ADDR;
+	if (offset >= AMI_DBG_COUNTER_VALUE_SIZE) {
+		return 0;
+	}
+	if ((offset & 3u) != 0u) {
+		return 0;
+	}
+	if (!indexOut) {
+		return 0;
+	}
+	*indexOut = (uae_u8)(offset >> 2);
+	return 1;
+}
+
+static void
+ami_dbg_counter_value_write_byte(uaecptr addr24, uae_u8 byte)
+{
+	uaecptr offset = 0;
+	uaecptr reg = 0;
+	uaecptr regOffset = 0;
+	uae_u32 value = 0;
+
+	if (addr24 < AMI_DBG_COUNTER_VALUE_BASE_ADDR) {
+		return;
+	}
+	offset = addr24 - AMI_DBG_COUNTER_VALUE_BASE_ADDR;
+	if (offset >= AMI_DBG_COUNTER_VALUE_SIZE) {
+		return;
+	}
+
+	reg = offset / 4u;
+	regOffset = reg * 4u;
+	ami_dbg_counter_value_bytes[offset] = byte;
+	ami_dbg_counter_value_mask[reg] |= (uae_u8)(1u << (offset & 3u));
+	if (ami_dbg_counter_value_mask[reg] != 0x0Fu) {
+		return;
+	}
+
+	value = ((uae_u32)ami_dbg_counter_value_bytes[regOffset] << 24) |
+	        ((uae_u32)ami_dbg_counter_value_bytes[regOffset + 1u] << 16) |
+	        ((uae_u32)ami_dbg_counter_value_bytes[regOffset + 2u] << 8) |
+	        (uae_u32)ami_dbg_counter_value_bytes[regOffset + 3u];
+	e9k_debug_counter_write((uae_u8)reg, value);
+	ami_dbg_counter_value_mask[reg] = 0u;
+}
 #endif
 
 /*
@@ -1539,6 +1659,18 @@ static void REGPARAM2 kickmem_lput (uaecptr addr, uae_u32 b)
 		return;
 	}
 #endif
+	uae_u8 counterNameIndex = 0;
+	if (ami_dbg_counter_nameAddressToIndex(addr24, &counterNameIndex)) {
+		e9k_debug_counter_set_name_from_pointer(counterNameIndex, b);
+		ami_dbg_counter_name_mask[counterNameIndex] = 0u;
+		return;
+	}
+	uae_u8 counterValueIndex = 0;
+	if (ami_dbg_counter_valueAddressToIndex(addr24, &counterValueIndex)) {
+		e9k_debug_counter_write(counterValueIndex, b);
+		ami_dbg_counter_value_mask[counterValueIndex] = 0u;
+		return;
+	}
 	#endif
 	uae_u32 *m;
 	if (currprefs.rom_readwrite && rom_write_enabled) {
@@ -1587,6 +1719,10 @@ static void REGPARAM2 kickmem_wput (uaecptr addr, uae_u32 b)
 	ami_dbg_checkpoint_name_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
 	ami_dbg_checkpoint_name_write_byte(addr24 + 1u, (uae_u8)(b & 0xffu));
 #endif
+	ami_dbg_counter_name_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
+	ami_dbg_counter_name_write_byte(addr24 + 1u, (uae_u8)(b & 0xffu));
+	ami_dbg_counter_value_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
+	ami_dbg_counter_value_write_byte(addr24 + 1u, (uae_u8)(b & 0xffu));
 	ami_dbg_setbase_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
 	ami_dbg_setbase_write_byte(addr24 + 1, (uae_u8)(b & 0xffu));
 	ami_dbg_pushbase_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
@@ -1633,6 +1769,8 @@ static void REGPARAM2 kickmem_bput (uaecptr addr, uae_u32 b)
 	}
 	ami_dbg_checkpoint_name_write_byte(addr24, (uae_u8)(b & 0xffu));
 #endif
+	ami_dbg_counter_name_write_byte(addr24, (uae_u8)(b & 0xffu));
+	ami_dbg_counter_value_write_byte(addr24, (uae_u8)(b & 0xffu));
 	ami_dbg_setbase_write_byte(addr24, (uae_u8)(b & 0xffu));
 	ami_dbg_pushbase_write_byte(addr24, (uae_u8)(b & 0xffu));
 	ami_dbg_setbreak_write_byte(addr24, (uae_u8)(b & 0xffu));
@@ -1731,6 +1869,18 @@ static void REGPARAM2 extendedkickmem_lput (uaecptr addr, uae_u32 b)
 		return;
 	}
 #endif
+	uae_u8 counterNameIndex = 0;
+	if (ami_dbg_counter_nameAddressToIndex(addr24, &counterNameIndex)) {
+		e9k_debug_counter_set_name_from_pointer(counterNameIndex, b);
+		ami_dbg_counter_name_mask[counterNameIndex] = 0u;
+		return;
+	}
+	uae_u8 counterValueIndex = 0;
+	if (ami_dbg_counter_valueAddressToIndex(addr24, &counterValueIndex)) {
+		e9k_debug_counter_write(counterValueIndex, b);
+		ami_dbg_counter_value_mask[counterValueIndex] = 0u;
+		return;
+	}
 	if (addr24 == AMI_DBG_PUSHBASE_BASE_ADDR ||
 	    addr24 == AMI_DBG_PUSHBASE_TYPE_ADDR ||
 	    addr24 == AMI_DBG_PUSHBASE_SIZE_ADDR) {
@@ -1767,6 +1917,10 @@ static void REGPARAM2 extendedkickmem_wput (uaecptr addr, uae_u32 b)
 	ami_dbg_checkpoint_name_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
 	ami_dbg_checkpoint_name_write_byte(addr24 + 1u, (uae_u8)(b & 0xffu));
 #endif
+	ami_dbg_counter_name_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
+	ami_dbg_counter_name_write_byte(addr24 + 1u, (uae_u8)(b & 0xffu));
+	ami_dbg_counter_value_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
+	ami_dbg_counter_value_write_byte(addr24 + 1u, (uae_u8)(b & 0xffu));
 	ami_dbg_setbase_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
 	ami_dbg_setbase_write_byte(addr24 + 1, (uae_u8)(b & 0xffu));
 	ami_dbg_pushbase_write_byte(addr24, (uae_u8)((b >> 8) & 0xffu));
@@ -1798,6 +1952,8 @@ static void REGPARAM2 extendedkickmem_bput (uaecptr addr, uae_u32 b)
 	}
 	ami_dbg_checkpoint_name_write_byte(addr24, (uae_u8)(b & 0xffu));
 #endif
+	ami_dbg_counter_name_write_byte(addr24, (uae_u8)(b & 0xffu));
+	ami_dbg_counter_value_write_byte(addr24, (uae_u8)(b & 0xffu));
 	ami_dbg_setbase_write_byte(addr24, (uae_u8)(b & 0xffu));
 	ami_dbg_pushbase_write_byte(addr24, (uae_u8)(b & 0xffu));
 	ami_dbg_setbreak_write_byte(addr24, (uae_u8)(b & 0xffu));

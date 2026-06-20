@@ -15,16 +15,21 @@
 #include "debugger.h"
 #include "debug.h"
 #include "smoke_test.h"
+#include "strutil.h"
 #include "ui_test.h"
 
 static int cli_helpRequestedFlag = 0;
 static int cli_errorFlag = 0;
 static char cli_savedArgv0[PATH_MAX];
 static int cli_resetCfgConsumed = 0;
+static int cli_clearRestartArgs = 0;
 
 static void
 cli_copyPath(char *dest, size_t capacity, const char *src)
 {
+    char expanded[PATH_MAX];
+    char cwd[PATH_MAX];
+
     if (!dest || capacity == 0) {
         return;
     }
@@ -32,18 +37,27 @@ cli_copyPath(char *dest, size_t capacity, const char *src)
         dest[0] = '\0';
         return;
     }
-    if (src[0] == '~' && (src[1] == '/' || src[1] == '\0')) {
-        const char *home = getenv("HOME");
-        if (home && *home) {
-            int written = snprintf(dest, capacity, "%s%s", home, src + 1);
-            if (written < 0 || (size_t)written >= capacity) {
-                dest[capacity - 1] = '\0';
-            }
-            return;
-        }
+
+    expanded[0] = '\0';
+    if (!debugger_platform_expandHomePath(expanded, sizeof(expanded), src)) {
+        strutil_strlcpy(dest, capacity, src);
+        debugger_platform_normalizePathSeparators(dest);
+        return;
     }
-    strncpy(dest, src, capacity - 1);
-    dest[capacity - 1] = '\0';
+    if (debugger_platform_pathIsAbsolute(expanded)) {
+        strutil_strlcpy(dest, capacity, expanded);
+        debugger_platform_normalizePathSeparators(dest);
+        return;
+    }
+
+    cwd[0] = '\0';
+    if (debugger_platform_getCurrentDir(cwd, sizeof(cwd)) &&
+        debugger_platform_pathJoin(dest, capacity, cwd, expanded)) {
+        return;
+    }
+
+    strutil_strlcpy(dest, capacity, expanded);
+    debugger_platform_normalizePathSeparators(dest);
 }
 
 static void
@@ -90,10 +104,9 @@ cli_addDebugArg(const char *value)
 static void
 cli_setNeogeoSystemType(const char *value)
 {
-    strncpy(debugger.cliConfig.neogeo.systemType,
-            value,
-            sizeof(debugger.cliConfig.neogeo.systemType) - 1);
-    debugger.cliConfig.neogeo.systemType[sizeof(debugger.cliConfig.neogeo.systemType) - 1] = '\0';
+    strutil_strlcpy(debugger.cliConfig.neogeo.systemType,
+                    sizeof(debugger.cliConfig.neogeo.systemType),
+                    value);
 }
 
 static int
@@ -143,14 +156,27 @@ cli_setArgv0(const char *argv0)
         cli_savedArgv0[0] = '\0';
         return;
     }
-    strncpy(cli_savedArgv0, argv0, sizeof(cli_savedArgv0) - 1);
-    cli_savedArgv0[sizeof(cli_savedArgv0) - 1] = '\0';
+    strutil_strlcpy(cli_savedArgv0, sizeof(cli_savedArgv0), argv0);
 }
 
 const char *
 cli_getArgv0(void)
 {
     return cli_savedArgv0;
+}
+
+void
+cli_resetConfigOverrides(void)
+{
+    memset(&debugger.cliConfig, 0, sizeof(debugger.cliConfig));
+    debugger.cliCoreSystemOverride = 0;
+    cli_clearRestartArgs = 1;
+}
+
+int
+cli_shouldClearRestartArgs(void)
+{
+    return cli_clearRestartArgs ? 1 : 0;
 }
 
 void
@@ -233,6 +259,14 @@ cli_parseArgs(int argc, char **argv)
                 return;
             }
             cli_setNeogeoSystemType("mvs");
+            continue;
+        }
+        if (strcmp(argv[i], "--uni") == 0) {
+            if (targetSystem != target_neogeo()) {
+                cli_setError("uni: only supported for Neo Geo (use --neogeo)");
+                return;
+            }
+            cli_setNeogeoSystemType("uni");
             continue;
         }
         if (strcmp(argv[i], "--elf") == 0) {
@@ -372,7 +406,7 @@ cli_parseArgs(int argc, char **argv)
                 cli_setError("toolchain-prefix: missing value");
                 return;
             }
-            cli_copyPath(targetLibretro->toolchainPrefix, sizeof(targetLibretro->toolchainPrefix), argv[++i]);
+            strutil_strlcpy(targetLibretro->toolchainPrefix, sizeof(targetLibretro->toolchainPrefix), argv[++i]);
             continue;
         }
         if (strncmp(argv[i], "--toolchain-prefix=", sizeof("--toolchain-prefix=") - 1) == 0) {
@@ -380,9 +414,9 @@ cli_parseArgs(int argc, char **argv)
                 cli_setError("toolchain-prefix: missing value");
                 return;
             }
-            cli_copyPath(targetLibretro->toolchainPrefix,
-                         sizeof(targetLibretro->toolchainPrefix),
-                         argv[i] + sizeof("--toolchain-prefix=") - 1);
+            strutil_strlcpy(targetLibretro->toolchainPrefix,
+                            sizeof(targetLibretro->toolchainPrefix),
+                            argv[i] + sizeof("--toolchain-prefix=") - 1);
             continue;
         }
         if (strcmp(argv[i], "--audio-buffer-ms") == 0 && i + 1 < argc) {
@@ -716,6 +750,10 @@ cli_parseArgs(int argc, char **argv)
             debugger.smokeTestOpenOnFail = 1;
             continue;
         }
+        if (strcmp(argv[i], "--test-auto-open-fail") == 0) {
+            ui_test_setOpenOnFail(1);
+            continue;
+        }
         if (strcmp(argv[i], "--amiga") == 0) {
 #if E9K_ENABLE_AMIGA
             debugger.cliCoreSystemOverride = 1;
@@ -821,6 +859,7 @@ cli_printUsage(const char *argv0)
     printf("  --make-test PATH             Record inputs + UI test frame captures\n");
     printf("  --remake-test PATH           Replay events and regenerate UI test frames\n");
     printf("  --test PATH                  Replay inputs and compare UI test frames\n");
+    printf("  --test-auto-open-fail        Open montage on UI test failure\n");
     printf("  --headless                   Hide main window (useful for --smoke-test/--test)\n");
     printf("  --warp                       Start in speed multiplier mode\n");
     printf("  --fullscreen                 Start in UI fullscreen mode (ESC toggle)\n");
@@ -836,6 +875,7 @@ cli_printUsage(const char *argv0)
     printf("  --rom-folder PATH            ROM folder (generates a .neo)\n");
     printf("  --aes                        Use Neo Geo AES system type\n");
     printf("  --mvs                        Use Neo Geo MVS system type\n");
+    printf("  --uni                        Use Neo Geo Universe BIOS system type\n");
     printf("\n");
 #endif
 #if E9K_ENABLE_MEGADRIVE
@@ -876,7 +916,7 @@ cli_applyOverrides(void)
         cli_copyPath(debugger.config.amiga.libretro.sourceDir, sizeof(debugger.config.amiga.libretro.sourceDir), debugger.cliConfig.amiga.libretro.sourceDir);
     }
     if (debugger.cliConfig.amiga.libretro.toolchainPrefix[0]) {
-        cli_copyPath(debugger.config.amiga.libretro.toolchainPrefix, sizeof(debugger.config.amiga.libretro.toolchainPrefix), debugger.cliConfig.amiga.libretro.toolchainPrefix);
+        strutil_strlcpy(debugger.config.amiga.libretro.toolchainPrefix, sizeof(debugger.config.amiga.libretro.toolchainPrefix), debugger.cliConfig.amiga.libretro.toolchainPrefix);
     }
 
     if (debugger.cliConfig.neogeo.libretro.romPath[0]) {
@@ -900,13 +940,12 @@ cli_applyOverrides(void)
         cli_copyPath(debugger.config.neogeo.libretro.sourceDir, sizeof(debugger.config.neogeo.libretro.sourceDir), debugger.cliConfig.neogeo.libretro.sourceDir);
     }
     if (debugger.cliConfig.neogeo.libretro.toolchainPrefix[0]) {
-        cli_copyPath(debugger.config.neogeo.libretro.toolchainPrefix, sizeof(debugger.config.neogeo.libretro.toolchainPrefix), debugger.cliConfig.neogeo.libretro.toolchainPrefix);
+        strutil_strlcpy(debugger.config.neogeo.libretro.toolchainPrefix, sizeof(debugger.config.neogeo.libretro.toolchainPrefix), debugger.cliConfig.neogeo.libretro.toolchainPrefix);
     }
     if (debugger.cliConfig.neogeo.systemType[0]) {
-        strncpy(debugger.config.neogeo.systemType,
-                debugger.cliConfig.neogeo.systemType,
-                sizeof(debugger.config.neogeo.systemType) - 1);
-        debugger.config.neogeo.systemType[sizeof(debugger.config.neogeo.systemType) - 1] = '\0';
+        strutil_strlcpy(debugger.config.neogeo.systemType,
+                        sizeof(debugger.config.neogeo.systemType),
+                        debugger.cliConfig.neogeo.systemType);
     }
     if (debugger.cliConfig.neogeo.libretro.audioBufferMs > 0) {
         debugger.config.neogeo.libretro.audioBufferMs = debugger.cliConfig.neogeo.libretro.audioBufferMs;
@@ -928,7 +967,7 @@ cli_applyOverrides(void)
         cli_copyPath(debugger.config.megadrive.libretro.sourceDir, sizeof(debugger.config.megadrive.libretro.sourceDir), debugger.cliConfig.megadrive.libretro.sourceDir);
     }
     if (debugger.cliConfig.megadrive.libretro.toolchainPrefix[0]) {
-        cli_copyPath(debugger.config.megadrive.libretro.toolchainPrefix, sizeof(debugger.config.megadrive.libretro.toolchainPrefix), debugger.cliConfig.megadrive.libretro.toolchainPrefix);
+        strutil_strlcpy(debugger.config.megadrive.libretro.toolchainPrefix, sizeof(debugger.config.megadrive.libretro.toolchainPrefix), debugger.cliConfig.megadrive.libretro.toolchainPrefix);
     }
     if (debugger.cliConfig.megadrive.libretro.audioBufferMs > 0) {
         debugger.config.megadrive.libretro.audioBufferMs = debugger.cliConfig.megadrive.libretro.audioBufferMs;

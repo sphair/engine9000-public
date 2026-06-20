@@ -14,57 +14,152 @@
 
 #include "profile_list.h"
 #include "analyse.h"
-#include "breakpoints.h"
-#include "libretro_host.h"
-#include "debugger.h"
 #include "e9ui.h"
-
-typedef enum profile_hotspot_role {
-    PROFILE_HOTSPOT_ROLE_LINK = 1,
-} profile_hotspot_role_t;
-
-typedef struct profile_hotspot_meta {
-    profile_hotspot_role_t role;
-} profile_hotspot_meta_t;
+#include "strutil.h"
+#include "ui.h"
 
 typedef struct {
     unsigned int pc;
     unsigned long long samples;
-    char sampleText[32];
+    unsigned long long cycles;
+    unsigned long long total;
+    char sampleText[80];
     char locationText[ANALYSE_LOCATION_TEXT_CAP];
+    char sourceText[ANALYSE_SOURCE_TEXT_CAP];
+    char file[PATH_MAX];
+    int line;
+    TTF_Font *measureFont;
+    int sampleTextWidth;
+    int sampleTextHeight;
+    int locationTextWidth;
+    int locationTextHeight;
+    int sourceTextWidth;
+    int sourceTextHeight;
     SDL_Rect locationRect;
+    SDL_Rect sourceRect;
     SDL_Rect sampleRect;
+    SDL_Renderer *textureRenderer;
+    TTF_Font *textureFont;
+    SDL_Texture *sampleTexture;
+    SDL_Texture *locationTexture;
+    SDL_Texture *sourceTexture;
 } profile_hotspot_state_t;
 
 static int  profile_hotspot_preferredHeight(e9ui_component_t *self, e9ui_context_t *ctx, int availW);
 static void profile_hotspot_layout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_rect_t bounds);
 static void profile_hotspot_render(e9ui_component_t *self, e9ui_context_t *ctx);
 static void profile_hotspot_dtor(e9ui_component_t *self, e9ui_context_t *ctx);
+static void profile_hotspot_onClick(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_mouse_event_t *mouse_ev);
 static void profile_hotspot_linkClicked(e9ui_context_t *ctx, void *user);
-static int  profile_hotspot_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event_t *ev);
+static void profile_hotspot_renderBar(e9ui_component_t *self, e9ui_context_t *ctx, const profile_hotspot_state_t *st);
 
-static e9ui_component_t*
-profile_hotspot_find_link(e9ui_component_t *self)
+static void
+profile_hotspot_destroyTextures(profile_hotspot_state_t *st)
 {
-    e9ui_child_iterator it;
-    e9ui_child_iterator *p = e9ui_child_iterateChildren(self, &it);
-    while (e9ui_child_interateNext(p)) {
-        profile_hotspot_meta_t *meta = (profile_hotspot_meta_t*)p->meta;
-        if (meta && meta->role == PROFILE_HOTSPOT_ROLE_LINK) {
-            return p->child;
-        }
+    if (!st) {
+        return;
     }
-    return NULL;
+    if (st->sampleTexture) {
+        SDL_DestroyTexture(st->sampleTexture);
+        st->sampleTexture = NULL;
+    }
+    if (st->locationTexture) {
+        SDL_DestroyTexture(st->locationTexture);
+        st->locationTexture = NULL;
+    }
+    if (st->sourceTexture) {
+        SDL_DestroyTexture(st->sourceTexture);
+        st->sourceTexture = NULL;
+    }
+    st->textureRenderer = NULL;
+    st->textureFont = NULL;
+}
+
+static SDL_Texture *
+profile_hotspot_createTexture(SDL_Renderer *renderer,
+                              TTF_Font *font,
+                              const char *text,
+                              SDL_Color color,
+                              int *outWidth,
+                              int *outHeight)
+{
+    if (outWidth) {
+        *outWidth = 0;
+    }
+    if (outHeight) {
+        *outHeight = 0;
+    }
+    if (!renderer || !font || !text || !*text) {
+        return NULL;
+    }
+    SDL_Surface *surface = TTF_RenderUTF8_Blended(font, text, color);
+    if (!surface) {
+        return NULL;
+    }
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (outWidth) {
+        *outWidth = surface->w;
+    }
+    if (outHeight) {
+        *outHeight = surface->h;
+    }
+    SDL_FreeSurface(surface);
+    return texture;
+}
+
+static void
+profile_hotspot_updateTextures(profile_hotspot_state_t *st, SDL_Renderer *renderer, TTF_Font *font)
+{
+    if (!st || !renderer || !font) {
+        return;
+    }
+    if (st->textureRenderer == renderer && st->textureFont == font) {
+        return;
+    }
+    profile_hotspot_destroyTextures(st);
+    st->textureRenderer = renderer;
+    st->textureFont = font;
+    st->measureFont = font;
+    st->sampleTextHeight = TTF_FontHeight(font);
+    if (st->sampleTextHeight <= 0) {
+        st->sampleTextHeight = 16;
+    }
+    st->locationTextHeight = st->sampleTextHeight;
+    st->sourceTextHeight = st->sampleTextHeight;
+    SDL_Color primary = { 230, 230, 230, 255 };
+    SDL_Color location = { 170, 190, 230, 255 };
+    SDL_Color secondary = { 165, 165, 170, 255 };
+    st->sampleTexture = profile_hotspot_createTexture(renderer,
+                                                      font,
+                                                      st->sampleText,
+                                                      primary,
+                                                      &st->sampleTextWidth,
+                                                      &st->sampleTextHeight);
+    st->locationTexture = profile_hotspot_createTexture(renderer,
+                                                        font,
+                                                        st->locationText,
+                                                        location,
+                                                        &st->locationTextWidth,
+                                                        &st->locationTextHeight);
+    st->sourceTexture = profile_hotspot_createTexture(renderer,
+                                                      font,
+                                                      st->sourceText,
+                                                      secondary,
+                                                      &st->sourceTextWidth,
+                                                      &st->sourceTextHeight);
 }
 
 static int
 profile_hotspot_preferredHeight(e9ui_component_t *self, e9ui_context_t *ctx, int availW)
 {
-    (void)self;
     (void)availW;
 
     TTF_Font *font = e9ui->theme.text.source ? e9ui->theme.text.source : (ctx ? ctx->font : NULL);
-    int lh = font ? TTF_FontHeight(font) : 16;
+    profile_hotspot_state_t *st = self ? (profile_hotspot_state_t*)self->state : NULL;
+    if (font && st && ctx && ctx->renderer) {
+        profile_hotspot_updateTextures(st, ctx->renderer, font);
+    }
+    int lh = st && st->sampleTextHeight > 0 ? st->sampleTextHeight : (font ? TTF_FontHeight(font) : 16);
     if (lh <= 0) lh = 16;
 
     int padY = e9ui_scale_px(ctx, PROFILE_LIST_PADDING_Y);
@@ -80,43 +175,45 @@ profile_hotspot_layout(e9ui_component_t *self, e9ui_context_t *ctx, e9ui_rect_t 
     if (!st) return;
 
     TTF_Font *font = e9ui->theme.text.source ? e9ui->theme.text.source : (ctx ? ctx->font : NULL);
+    if (font && ctx && ctx->renderer) {
+        profile_hotspot_updateTextures(st, ctx->renderer, font);
+    }
 
     int padX = e9ui_scale_px(ctx, PROFILE_LIST_PADDING_X);
     int padY = e9ui_scale_px(ctx, PROFILE_LIST_PADDING_Y);
     int margin = e9ui_scale_px(ctx, 8);
 
-    int sampleWidth = 0;
-    int sampleHeight = font ? TTF_FontHeight(font) : 16;
+    int sampleWidth = st->sampleTextWidth;
+    int sampleHeight = st->sampleTextHeight;
     if (sampleHeight <= 0) sampleHeight = 16;
 
-    if (font && st->sampleText[0]) {
-        TTF_SizeUTF8(font, st->sampleText, &sampleWidth, NULL);
-    }
-
-    int locW = 0;
-    int locH = sampleHeight;
-    if (font && st->locationText[0]) {
-        TTF_SizeUTF8(font, st->locationText, &locW, &locH);
-    }
+    int locW = st->locationTextWidth;
+    int locH = st->locationTextHeight > 0 ? st->locationTextHeight : sampleHeight;
 
     int locationX = bounds.x + padX;
     int textY = bounds.y + padY;
 
     int sampleX = bounds.x + bounds.w - padX - sampleWidth;
-    int minSampleX = locationX + locW + margin;
+    int inlineTextWidth = locW;
+    if (st->sourceText[0]) {
+        inlineTextWidth += margin + st->sourceTextWidth;
+    }
+    int minSampleX = locationX + inlineTextWidth + margin;
     if (sampleX < minSampleX) sampleX = minSampleX;
 
     int maxSampleX = bounds.x + bounds.w - padX - sampleWidth;
     if (sampleX > maxSampleX) sampleX = maxSampleX;
 
+    int sourceX = locationX + locW + margin;
+    int sourceW = sampleX - sourceX - margin;
+    if (sourceW < 0) {
+        sourceW = 0;
+    }
+
     st->locationRect = (SDL_Rect){ locationX, textY, locW, locH };
+    st->sourceRect = (SDL_Rect){ sourceX, textY, sourceW, locH };
     st->sampleRect   = (SDL_Rect){ sampleX,   textY, sampleWidth, sampleHeight };
 
-    e9ui_component_t *link = profile_hotspot_find_link(self);
-    if (link && st->locationRect.w > 0 && st->locationRect.h > 0 && link->layout) {
-        e9ui_rect_t linkBounds = { st->locationRect.x, st->locationRect.y, st->locationRect.w, st->locationRect.h };
-        link->layout(link, ctx, linkBounds);
-    }
 }
 
 static void
@@ -132,31 +229,84 @@ profile_hotspot_render(e9ui_component_t *self, e9ui_context_t *ctx)
     SDL_Rect bg = { self->bounds.x, self->bounds.y, self->bounds.w, self->bounds.h };
     SDL_SetRenderDrawColor(ctx->renderer, 18, 18, 24, 255);
     SDL_RenderFillRect(ctx->renderer, &bg);
+    profile_hotspot_renderBar(self, ctx, st);
 
-    SDL_Color primary = { 230, 230, 230, 255 };
+    profile_hotspot_updateTextures(st, ctx->renderer, font);
 
-    int tw = 0, th = 0;
-    SDL_Texture *samplesTex = e9ui_text_cache_getUTF8(ctx->renderer, font, st->sampleText, primary, &tw, &th);
-    if (samplesTex) {
-        SDL_Rect samplesRect = { st->sampleRect.x, st->sampleRect.y, tw, th };
-        SDL_RenderCopy(ctx->renderer, samplesTex, NULL, &samplesRect);
+    if (st->locationTexture) {
+        int visibleW = st->locationTextWidth;
+        int maxW = st->sampleRect.x - st->locationRect.x - e9ui_scale_px(ctx, 8);
+        if (visibleW > maxW) {
+            visibleW = maxW;
+        }
+        if (visibleW > 0) {
+            SDL_Rect src = { 0, 0, visibleW, st->locationTextHeight };
+            SDL_Rect dst = { st->locationRect.x, st->locationRect.y, visibleW, st->locationTextHeight };
+            SDL_RenderCopy(ctx->renderer, st->locationTexture, &src, &dst);
+        }
     }
 
-    e9ui_component_t *link = profile_hotspot_find_link(self);
-    if (link && st->locationRect.w > 0 && st->locationRect.h > 0 && link->render) {
-        link->render(link, ctx);
+    if (st->sourceTexture && st->sourceRect.w > 0 && st->sourceRect.h > 0) {
+        int visibleW = st->sourceTextWidth;
+        if (visibleW > st->sourceRect.w) {
+            visibleW = st->sourceRect.w;
+        }
+        SDL_Rect src = { 0, 0, visibleW, st->sourceTextHeight };
+        SDL_Rect dst = { st->sourceRect.x, st->sourceRect.y, visibleW, st->sourceTextHeight };
+        SDL_RenderCopy(ctx->renderer, st->sourceTexture, &src, &dst);
+    }
+
+    if (st->sampleTexture) {
+        SDL_Rect samplesRect = { st->sampleRect.x, st->sampleRect.y, st->sampleTextWidth, st->sampleTextHeight };
+        SDL_RenderCopy(ctx->renderer, st->sampleTexture, NULL, &samplesRect);
     }
 }
 
-static int
-profile_hotspot_handleEvent(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_event_t *ev)
+static void
+profile_hotspot_renderBar(e9ui_component_t *self, e9ui_context_t *ctx, const profile_hotspot_state_t *st)
 {
-    if (!self || !self->state || !ev) return 0;
+    unsigned long long value;
+    int barWidth;
 
-    e9ui_component_t *link = profile_hotspot_find_link(self);
-    if (!link || !link->handleEvent) return 0;
+    if (!self || !ctx || !ctx->renderer || !st || st->total == 0) {
+        return;
+    }
 
-    return link->handleEvent(link, ctx, ev);
+    value = profile_list_showSamples() ? st->samples : st->cycles;
+    if (value == 0) {
+        return;
+    }
+
+    if (value >= st->total) {
+        barWidth = self->bounds.w;
+    } else {
+        long double fraction = (long double)value / (long double)st->total;
+        barWidth = (int)(fraction * (long double)self->bounds.w);
+        if (barWidth < 1) {
+            barWidth = 1;
+        }
+        if (barWidth > self->bounds.w) {
+            barWidth = self->bounds.w;
+        }
+    }
+
+    SDL_Rect bar = { self->bounds.x, self->bounds.y, barWidth, self->bounds.h };
+    SDL_BlendMode prevBlend = SDL_BLENDMODE_NONE;
+    SDL_GetRenderDrawBlendMode(ctx->renderer, &prevBlend);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(ctx->renderer, 52, 132, 190, 70);
+    SDL_RenderFillRect(ctx->renderer, &bar);
+    SDL_SetRenderDrawBlendMode(ctx->renderer, prevBlend);
+}
+
+static void
+profile_hotspot_onClick(e9ui_component_t *self, e9ui_context_t *ctx, const e9ui_mouse_event_t *mouse_ev)
+{
+    (void)mouse_ev;
+    if (!self || !self->state) {
+        return;
+    }
+    profile_hotspot_linkClicked(ctx, self->state);
 }
 
 static void
@@ -166,22 +316,7 @@ profile_hotspot_linkClicked(e9ui_context_t *ctx, void *user)
     profile_hotspot_state_t *st = (profile_hotspot_state_t*)user;
     if (!st) return;
 
-    uint32_t addr = (uint32_t)st->pc & 0x00ffffffu;
-    machine_breakpoint_t *bp = machine_findBreakpointByAddr(&debugger.machine, addr);
-    if (bp) {
-        if (!bp->enabled) {
-            bp->enabled = 1;
-            libretro_host_debugAddBreakpoint(addr);
-        }
-        breakpoints_resolveLocation(bp);
-    } else {
-        bp = machine_addBreakpoint(&debugger.machine, addr, 1);
-        if (bp) {
-            libretro_host_debugAddBreakpoint(addr);
-            breakpoints_resolveLocation(bp);
-        }
-    }
-    breakpoints_markDirty();
+    ui_openSourceLocation(st->file, st->line, (uint32_t)st->pc & 0x00ffffffu);
 }
 
 static void
@@ -189,11 +324,20 @@ profile_hotspot_dtor(e9ui_component_t *self, e9ui_context_t *ctx)
 {
     (void)ctx;
     if (!self) return;
-    profile_list_freeChildMeta(self);
+    profile_hotspot_state_t *st = (profile_hotspot_state_t*)self->state;
+    profile_hotspot_destroyTextures(st);
 }
 
 e9ui_component_t *
-profile_hotspot_make(unsigned int pc, unsigned long long samples, const char *location)
+profile_hotspot_make(unsigned int pc,
+                     unsigned long long samples,
+                     unsigned long long cycles,
+                     unsigned long long total,
+                     int showSamples,
+                     const char *location,
+                     const char *source,
+                     const char *file,
+                     int line)
 {
     e9ui_component_t *comp = (e9ui_component_t*)alloc_calloc(1, sizeof(*comp));
     if (!comp) return NULL;
@@ -206,29 +350,26 @@ profile_hotspot_make(unsigned int pc, unsigned long long samples, const char *lo
 
     st->pc = pc;
     st->samples = samples;
+    st->cycles = cycles;
+    st->total = total;
 
-    snprintf(st->sampleText, sizeof(st->sampleText), "%llu", samples);
+    if (showSamples) {
+        snprintf(st->sampleText, sizeof(st->sampleText), "%llu samples", samples);
+    } else {
+        snprintf(st->sampleText, sizeof(st->sampleText), "%llu cycles", cycles);
+    }
 
     if (location && *location) {
-        snprintf(st->locationText, sizeof(st->locationText), "%s", location);
+        strutil_strlcpy(st->locationText, sizeof(st->locationText), location);
     } else {
         snprintf(st->locationText, sizeof(st->locationText), "PC: 0x%08X", pc);
     }
-
-    // Create link as a child component; we do NOT keep a cached pointer in state.
-    e9ui_component_t *link = e9ui_link_make(st->locationText, profile_hotspot_linkClicked, st);
-    if (link) {
-        e9ui_setDisableVariable(link, machine_getRunningState(debugger.machine), 1);
-
-        profile_hotspot_meta_t *meta = (profile_hotspot_meta_t*)alloc_alloc(sizeof(*meta));
-        if (meta) {
-            meta->role = PROFILE_HOTSPOT_ROLE_LINK;
-            e9ui_child_add(comp, link, meta);
-        } else {
-            // If meta allocation fails, we still attach link without meta so it is owned & destroyed.
-            // (We won't be able to find it via role though; could alternatively free link here.)
-            e9ui_child_add(comp, link, 0);
-        }
+    if (source && *source) {
+        strutil_strlcpy(st->sourceText, sizeof(st->sourceText), source);
+    }
+    if (file && *file) {
+        strutil_strlcpy(st->file, sizeof(st->file), file);
+        st->line = line;
     }
 
     comp->name = "profile_hotspot";
@@ -236,7 +377,7 @@ profile_hotspot_make(unsigned int pc, unsigned long long samples, const char *lo
     comp->preferredHeight = profile_hotspot_preferredHeight;
     comp->layout = profile_hotspot_layout;
     comp->render = profile_hotspot_render;
-    comp->handleEvent = profile_hotspot_handleEvent;
+    comp->onClick = profile_hotspot_onClick;
     comp->dtor = profile_hotspot_dtor;
 
     return comp;

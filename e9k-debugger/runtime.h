@@ -13,8 +13,14 @@
 void
 runtime_executeFrame(debugger_run_mode_t mode, int restoreFrame);
 
+int
+runtime_refreshCurrentFrameFromPrevious(void);
+
 void
 runtime_onVblank(void *user);
+
+void
+runtime_resetFrameTiming(void);
 
 void
 runtime_runLoop(void);

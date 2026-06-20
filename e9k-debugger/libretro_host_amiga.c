@@ -346,6 +346,39 @@ libretro_host_amiga_getSpriteVis(int *outEnabled)
     return true;
 }
 
+bool
+libretro_host_amiga_setStatusbar(int enabled)
+{
+    if (!libretro_host.debugAmigaSetStatusbar) {
+        libretro_host.debugAmigaSetStatusbar = (e9k_debug_amiga_set_statusbar_fn_t)
+            libretro_host_loadSymbol("e9k_debug_amiga_set_statusbar");
+    }
+    if (!libretro_host.debugAmigaSetStatusbar) {
+        return false;
+    }
+    libretro_host.debugAmigaSetStatusbar(enabled ? 1 : 0);
+    return true;
+}
+
+bool
+libretro_host_amiga_getStatusbar(int *outEnabled)
+{
+    if (outEnabled) {
+        *outEnabled = 0;
+    }
+    if (!libretro_host.debugAmigaGetStatusbar) {
+        libretro_host.debugAmigaGetStatusbar = (e9k_debug_amiga_get_statusbar_fn_t)
+            libretro_host_loadSymbol("e9k_debug_amiga_get_statusbar");
+    }
+    if (!libretro_host.debugAmigaGetStatusbar) {
+        return false;
+    }
+    if (outEnabled) {
+        *outEnabled = libretro_host.debugAmigaGetStatusbar() ? 1 : 0;
+    }
+    return true;
+}
+
 size_t
 libretro_host_amiga_readSpriteVisPoints(e9k_debug_ami_sprite_vis_point_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight)
 {
@@ -405,6 +438,29 @@ libretro_host_amiga_getVideoLineCount(int *outLineCount)
         return false;
     }
     int lineCount = libretro_host.debugAmigaGetVideoLineCount();
+    if (lineCount <= 0) {
+        return false;
+    }
+    if (outLineCount) {
+        *outLineCount = lineCount;
+    }
+    return true;
+}
+
+bool
+libretro_host_amiga_getRasterLineCount(int *outLineCount)
+{
+    if (outLineCount) {
+        *outLineCount = 0;
+    }
+    if (!libretro_host.debugAmigaGetRasterLineCount) {
+        libretro_host.debugAmigaGetRasterLineCount = (e9k_debug_amiga_get_raster_line_count_fn_t)
+            libretro_host_loadSymbol("e9k_debug_amiga_get_raster_line_count");
+    }
+    if (!libretro_host.debugAmigaGetRasterLineCount) {
+        return false;
+    }
+    int lineCount = libretro_host.debugAmigaGetRasterLineCount();
     if (lineCount <= 0) {
         return false;
     }

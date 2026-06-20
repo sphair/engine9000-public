@@ -16,11 +16,13 @@
 #include "emu_mega.h"
 #include "e9ui.h"
 #include "libretro.h"
+#include "libretro_host.h"
 #include "mega_audio_vis.h"
 #include "mega_vdp.h"
 #include "mega_memview.h"
 #include "mega_palette_debug.h"
 #include "mega_sprite_debug.h"
+#include "profile_checkpoints.h"
 #include "target.h"
 
 typedef struct
@@ -627,8 +629,18 @@ emu_mega_createOverlays(e9ui_component_t *comp, e9ui_component_t *button_stack)
 }
 
 static void
-emu_mega_render(e9ui_context_t *ctx, SDL_Rect *dst)
+emu_mega_render(e9ui_context_t *ctx, SDL_Rect *dst, const SDL_Rect *clipRect)
 {
+    int scanlineCount = 0;
+    if (libretro_host_megadrive_getRasterLineCount(&scanlineCount) && scanlineCount > 0) {
+        profile_checkpoints_renderScanlineOverlay(ctx,
+                                                  dst,
+                                                  clipRect,
+                                                  (uint64_t)scanlineCount,
+                                                  0,
+                                                  (uint64_t)scanlineCount);
+    }
+
     if (emu_mega_histogramMode != emu_mega_histogramModeOff && emu_mega_spriteShadowReady) {
         emu_mega_renderHistogram(ctx->renderer, dst, &emu_mega_spriteShadow);
     }

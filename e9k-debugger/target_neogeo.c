@@ -30,6 +30,7 @@
 typedef struct target_neogeo_systemtype_state {
     e9ui_component_t *aesCheckbox;
     e9ui_component_t *mvsCheckbox;
+    e9ui_component_t *uniCheckbox;
     char *systemType;
     int updating;
 } target_neogeo_systemtype_state_t;
@@ -136,11 +137,15 @@ target_neogeo_systemTypeSync(target_neogeo_systemtype_state_t *st, const char *v
     settings_config_setValue(st->systemType, 16, value);
     int aesSelected = (strcmp(st->systemType, "aes") == 0);
     int mvsSelected = (strcmp(st->systemType, "mvs") == 0);
+    int uniSelected = (strcmp(st->systemType, "uni") == 0);
     if (st->aesCheckbox) {
         e9ui_checkbox_setSelected(st->aesCheckbox, aesSelected, ctx);
     }
     if (st->mvsCheckbox) {
         e9ui_checkbox_setSelected(st->mvsCheckbox, mvsSelected, ctx);
+    }
+    if (st->uniCheckbox) {
+        e9ui_checkbox_setSelected(st->uniCheckbox, uniSelected, ctx);
     }
     st->updating = 0;
     settings_updateSaveLabel();
@@ -158,6 +163,8 @@ target_neogeo_systemTypeAesChanged(e9ui_component_t *self, e9ui_context_t *ctx, 
         target_neogeo_systemTypeSync(st, "aes", ctx);
     } else if (st->mvsCheckbox && e9ui_checkbox_isSelected(st->mvsCheckbox)) {
         target_neogeo_systemTypeSync(st, "mvs", ctx);
+    } else if (st->uniCheckbox && e9ui_checkbox_isSelected(st->uniCheckbox)) {
+        target_neogeo_systemTypeSync(st, "uni", ctx);
     } else {
         target_neogeo_systemTypeSync(st, "", ctx);
     }
@@ -172,6 +179,27 @@ target_neogeo_systemTypeMvsChanged(e9ui_component_t *self, e9ui_context_t *ctx, 
         return;
     }
     if (selected) {
+        target_neogeo_systemTypeSync(st, "mvs", ctx);
+    } else if (st->aesCheckbox && e9ui_checkbox_isSelected(st->aesCheckbox)) {
+        target_neogeo_systemTypeSync(st, "aes", ctx);
+    } else if (st->uniCheckbox && e9ui_checkbox_isSelected(st->uniCheckbox)) {
+        target_neogeo_systemTypeSync(st, "uni", ctx);
+    } else {
+        target_neogeo_systemTypeSync(st, "", ctx);
+    }
+}
+
+static void
+target_neogeo_systemTypeUniChanged(e9ui_component_t *self, e9ui_context_t *ctx, int selected, void *user)
+{
+    (void)self;
+    target_neogeo_systemtype_state_t *st = (target_neogeo_systemtype_state_t *)user;
+    if (!st || st->updating) {
+        return;
+    }
+    if (selected) {
+        target_neogeo_systemTypeSync(st, "uni", ctx);
+    } else if (st->mvsCheckbox && e9ui_checkbox_isSelected(st->mvsCheckbox)) {
         target_neogeo_systemTypeSync(st, "mvs", ctx);
     } else if (st->aesCheckbox && e9ui_checkbox_isSelected(st->aesCheckbox)) {
         target_neogeo_systemTypeSync(st, "aes", ctx);
@@ -284,7 +312,7 @@ target_neogeo_settingsBuildModal(e9ui_context_t *ctx, target_settings_modal_t *o
         settings_romSelectRefreshRecents(romState);
     }
 
-    // System row: [MVS] [AES] [SKIP BIOS LOGO]
+    // System row: [MVS] [AES] [UNIBIOS] [SKIP BIOS LOGO]
     e9ui_component_t *rowSystem = e9ui_flow_make();
     if (rowSystem) {
         e9ui_flow_setWrap(rowSystem, 0);
@@ -295,8 +323,10 @@ target_neogeo_settingsBuildModal(e9ui_context_t *ctx, target_settings_modal_t *o
         }
         int aesSelected = (strcmp(debugger.settingsEdit.neogeo.systemType, "aes") == 0);
         int mvsSelected = (strcmp(debugger.settingsEdit.neogeo.systemType, "mvs") == 0);
+        int uniSelected = (strcmp(debugger.settingsEdit.neogeo.systemType, "uni") == 0);
         e9ui_component_t *cbMvs = e9ui_checkbox_make("MVS", mvsSelected, target_neogeo_systemTypeMvsChanged, sys);
         e9ui_component_t *cbAes = e9ui_checkbox_make("AES", aesSelected, target_neogeo_systemTypeAesChanged, sys);
+        e9ui_component_t *cbUni = e9ui_checkbox_make("UNIBIOS", uniSelected, target_neogeo_systemTypeUniChanged, sys);
         e9ui_component_t *cbSkip = e9ui_checkbox_make("SKIP BIOS LOGO",
                                                       debugger.settingsEdit.neogeo.skipBiosLogo,
                                                       target_neogeo_skipBiosChanged,
@@ -304,12 +334,16 @@ target_neogeo_settingsBuildModal(e9ui_context_t *ctx, target_settings_modal_t *o
         if (sys) {
             sys->aesCheckbox = cbAes;
             sys->mvsCheckbox = cbMvs;
+            sys->uniCheckbox = cbUni;
         }
         if (cbMvs) {
             e9ui_flow_add(rowSystem, cbMvs);
         }
         if (cbAes) {
             e9ui_flow_add(rowSystem, cbAes);
+        }
+        if (cbUni) {
+            e9ui_flow_add(rowSystem, cbUni);
         }
         if (cbSkip) {
             e9ui_flow_add(rowSystem, cbSkip);

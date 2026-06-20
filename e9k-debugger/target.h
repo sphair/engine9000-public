@@ -123,6 +123,7 @@ typedef struct target_iface
     const struct retro_core_option_v2_definition *(*coreOptionsSyntheticDefAt)(size_t index);
     size_t (*coreOptionsMapDebuggerInputSpecIndex)(size_t specIndex);
     const char *(*coreOptionsDebuggerInputLabel)(const char *optionKey, const char *defaultLabel);
+    void (*formatStatusBar)(char *out, size_t cap);
 } target_iface_t;
 
 void

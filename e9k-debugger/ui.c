@@ -203,6 +203,10 @@ ui_prepareMainWindow(e9ui_context_t *ctx,
     (void)ctx;
     (void)startHidden;
 #ifdef _WIN32
+    (void)wantX;
+    (void)wantY;
+    (void)wantW;
+    (void)wantH;
     ui_windowsDefaultUsableBounds = (SDL_Rect){0, 0, 0, 0};
     ui_windowsApplyDefaultUsableBounds = 0;
 #endif
@@ -767,6 +771,40 @@ ui_centerSourceOnAddress(uint32_t addr)
         source_pane_setMode(pane, source_pane_mode_a);
     }
     source_pane_submitAddress(pane, &e9ui->ctx, addr);
+    e9ui_setFocus(&e9ui->ctx, pane);
+}
+
+void
+ui_openSourceLocation(const char *file, int line, uint32_t fallbackAddr)
+{
+    if (!file || !*file || line <= 0) {
+        ui_centerSourceOnAddress(fallbackAddr);
+        return;
+    }
+
+    e9ui_component_t *pane = NULL;
+    for (size_t i = 0; i < sizeof(ui_source_panes) / sizeof(ui_source_panes[0]); ++i) {
+        if (ui_source_panes[i] && source_pane_getMode(ui_source_panes[i]) == source_pane_mode_c) {
+            pane = ui_source_panes[i];
+            break;
+        }
+    }
+    if (!pane) {
+        for (size_t i = 0; i < sizeof(ui_source_panes) / sizeof(ui_source_panes[0]); ++i) {
+            if (ui_source_panes[i] && source_pane_getMode(ui_source_panes[i]) != source_pane_mode_cpr) {
+                pane = ui_source_panes[i];
+                break;
+            }
+        }
+    }
+    if (!pane) {
+        pane = ui_source_panes[0] ? ui_source_panes[0] : ui_source_panes[1];
+    }
+    if (!pane) {
+        return;
+    }
+
+    source_pane_openSourceLocation(pane, &e9ui->ctx, file, line);
     e9ui_setFocus(&e9ui->ctx, pane);
 }
 
@@ -1549,6 +1587,17 @@ ui_build(void)
     profile_buttonRefresh();
     e9ui_setHiddenVariable(btn_profile, &debugger.elfValid, 0);
     e9ui_flow_add(comp_profile_toolbar, btn_profile);
+
+    e9ui_component_t *btn_profile_reset = e9ui_button_make("Reset", profile_uiReset, NULL);
+    e9ui_button_setMini(btn_profile_reset, 1);
+    e9ui_button_setTheme(btn_profile_reset, e9ui_theme_button_preset_red());
+    e9ui_flow_add(comp_profile_toolbar, btn_profile_reset);
+
+    e9ui_component_t *btn_profile_metric = e9ui_button_make("Cycles", profile_uiMetricToggle, NULL);
+    e9ui_button_setMini(btn_profile_metric, 1);
+    e9ui_button_setLargestLabel(btn_profile_metric, "Samples");
+    profile_metricButtonRegister(btn_profile_metric);
+    e9ui_flow_add(comp_profile_toolbar, btn_profile_metric);
 
     e9ui_component_t *btn_analyse = e9ui_button_make("Analyse", profile_uiAnalyse, NULL);
     e9ui_button_setMini(btn_analyse, 1);

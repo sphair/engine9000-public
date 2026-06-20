@@ -17,6 +17,12 @@ cli_getArgv0(void);
 void
 cli_parseArgs(int argc, char **argv);
 
+void
+cli_resetConfigOverrides(void);
+
+int
+cli_shouldClearRestartArgs(void);
+
 int
 cli_helpRequested(void);
 

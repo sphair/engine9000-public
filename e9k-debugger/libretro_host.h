@@ -221,6 +221,12 @@ libretro_host_debugReadCheckpoints(e9k_debug_checkpoint_t *out, size_t cap);
 bool
 libretro_host_debugResetCheckpoints(void);
 
+size_t
+libretro_host_debugReadCounters(e9k_debug_counter_t *out, size_t cap);
+
+bool
+libretro_host_debugResetCounters(void);
+
 uint64_t
 libretro_host_debugReadCycleCount(void);
 
@@ -325,6 +331,9 @@ bool
 libretro_host_amiga_getVideoLineCount(int *outLineCount);
 
 bool
+libretro_host_amiga_getRasterLineCount(int *outLineCount);
+
+bool
 libretro_host_amiga_videoLineToCoreLine(int videoLine, int *outCoreLine);
 
 bool
@@ -399,6 +408,12 @@ libretro_host_amiga_setSpriteVis(int enabled);
 bool
 libretro_host_amiga_getSpriteVis(int *outEnabled);
 
+bool
+libretro_host_amiga_setStatusbar(int enabled);
+
+bool
+libretro_host_amiga_getStatusbar(int *outEnabled);
+
 size_t
 libretro_host_amiga_readSpriteVisPoints(e9k_debug_ami_sprite_vis_point_t *out, size_t cap, uint32_t *outWidth, uint32_t *outHeight);
 
@@ -426,6 +441,18 @@ libretro_host_neogeo_getRoms(e9k_debug_rom_entry_t *out, size_t cap);
 
 bool
 libretro_host_neogeo_getAudioFrame(e9k_debug_audio_frame_t *out);
+
+bool
+libretro_host_neogeo_setSpriteGrayscaleSelection(const e9k_debug_sprite_grayscale_selection_t *selection);
+
+bool
+libretro_host_neogeo_setPaletteGrayscaleMask(const e9k_debug_palette_grayscale_mask_t *mask);
+
+bool
+libretro_host_neogeo_getPaletteGrayscaleMask(e9k_debug_palette_grayscale_mask_t *outMask);
+
+bool
+libretro_host_neogeo_setFixLayerMode(e9k_debug_geo_fix_layer_mode_t mode);
 
 bool
 libretro_host_neogeo_setAudioVisEnabled(int enabled);
@@ -460,6 +487,9 @@ libretro_host_megadrive_getAudioFrame(e9k_debug_mega_audio_frame_t *out);
 
 bool
 libretro_host_megadrive_getVdpBandwidthFrame(e9k_debug_mega_vdp_bandwidth_frame_t *out);
+
+bool
+libretro_host_megadrive_getRasterLineCount(int *outLineCount);
 
 bool
 libretro_host_megadrive_setAudioVisEnabled(int enabled);
